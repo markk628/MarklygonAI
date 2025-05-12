@@ -43,5 +43,16 @@
 
 **새로운 로컬 브랜치를 원격 저장소에 처음 푸시할 때:**
 
+### 로컬 브랜치에서 현재 변경 사항 되돌리기
+모든 변경 사항을 삭제합니다. 커밋 포함.
+* git reset --hard HEAD
+커밋 되돌리기
+* git reset --soft HEAD^<커밋 수>
+
+### 원격 브랜치에서 커밋 되돌리기
+브랜치를 되돌릴 커밋의 해시를 복사하세요.
+1. git reset --hard <커밋 해시>
+2. git push --force origin <브랜치 이름>
+
 ```bash
 git push -u origin <새로운-브랜치-이름>

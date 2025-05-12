@@ -43,5 +43,16 @@ This command uploads your local commits to a remote repository (like GitHub).
 
 **First-time push of a new local branch to a remote:**
 
+### Undo Current Changes On Local Branch
+Discard all changes. Even commits
+* git reset --hard HEAD
+Undo commits
+* git reset --soft HEAD^<commit count>
+
+### Undo A Commit On Origin Branch
+Copy the commit hash of the commit you want to revert the branch to
+git reset --hard <commit-hash>
+git push --force origin <branch-name>
+
 ```bash
 git push -u origin <your-new-branch-name>
