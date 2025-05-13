@@ -1,6 +1,5 @@
+__pycache__/
 /ta_lib-0.6.3-cp310-cp310-win_amd64.whl
-/data/polygon/apikey.py
-/data/polygon/__pycache__
-/data/data
-/marklygon_modules/marklygon_modules.egg-info
-/marklygon_modules/__pycache__
+/data
+/src/config/apikeys.py
+/logs/
