@@ -10,16 +10,16 @@ from psycopg2.sql import Identifier, Literal, SQL
 from typing import List, Optional
 
 from src.utils.logger import Logger
-from src.config.config import DATA_DIR, TICKERS
+from src.config.config import DATA_DIR, TICKERS, DATABASE_HOST, DATABASE_PORT, DATABASE_DATABASE, DATABASE_USER, DATABASE_PASSWORD
 
 class DatabaseManager:
     def __init__(
         self,
-        host: str = '192.168.40.180',
-        port: int = 5432,
-        database: str = 'marklygon',
-        user: str = 'postgres',
-        password: str = 'mysecretpassword',
+        host: str = DATABASE_HOST,
+        port: int = DATABASE_PORT,
+        database: str = DATABASE_DATABASE,
+        user: str = DATABASE_USER,
+        password: str = DATABASE_PASSWORD,
         logger: Optional[Logger] = None
     ):
         self.config = {

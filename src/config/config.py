@@ -6,7 +6,9 @@ import logging
 import torch
 from datetime import datetime
 from pathlib import Path
+
 from src.config.apikeys import POLYGON_APIKEY
+from src.config.database_values import *
 
 # 프로젝트 루트 디렉토리
 ROOT_DIR = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
