@@ -1,7 +1,8 @@
-from polygon import RESTClient
-from tickers import tickers
 import json
-import apikey
+from polygon import RESTClient
+
+from src.utils import utils
+from src.config.config import DATA_DIR, POLYGON_APIKEY, TICKERS
 
 def save_raw_market_data_as_json(tickers: list[str], 
                                  multiplier: int,
@@ -10,7 +11,7 @@ def save_raw_market_data_as_json(tickers: list[str],
                                  end: str,
                                  adjusted: str='true',
                                  sort: str='asc'):
-    client = RESTClient(apikey.apikey)
+    client = RESTClient(POLYGON_APIKEY)
     for ticker in tickers:
         aggregates = []
         for aggregate in client.list_aggs(
@@ -20,8 +21,7 @@ def save_raw_market_data_as_json(tickers: list[str],
             start,
             end,
             adjusted=adjusted,
-            sort=sort,
-            limit=120
+            sort=sort
         ):
             aggregates.append({
                 'timestamp': aggregate.timestamp, 
@@ -33,14 +33,11 @@ def save_raw_market_data_as_json(tickers: list[str],
                 'volume': aggregate.volume,
                 'vwap': aggregate.vwap
             })
-        file_path = f'./data/data/raw/{multiplier}_{timespan}/{ticker}.json'
+        base_dir = DATA_DIR / 'raw' / f'{multiplier}_{timespan}'
+        utils.create_directory(base_dir)
+        file_path = f'{base_dir}/{ticker}.json'
         with open (file_path, 'w') as file:
             json.dump(aggregates, file, indent=4)
-            
-def main():
-    # get minute market data from 2015-05-06 4:00 AM to 2025-05-06 8:00 PM
-    save_raw_market_data_as_json(tickers, 1, 'minute', '1430899200000', '1746573780000')
-    # save_raw_market_data_as_json(tickers, 5, 'minute', '1430899200000', '1430899500000')
 
 if __name__ == '__main__':
-    main()
+    save_raw_market_data_as_json(TICKERS, 1, 'minute', '1430899200000', '1746573780000')
