@@ -35,16 +35,6 @@ A commit is a snapshot of your staged changes at a specific point in time. You s
 
 **Important:** You need to use `git add` to stage your changes *before* creating a commit.
 
-### Push Local Commits
-This command uploads your local commits to a remote repository (like GitHub).
-
-* `<remote>`: This usually defaults to `origin`, which typically points to your main remote repository on GitHub.
-* `<branch>`: Specifies the branch you want to push to on the remote repository.
-
-**First-time push of a new local branch to a remote:**
-```bash
-git push -u origin <your-new-branch-name>
-
 ### Undo Current Changes On Local Branch
 Discard all changes. Even commits
 * git reset --hard HEAD
@@ -55,3 +45,14 @@ Undo commits
 Copy the commit hash of the commit you want to revert the branch to
 git reset --hard <commit-hash>
 git push --force origin <branch-name>
+
+### Push Local Commits
+This command uploads your local commits to a remote repository (like GitHub).
+
+* `<remote>`: This usually defaults to `origin`, which typically points to your main remote repository on GitHub.
+* `<branch>`: Specifies the branch you want to push to on the remote repository.
+
+**First-time push of a new local branch to a remote:**
+```bash
+git push -u origin <your-new-branch-name>
+
