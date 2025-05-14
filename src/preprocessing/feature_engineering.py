@@ -9,7 +9,7 @@ from src.utils.database import DatabaseManager
 from src.utils import utils
 
 class FeatureEngineer:
-    def __init__(self, timestamp: str):
+    def __init__(self, timestamp: str=CUTOFF_TIMESTAMP):
         self.timestamp = timestamp
 
     def _get_data(self, ticker: str) -> pd.DataFrame:
@@ -50,7 +50,6 @@ class FeatureEngineer:
         low = df['low']
         volume = df['volume']
 
-        # Use a dictionary to define the indicators and their parameters
         indicators = {
             'stochrsi_k_14_1min,stochrsi_d_14_1min': (ta.STOCHRSI, {'real': close, 'timeperiod': 14}),
             'stochrsi_k_21_1min,stochrsi_d_21_1min': (ta.STOCHRSI, {'real': close, 'timeperiod': 21}),
@@ -218,7 +217,7 @@ class FeatureEngineer:
         """
         Adds a target variable based on price direction
         
-        추세 타겟 추가가
+        추세 타겟 추가
         """
         diff = df['close'].diff()
         # up: 1, down: -1, no change: 0
@@ -235,7 +234,7 @@ class FeatureEngineer:
         cutoff_timestamp = pd.to_datetime(timestamp).tz_localize('UTC')
         return df[df['timestamp'] >= cutoff_timestamp]
 
-    def _feature_engineer_ticker(self, ticker: str, timestamp: str) -> pd.DataFrame:
+    def _save_feature_engineer_ticker(self, ticker: str, timestamp: str):
         """
         Feature engineers data for a single ticker
         
@@ -258,18 +257,18 @@ class FeatureEngineer:
         base_dir = DATA_DIR / 'feature_engineered'
         utils.create_directory(base_dir)
         df.to_csv(f'{base_dir}/{ticker}.csv', index=False)
-        return df
+        # return df
 
-    def save_feature_engineered_tickers(self, tickers: list[str]) -> pd.DataFrame:
+    def save_feature_engineered_tickers(self, tickers: list[str]=TICKERS):
         """
         Feature engineers data for multiple tickers and saves the results
         
-        여러 티커를 피처 엔지니어링한 후 저장장
+        여러 티커를 피처 엔지니어링한 후 저장
         """
         
         for ticker in tickers:
-            self._feature_engineer_ticker(ticker, self.timestamp)
+            self._save_feature_engineer_ticker(ticker.lower(), self.timestamp)
 
 if __name__ == '__main__':
-    feature_engineer = FeatureEngineer(CUTOFF_TIMESTAMP)
-    feature_engineer.save_feature_engineered_tickers(TICKERS)
+    feature_engineer = FeatureEngineer()
+    feature_engineer.save_feature_engineered_tickers()

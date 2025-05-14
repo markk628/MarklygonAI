@@ -3,4 +3,3 @@ __pycache__/
 /data
 /src/config/apikeys.py
 /logs/
-/src/config/database_values.py
