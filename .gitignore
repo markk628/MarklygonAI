@@ -2,4 +2,5 @@ __pycache__/
 /ta_lib-0.6.3-cp310-cp310-win_amd64.whl
 /data
 /src/config/apikeys.py
-/logs/
+/logs
+/src/config/database_values.py
