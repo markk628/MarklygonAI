@@ -25,9 +25,10 @@ class FeatureEngineer:
             with open(f'{file_path}/{ticker}.json', 'r') as file:
                 data = json.load(file)
             df = pd.DataFrame(data)
-        else:
-            database_manager = DatabaseManager()
-            df = database_manager.get_ticker_df(ticker.lower())
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms').dt.tz_localize('UTC')
+            return df
+        database_manager = DatabaseManager()
+        df = database_manager.get_ticker_df(ticker.lower())
         return df
 
     def _handle_gaps(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -226,6 +227,7 @@ class FeatureEngineer:
         
         추세 타겟 추가
         """
+        print('adding targets...')
         diff = df['close'].diff()
         # up: 1, down: -1, no change: 0
         df['target'] = np.sign(diff)
@@ -264,7 +266,7 @@ class FeatureEngineer:
         base_dir = DATA_DIR / 'feature_engineered'
         utils.create_directory(base_dir)
         df.to_csv(f'{base_dir}/{ticker}.csv', index=False)
-        # return df
+        print(f'{ticker} dataframe saved succesfully')
 
     def save_feature_engineered_tickers(self, tickers: list[str]=TICKERS):
         """
