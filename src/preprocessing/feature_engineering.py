@@ -9,8 +9,9 @@ from src.utils.database import DatabaseManager
 from src.utils import utils
 
 class FeatureEngineer:
-    def __init__(self, timestamp: str=CUTOFF_TIMESTAMP):
+    def __init__(self, timestamp: str=CUTOFF_TIMESTAMP, use_json: bool=False):
         self.timestamp = timestamp
+        self.use_json = use_json
 
     def _get_data(self, ticker: str) -> pd.DataFrame:
         """
@@ -19,8 +20,14 @@ class FeatureEngineer:
         티커의 raw 데이터를 받아서 데이터프레임으로 반환
         """
         print(f'retrieving {ticker}...')
-        database_manager = DatabaseManager()
-        df = database_manager.get_ticker_df(ticker)
+        if self.use_json:
+            file_path = DATA_DIR / 'raw/1_minute'
+            with open(f'{file_path}/{ticker}.json', 'r') as file:
+                data = json.load(file)
+            df = pd.DataFrame(data)
+        else:
+            database_manager = DatabaseManager()
+            df = database_manager.get_ticker_df(ticker.lower())
         return df
 
     def _handle_gaps(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -267,7 +274,7 @@ class FeatureEngineer:
         """
         
         for ticker in tickers:
-            self._save_feature_engineer_ticker(ticker.lower(), self.timestamp)
+            self._save_feature_engineer_ticker(ticker, self.timestamp)
 
 if __name__ == '__main__':
     feature_engineer = FeatureEngineer()
