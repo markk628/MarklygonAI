@@ -9,7 +9,7 @@ client = WebSocketClient(
 	market=Market.Stocks
 	)
 
-client.subscribe("AM.APPL") # single ticker
+client.subscribe("AM.AAPL") # single ticker
 # client.subscribe("AM.AAPL", "AM.MSFT") # multiple tickers
 
 def handle_msg(msgs: List[WebSocketMessage]):

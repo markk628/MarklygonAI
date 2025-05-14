@@ -189,16 +189,6 @@ class FeatureEngineer:
         df['close_open_range'] = df['close'] - df['open']
         return df
 
-    def _add_volume_change(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Adds volume percentage change
-        
-        volume 차이 추가
-        """
-        print('adding volume change...')
-        df['volume_pct_change_1'] = df['volume'].pct_change(1)
-        return df
-
     def _add_volatility_measures(self, df: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
         """
         Adds volatility measures of rolling windows
@@ -258,7 +248,6 @@ class FeatureEngineer:
         df = self._add_lagged_features(df, [1, 5, 10])
         df = self._add_windowed_statistics(df, [5, 15, 30])
         df = self._add_price_differences_and_returns(df)
-        df = self._add_volume_change(df)
         df = self._add_volatility_measures(df, [15, 30])
         df = self._add_OHLC_ratios(df)
         df = self._add_targets(df)

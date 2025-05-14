@@ -23,7 +23,7 @@ RESULTS_DIR = ROOT_DIR / "results"
 API_CALL_DELAY = 12  # 초 단위 (API 호출 제한 고려)
 
 # 대상 주식 종목
-TICKERS = ['APPL', 'MSFT', 'NVDA', 'JPM', 'BAC', 'GS', 'JNJ', 'PFE', 
+TICKERS = ['AAPL', 'MSFT', 'NVDA', 'JPM', 'BAC', 'GS', 'JNJ', 'PFE', 
            'UNH', 'AMZN', 'TSLA', 'MCD', 'GOOG', 'META', 'NFLX', 'PG', 
            'KO', 'WMT', 'XOM', 'CVX', 'COP', 'NEE', 'DUK', 'SO', 
            'LIN', 'FCX', 'NEM', 'CAT', 'UPS', 'HON', 'AMT', 'PLD', 
