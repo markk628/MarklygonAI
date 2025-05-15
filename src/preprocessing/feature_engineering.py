@@ -115,7 +115,6 @@ class FeatureEngineer:
                     df[col_name] = results[i]
             else:
                 df[out_cols] = results
-        # df['obv_1min'] = ta.OBV(close, volume)
         return df
 
     def _add_temporal_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -132,9 +131,15 @@ class FeatureEngineer:
         df['hour'] = timestamp.dt.hour
         df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
         df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-        df['day_of_week'] = timestamp.dt.dayofweek
-        df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 5)
-        df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 5)
+        df['day'] = timestamp.dt.dayofweek
+        df['day_sin'] = np.sin(2 * np.pi * df['day'] / 5)
+        df['day_cos'] = np.cos(2 * np.pi * df['day'] / 5)
+        df['month'] = timestamp.dt.month
+        df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
+        df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
+        df['quarter'] = timestamp.dt.quarter
+        df['quarter_sin'] = np.sin(2 * np.pi * df['quarter'] / 4)
+        df['quarter_cos'] = np.cos(2 * np.pi * df['quarter'] / 4)
         return df
 
     def _add_last_significant_change(self, df: pd.DataFrame, threshold: float) -> pd.DataFrame:
