@@ -132,9 +132,15 @@ class FeatureEngineer:
         df['hour'] = timestamp.dt.hour
         df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
         df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-        df['day_of_week'] = timestamp.dt.dayofweek
-        df['day_sin'] = np.sin(2 * np.pi * df['day_of_week'] / 5)
-        df['day_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 5)
+        df['day'] = timestamp.dt.dayofweek
+        df['day_sin'] = np.sin(2 * np.pi * df['day'] / 5)
+        df['day_cos'] = np.cos(2 * np.pi * df['day'] / 5)
+        df['month'] = timestamp.dt.month
+        df['month_sin'] = np.sin(2 * np.pi * df['month'] / 5)
+        df['month_cos'] = np.cos(2 * np.pi * df['month'] / 5)
+        df['quarter'] - timestamp.dt.quarter
+        df['quarter_sin'] = np.sin(2 * np.pi * df['quarter'] / 5)
+        df['quarter_cos'] = np.cos(2 * np.pi * df['quarter'] / 5)
         return df
 
     def _add_last_significant_change(self, df: pd.DataFrame, threshold: float) -> pd.DataFrame:
