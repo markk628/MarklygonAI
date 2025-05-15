@@ -115,7 +115,6 @@ class FeatureEngineer:
                     df[col_name] = results[i]
             else:
                 df[out_cols] = results
-        # df['obv_1min'] = ta.OBV(close, volume)
         return df
 
     def _add_temporal_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
