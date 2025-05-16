@@ -29,7 +29,7 @@ def convert_raw_json_to_pkl(file_name_without_extension: str):
 
     raw_data_sub_dir = Path('raw') / '1_minute'
     json_file_path = DATA_DIR / raw_data_sub_dir / f'{file_name_without_extension.upper()}.json'
-    pkl_file_path = DATA_DIR / raw_data_sub_dir / f'{file_name_without_extension.upper()}.pkl'
+    pkl_file_path = DATA_DIR / raw_data_sub_dir/'pkl' / f'{file_name_without_extension.upper()}.pkl'
 
     print(f"Processing file: {file_name_without_extension}")
     print(f"Expected JSON file path: {json_file_path.resolve()}")
@@ -70,7 +70,7 @@ def convert_raw_json_to_pkl(file_name_without_extension: str):
 if __name__ == '__main__':
     # Example usage:
     # Change 'PLTR' to the base name of your JSON file (without .json extension)
-    files_to_process = ['PLTR']  # e.g., if you have PLTR.json, SOFI.json, put ['PLTR', 'SOFI']
+    files_to_process = ['NVDA']  # e.g., if you have PLTR.json, SOFI.json, put ['PLTR', 'SOFI']
     
     print("Starting JSON to PKL conversion process...")
     for file_base_name in files_to_process:
