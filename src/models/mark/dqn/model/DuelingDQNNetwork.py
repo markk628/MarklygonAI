@@ -19,36 +19,36 @@ class DuelingDQNNetwork(nn.Module):
         self.constraint_size = constraint_size
         self.state_layers = nn.Sequential(
             nn.Linear(state_size - constraint_size, 1024),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(1024),
             nn.Dropout(0.3),
             nn.Linear(1024, 512),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(512),
             nn.Dropout(0.3),
             nn.Linear(512, 256),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(256),
             nn.Dropout(0.3),
             nn.Linear(256, 128),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(128),
             nn.Dropout(0.3),
             nn.Linear(128, 64),
-            nn.ReLU()
+            nn.LeakyReLU(negative_slope=0.01)
         )
 
         self.constraint_layers = nn.Sequential(
             nn.Linear(constraint_size, 64), 
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
             nn.Linear(64, 32),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(32),
             nn.Dropout(0.3),
             nn.Linear(32, 16),
-            nn.ReLU()
+            nn.LeakyReLU(negative_slope=0.01)
         )
 
         # --- Dueling DQN specific layers ---
@@ -57,7 +57,7 @@ class DuelingDQNNetwork(nn.Module):
         # value stream: estimates the state value V(s)
         self.value_stream = nn.Sequential(
             nn.Linear(80, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
             nn.Linear(64, 1)
@@ -66,7 +66,7 @@ class DuelingDQNNetwork(nn.Module):
         # advantage stream: estimates the advantage A(s, a) for each action
         self.advantage_stream = nn.Sequential(
             nn.Linear(80, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
             nn.Linear(64, action_size)

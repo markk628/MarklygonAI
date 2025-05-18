@@ -47,7 +47,7 @@ class StockTradingEnv:
         self.profit_reward_weight: int = 50           # profit reward weight (used to scale rewards for profitable trades)
         self.loss_penalty_weight: int = 25            # loss penalty weight (used to scale penalty for loss)
         self.trade_reward: float = 0.1                # trade execution reward
-        self.invalid_action_penalty: float = -10       # penalty for taking invalid action
+        self.invalid_action_penalty: float = -1000    # penalty for taking invalid action
         self.stop_loss_penalty: float = -0.5
         self.small_hold_time_penalty: float = -0.0005 # penalty for holding 
         self.critical_loss_penalty: float = -10
@@ -210,6 +210,8 @@ class StockTradingEnv:
         if self._is_invalid_action(action):
             reward += self.invalid_action_penalty
         else:
+            if action == 1:
+                reward += self.small_hold_time_penalty
             portfolio_change_pct = (current_portfolio_value - self.last_portfolio_value) / (self.last_portfolio_value if self.last_portfolio_value != 0 else self.initial_balance)
             # stop loss
             if trade_info.get('action') == 'FORCED_SELL':
@@ -248,8 +250,7 @@ class StockTradingEnv:
                     elif portfolio_change_pct < self.loss_threshold:
                         reward += self.exceed_loss_threshold_penalty
                     
-        # --- Final Episode Reward ---
-        # This can be a significant bonus for ending with a profit or a large penalty for a large loss.
+        # significant bonus for ending with a profit or a large penalty for a large loss.
         if done:
             final_profit = (current_portfolio_value - self.initial_balance) / self.initial_balance
             if final_profit > 0:
@@ -261,7 +262,7 @@ class StockTradingEnv:
 
         self.last_portfolio_value = current_portfolio_value
 
-        return np.clip(reward / 20, -1.0, 1.0)
+        return np.clip(reward / 20, -1.0, 1.0) # TODO find better way to normalize
 
     
     def _is_invalid_action(self, action):
