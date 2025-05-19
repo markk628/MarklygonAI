@@ -1,5 +1,4 @@
 # MarklygonAI
-![](static/MarklygonAI.jpeg)
 # Dependencies
 * pytorch (GPU)
 * optuna
