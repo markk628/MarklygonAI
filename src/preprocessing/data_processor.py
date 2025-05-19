@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -9,18 +10,23 @@ from torch import nn
 import warnings
 warnings.filterwarnings('ignore')
 
+from src.config.config import (
+    WINDOW_SIZE,
+    DEVICE
+)
+
 class FeatureProcessor:
     """
     Modular feature selection/extraction for stock trading data
     Compatible with rolling window scaling and DQN models
     """
     def __init__(self, 
-                 window_size=30,
+                 window_size=WINDOW_SIZE,
                  scaler_type='standard',  # 'standard', 'minmax', or None
                  selection_method='pca',  # 'pca', 'mutual_info', 'f_regression', 'autoencoder', 'combined', None
                  n_components=22,         # Number of features to select
                  correlation_threshold=0.85,  # Threshold for removing highly correlated features
-                 device='cuda' if torch.cuda.is_available() else 'cpu'):
+                 device=DEVICE):
         
         self.window_size = window_size
         self.scaler_type = scaler_type
@@ -103,16 +109,17 @@ class FeatureProcessor:
         
     def remove_highly_correlated(self, X):
         """Remove highly correlated features"""
+        features_to_drop = ['minute', 'hour', 'day', 'month', 'quarter']
         if isinstance(X, pd.DataFrame):
             corr_matrix = X.corr().abs()
             upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)]
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)] + features_to_drop
             return X.drop(columns=to_drop), to_drop
         else:
             df = pd.DataFrame(X)
             corr_matrix = df.corr().abs()
             upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)]
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)] + features_to_drop
             return df.drop(columns=to_drop).values, to_drop
         
     def _build_autoencoder(self, input_dim):
@@ -427,7 +434,7 @@ class RollingWindowFeatureProcessor:
     Designed to work with DQN models for stock trading
     """
     def __init__(self, 
-                 window_size=30, 
+                 window_size=WINDOW_SIZE, 
                  feature_processor=None,
                  flatten_output=True):
         """
@@ -479,14 +486,10 @@ class RollingWindowFeatureProcessor:
         Transform features using rolling windows
         
         Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The features to transform
+            X (pandas.DataFrame or numpy.ndarray): The features to transform
         
         Returns:
-        --------
-        list of numpy arrays
-            Processed features for each window
+            numpy.ndarray: list of numpy arrays with processed features for each window
         """
         windows = self.create_rolling_windows(X)
         processed_windows = []
@@ -501,18 +504,14 @@ class RollingWindowFeatureProcessor:
     
     def get_state(self, X):
         """
-        Get the processed state at time t for reinforcement learning
-        
-        Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The full features dataset
-        
+        Get the processed state at time t for reinforcement learning.
+
+        Args:
+            X (pandas.DataFrame or numpy.ndarray): The full features dataset.
+
         Returns:
-        --------
-        numpy array
-            The processed state for the DQN
-        """ 
+            numpy.ndarray: The processed state for the DQN.
+        """
         processed = self.transform_single_window(X)
         if self.flatten_output:
             return processed.flatten()

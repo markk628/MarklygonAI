@@ -11,49 +11,86 @@ random.seed(42)
 
 class DQNNetwork(nn.Module):
     def __init__(self, 
-                 state_size: int,
+                 feature_size: int,
+                 portfolio_info_size: int,
+                 market_info_size: int, 
                  constraint_size: int,
                  action_size: int):
         super(DQNNetwork, self).__init__()
         
+        self.feature_size = feature_size
+        self.portfolio_info_size = portfolio_info_size
+        self.market_info_size = market_info_size
         self.constraint_size = constraint_size
+        
         self.state_layers = nn.Sequential(
-            nn.Linear(state_size - constraint_size, 1024),
-            nn.ReLU(),
+            nn.Linear(feature_size, 1024),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(1024),
             nn.Dropout(0.3),
             nn.Linear(1024, 512),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(512),
             nn.Dropout(0.3),
             nn.Linear(512, 256),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(256),
             nn.Dropout(0.3),
             nn.Linear(256, 128),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(128),
             nn.Dropout(0.3),
             nn.Linear(128, 64),
-            nn.ReLU()
+            nn.LeakyReLU(negative_slope=0.01)
         )
         
-        self.constraint_layers = nn.Sequential(
-            nn.Linear(constraint_size, 64),
-            nn.ReLU(),
+        self.portfolio_layers = nn.Sequential(
+            nn.Linear(portfolio_info_size, 256),
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.3),
+            nn.Linear(256, 128),
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.3),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
             nn.Linear(64, 32),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01)
+        )
+        
+        self.market_layers = nn.Sequential(
+            nn.Linear(market_info_size, 64), 
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            nn.Linear(64, 32),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(32),
             nn.Dropout(0.3),
             nn.Linear(32, 16),
-            nn.ReLU()
+            nn.LeakyReLU(negative_slope=0.01)
+        )
+
+        self.constraint_layers = nn.Sequential(
+            nn.Linear(constraint_size, 64), 
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            nn.Linear(64, 32),
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.BatchNorm1d(32),
+            nn.Dropout(0.3),
+            nn.Linear(32, 16),
+            nn.LeakyReLU(negative_slope=0.01)
         )
         
         # action layer
+        # output of state_layers (64) + portfolio_layers (32) + market_layers (16) + of constraint_layers (16) = 128
         self.action_layer = nn.Sequential(
-            nn.Linear(80, 64),
+            nn.Linear(128, 64),
             nn.ReLU(),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
@@ -73,9 +110,14 @@ class DQNNetwork(nn.Module):
                 nn.init.constant_(module.bias, 0)
     
     def forward(self, x):
-        state_features = self.state_layers(x[:, :-self.constraint_size])
-        constraint_features = self.constraint_layers(x[:, -self.constraint_size:])
-        combined_features = torch.cat([state_features, constraint_features], dim=1)
+        # process features separately
+        data_features = self.state_layers(x[:, :self.feature_size]) 
+        portfolio_features = self.portfolio_layers(x[:, self.feature_size:self.feature_size + self.portfolio_info_size])
+        market_features = self.market_layers(x[:, self.feature_size + self.portfolio_info_size:self.feature_size + self.portfolio_info_size + self.market_info_size])
+        constraint_features = self.constraint_layers(x[:, self.feature_size + self.portfolio_info_size + self.market_info_size:])
+
+        # concatenate the outputs from both streams
+        combined_features = torch.cat([data_features, portfolio_features, market_features, constraint_features], dim=1)
         
         return self.action_layer(combined_features)
     

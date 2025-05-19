@@ -6,7 +6,18 @@ import time
 import torch
 from datetime import datetime
 
-from src.config.config import DATA_DIR, MODELS_DIR, RESULTS_DIR, TRAIN_RATIO, VALID_RATIO
+from src.config.config import (
+    DATA_DIR, 
+    MODELS_DIR, 
+    RESULTS_DIR, 
+    WINDOW_SIZE,
+    TRAIN_RATIO, 
+    VALID_RATIO,
+    INITIAL_BALANCE,
+    TRANSACTION_FEE_PERCENT,
+    NUM_EPISODES,
+    EVALUATE_INTERVAL
+)
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
 from src.utils.utils import format_duration
@@ -60,9 +71,9 @@ class DQNTrainer:
     def train_agent(self,
                     env: StockTradingEnv, 
                     agent: DQNAgent, 
-                    episodes: int=100, 
+                    episodes: int=NUM_EPISODES, 
                     validation_env: StockTradingEnv | None=None,
-                    validation_frequency: int=5,
+                    validation_frequency: int=EVALUATE_INTERVAL,
                     early_stopping_patience: int=10):
         """
         Train the agent with optional validation and early stopping
@@ -264,8 +275,8 @@ class DQNTrainer:
             plt.ylabel('Invalid Actions')
             plt.title('Average Invalid Actions During Training')
         
-        plt.tight_layout()
         plt.suptitle(f'{ticker} DQN Training Results')
+        plt.tight_layout()
         return plt
 
 
@@ -323,18 +334,15 @@ class DQNTrainer:
         print("Let's get this bread")
         # parameters
         ticker = 'AAPL'
-        window_size = 60 
-        initial_balance = 10000
-        transaction_fee = 0.001 
         
         # load and prepare data
         print('Preparing data...')
-        cutoff = pd.Timestamp('2025-05-04 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2024-04-06 08:00:00', tz='UTC')
         data = self.load_stock_data(ticker, cutoff)
         train_data, val_data, test_data = self.split_data(data)
         
         print('Preprocessing data...')
-        window_processsor = RollingWindowFeatureProcessor(window_size=window_size)
+        window_processsor = RollingWindowFeatureProcessor()
         window_processsor.fit(train_data.iloc[:, :-1], train_data['target'])
         
         train_data = train_data[window_processsor.feature_processor.filtered_feature_names]
@@ -345,59 +353,39 @@ class DQNTrainer:
         train_env = StockTradingEnv(
             train_data, 
             window_processsor,
-            initial_balance=initial_balance, 
-            transaction_fee=transaction_fee, 
-            window_size=window_size,
             mode='train'
         )
         
         val_env = StockTradingEnv(
             val_data, 
             window_processsor,
-            initial_balance=initial_balance, 
-            transaction_fee=transaction_fee, 
-            window_size=window_size,
             mode='validation'
         )
         
         test_env = StockTradingEnv(
             test_data, 
             window_processsor,
-            initial_balance=initial_balance, 
-            transaction_fee=transaction_fee, 
-            window_size=window_size,
             mode='test'
         )
         
-        # define agent
-        episodes = 150
-        steps_per_episode = len(train_data) - window_size
-        
         # initialize agent
         agent = DQNAgent(
-            state_size=train_env.state_size,
-            constraint_size=6, # StockTradingEnv portfolio_info constraint count
+            feature_size=train_env.feature_extracted_column_count * WINDOW_SIZE,
+            portfolio_info_size=train_env.portfolio_info_count,
+            market_info_size=train_env.market_info_count, 
+            constraint_size=train_env.constraint_info_count, 
             action_size=3,
-            total_steps=steps_per_episode * episodes,
-            learning_rate=0.0005,
-            discount_factor=0.97,
-            epsilon=1.0,
-            decay_rate_multiplier=0.5,
-            epsilon_min=0.05,
+            total_steps=(len(train_data) - WINDOW_SIZE) * NUM_EPISODES,
+            decay_rate_multiplier=0.3,
             epsilon_decay_target_pct=0.5,
-            batch_size=1024,      
-            memory_size=20000,   
             update_frequency=4,  
-            target_update_frequency=200, 
-            use_dueling=True,    
-            use_prioritized=True 
+            target_update_frequency=200 
         )
         
         # train agent with validation-based early stopping
         training_metrics = self.train_agent(
             train_env, 
             agent, 
-            episodes=episodes,
             validation_env=val_env,
             early_stopping_patience=15
         )

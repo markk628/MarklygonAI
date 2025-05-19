@@ -8,6 +8,11 @@ import torch.nn.functional as F
 from collections import deque
 from torch.types import Number
 
+from src.config.config import (
+    BATCH_SIZE,
+    REPLAY_BUFFER_SIZE,
+    DEVICE
+)
 from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
 from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
 from src.models.mark.dqn.utils.PrioritizedReplayBuffer import PrioritizedReplayBuffer
@@ -24,18 +29,20 @@ class DQNAgent:
     """
     def __init__(
         self, 
-        state_size: int,
+        feature_size: int,
+        portfolio_info_size: int,
+        market_info_size: int,
         constraint_size: int,
         action_size: int,
         total_steps: int,
         learning_rate: float = 0.001,
         discount_factor: float = 0.95,
         epsilon: float = 1.0,
-        decay_rate_multiplier: float = 0.995,
+        decay_rate_multiplier: float = 1,
         epsilon_min: float = 0.01,
         epsilon_decay_target_pct: float=1,
-        batch_size: int = 256,
-        memory_size: int = 100000,
+        batch_size: int = BATCH_SIZE,
+        memory_size: int = REPLAY_BUFFER_SIZE,
         update_frequency: int = 4,
         target_update_frequency: int = 100,
         use_dueling: bool = True,
@@ -44,7 +51,7 @@ class DQNAgent:
         per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
         per_beta_increment: float = 0.001 # Beta increment for PER
     ):
-        self.state_size: int = state_size
+        self.feature_size: int = feature_size
         self.action_size: int = action_size
         self.total_steps: int = total_steps
         self.batch_size: int = batch_size
@@ -64,16 +71,16 @@ class DQNAgent:
         self.current_episode: int = 0
 
         # device setup
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = DEVICE
         print(f"Using device: {self.device}")
         
         # network initialization
         if use_dueling:
-            self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(state_size, constraint_size, action_size).to(self.device)
-            self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(state_size, constraint_size, action_size).to(self.device)
+            self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
         else:
-            self.main_network: DQNNetwork = DQNNetwork(state_size, action_size).to(self.device)
-            self.target_network: DQNNetwork = DQNNetwork(state_size, action_size).to(self.device)
+            self.main_network: DQNNetwork = DQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.target_network: DQNNetwork = DQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
             
         self.target_network.load_state_dict(self.main_network.state_dict())
         self.target_network.eval() 

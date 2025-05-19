@@ -34,7 +34,7 @@ DATA_START_DATE = '1430899200000' # 2015-05-06 4:00 AM UTC
 DATA_FREQUENCY = "minute"  # 일별 데이터
 
 # 데이터 전처리 설정
-WINDOW_SIZE = 30  # 관측 윈도우 크기
+WINDOW_SIZE = 60  # 관측 윈도우 크기
 TRAIN_RATIO = 0.7
 VALID_RATIO = 0.15
 TEST_RATIO = 0.15
@@ -53,14 +53,16 @@ GAMMA = 0.99  # 할인 계수
 TAU = 0.005  # 타겟 네트워크 소프트 업데이트 계수
 ALPHA_INIT = 0.2  # 초기 엔트로피 계수
 TARGET_UPDATE_INTERVAL = 1
-REPLAY_BUFFER_SIZE = 1000000
+
+# DQN 모델 하이퍼파라미터
+
+
+REPLAY_BUFFER_SIZE = 100000
 
 # 학습 설정
 BATCH_SIZE = 256
-NUM_EPISODES = 1000
-EVALUATE_INTERVAL = 10
-SAVE_MODEL_INTERVAL = 50
-MAX_STEPS_PER_EPISODE = 1000
+NUM_EPISODES = 150
+EVALUATE_INTERVAL = 5
 
 # 장치 설정
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
