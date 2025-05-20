@@ -13,10 +13,19 @@ from src.config.config import (
     WINDOW_SIZE,
     TRAIN_RATIO, 
     VALID_RATIO,
-    INITIAL_BALANCE,
-    TRANSACTION_FEE_PERCENT,
     NUM_EPISODES,
-    EVALUATE_INTERVAL
+    EVALUATE_INTERVAL,
+    
+    # PRICE_FEATURES,
+    # VOLUME_FEATURES,
+    # MOMENTUM_FEATURES,
+    # TREND_FEATURES,
+    # VOLATILLITY_FEATURES,
+    # OCILLATOR_FEATURES,
+    # LAGGED_FEATURES,
+    # ROLLING_FEAATURES,
+    # PRICE_RANGE_FEATURES,
+    # TEMPORAL_FEATURES
 )
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
@@ -117,11 +126,12 @@ class DQNTrainer:
             
             if (e + 1) % 5 == 0:
                 print(f"Episode: {e+1}/{episodes}, "
+                      f"Average Score: {score/env.current_step:.4f}, "
                       f"Score: {score:.4f}, "
                       f"Balance: {env.balance:.2f}, "
                       f"Trades: {trades_this_episode}, "
                       f"Invalid Actions: {invalid_actions}, "
-                      f"Epsilon: {agent.epsilon:.4f}")
+                      f"Epsilon: {agent.epsilon:.4f},")
             
             # validation if provided
             if validation_env is not None and (e + 1) % validation_frequency == 0:
@@ -337,7 +347,7 @@ class DQNTrainer:
         
         # load and prepare data
         print('Preparing data...')
-        cutoff = pd.Timestamp('2024-04-06 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
         data = self.load_stock_data(ticker, cutoff)
         train_data, val_data, test_data = self.split_data(data)
         
@@ -348,6 +358,27 @@ class DQNTrainer:
         train_data = train_data[window_processsor.feature_processor.filtered_feature_names]
         val_data = val_data[window_processsor.feature_processor.filtered_feature_names]
         test_data = test_data[window_processsor.feature_processor.filtered_feature_names]
+        
+        # price_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[PRICE_FEATURES])
+        # volume_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[VOLUME_FEATURES])
+        # momentum_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[MOMENTUM_FEATURES])
+        # trend_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[TREND_FEATURES])
+        # volatillity_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[VOLATILLITY_FEATURES])
+        # ocillator_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[OCILLATOR_FEATURES])
+        # lagged_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[LAGGED_FEATURES])
+        # rolling_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[ROLLING_FEAATURES])
+        # price_range_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[PRICE_RANGE_FEATURES])
+        # temporal_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[TEMPORAL_FEATURES])
+        # features_to_drop = price_dropped_cols + volume_dropped_cols + momentum_dropped_cols + trend_dropped_cols + volatillity_dropped_cols + ocillator_dropped_cols + lagged_dropped_cols + rolling_dropped_cols + price_range_dropped_cols + temporal_dropped_cols
+        # train_data = train_data.drop(features_to_drop, axis=1, inplace=False)
+        # val_data = val_data.drop(features_to_drop, axis=1, inplace=False)
+        # test_data = test_data.drop(features_to_drop, axis=1, inplace=False)
+        
+        # global_features_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data)
+        
+        # train_data = train_data.drop(global_features_dropped_cols, axis=1, inplace=False)
+        # val_data = val_data.drop(global_features_dropped_cols, axis=1, inplace=False)
+        # test_data = test_data.drop(global_features_dropped_cols, axis=1, inplace=False)
         
         # create environments
         train_env = StockTradingEnv(
@@ -370,17 +401,20 @@ class DQNTrainer:
         
         # initialize agent
         agent = DQNAgent(
-            feature_size=train_env.feature_extracted_column_count * WINDOW_SIZE,
+            market_data_timesteps=WINDOW_SIZE,
+            market_data_features=train_env.feature_extracted_column_count,
             portfolio_info_size=train_env.portfolio_info_count,
             market_info_size=train_env.market_info_count, 
             constraint_size=train_env.constraint_info_count, 
             action_size=3,
             total_steps=(len(train_data) - WINDOW_SIZE) * NUM_EPISODES,
-            decay_rate_multiplier=0.3,
-            epsilon_decay_target_pct=0.5,
+            decay_rate_multiplier=1,
+            epsilon_decay_target_pct=0.4,
             update_frequency=4,  
             target_update_frequency=200 
         )
+        
+        print('Training start time:', datetime.today())
         
         # train agent with validation-based early stopping
         training_metrics = self.train_agent(
@@ -416,10 +450,10 @@ class DQNTrainer:
                 info['action_history'], 
                 ticker=ticker
             )
-            backtest_plot.savefig(f"{RESULTS_DIR}/dqn_{ticker}_{train_date}_{info['return_rate']*100:.2f}_backtest_results.png")
+            backtest_plot.savefig(f"{RESULTS_DIR}/dqn/dqn_{ticker}_{train_date}_{info['return_rate']*100:.2f}_backtest_results.png")
             
         # Save model
-        model_path = f"{MODELS_DIR}/dqn_{ticker}_{info['return_rate']*100:.4f}_model.pth"
+        model_path = f"{MODELS_DIR}/dqn/dqn_{ticker}_{info['return_rate']*100:.4f}_model.pth"
         agent.save(model_path)
         
         # Print final metrics

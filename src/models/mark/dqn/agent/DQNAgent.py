@@ -29,7 +29,8 @@ class DQNAgent:
     """
     def __init__(
         self, 
-        feature_size: int,
+        market_data_timesteps: int,
+        market_data_features: int,
         portfolio_info_size: int,
         market_info_size: int,
         constraint_size: int,
@@ -51,7 +52,8 @@ class DQNAgent:
         per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
         per_beta_increment: float = 0.001 # Beta increment for PER
     ):
-        self.feature_size: int = feature_size
+        self.market_data_timesteps: int = market_data_timesteps
+        self.market_data_features: int = market_data_features
         self.action_size: int = action_size
         self.total_steps: int = total_steps
         self.batch_size: int = batch_size
@@ -76,11 +78,11 @@ class DQNAgent:
         
         # network initialization
         if use_dueling:
-            self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
-            self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
         else:
-            self.main_network: DQNNetwork = DQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
-            self.target_network: DQNNetwork = DQNNetwork(feature_size, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.main_network: DQNNetwork = DQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            self.target_network: DQNNetwork = DQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
             
         self.target_network.load_state_dict(self.main_network.state_dict())
         self.target_network.eval() 
