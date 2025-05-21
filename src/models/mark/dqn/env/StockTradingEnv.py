@@ -645,7 +645,7 @@ class StockTradingEnv:
                 did_profit = sell_price_adjusted > buy_price_adjusted
                 self.balance += sell_price_adjusted
                 self.shares_held = 0
-                self.total_trades = self.total_trades + 1
+                self.total_trades += 1
                 self.total_shares_sold += self.shares_held
                 self.consecutive_trades += 1
                 self.last_trade_step = self.current_step 
@@ -690,7 +690,7 @@ class StockTradingEnv:
                     did_profit = sell_price_adjusted > buy_price_adjusted
                     self.balance += sell_price_adjusted
                     self.shares_held = 0
-                    self.total_trades = self.total_trades + 1
+                    self.total_trades += 1
                     self.total_shares_sold += self.shares_held
                     self.consecutive_trades += 1
                     self.last_trade_step = self.current_step
@@ -759,7 +759,6 @@ class StockTradingEnv:
         
         return self._get_state(), reward, done, {
             'trade_info': trade_info,
-            'invalid_action': invalid_action if not done else False,
             'reward_components': self.reward_components
         }
     

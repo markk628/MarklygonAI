@@ -103,16 +103,10 @@ class DQNTrainer:
             state = env.reset()
             score = 0
             done = False
-            invalid_actions = 0
-            trades_this_episode = 0
 
             while not done:
                 action = agent.act(state)
-                next_state, reward, done, info = env.step(action)
-                if info.get('invalid_action'):
-                    invalid_actions += 1
-                if info.get('trade_info'):
-                    trades_this_episode += 1
+                next_state, reward, done, _ = env.step(action)
                 agent.remember(state, action, reward, next_state, done)
                 agent.train()
                 state = next_state
@@ -121,15 +115,15 @@ class DQNTrainer:
             agent.scheduler.step(score)
             scores.append(score)
             balances.append(env.balance)
-            invalid_action_counts.append(invalid_actions)
+            invalid_action_counts.append(env.invalid_actions)
             
             if (e + 1) % 5 == 0:
                 print(f"Episode: {e+1}/{episodes}, "
                       f"Average Score: {score/env.current_step:.4f}, "
                       f"Score: {score:.4f}, "
                       f"Balance: {env.balance:.2f}, "
-                      f"Trades: {trades_this_episode}, "
-                      f"Invalid Actions: {invalid_actions}, "
+                      f"Trades: {env.total_trades}, "
+                      f"Invalid Actions: {env.invalid_actions}, "
                       f"Epsilon: {agent.epsilon:.4f},")
             
             # validation if provided
@@ -185,35 +179,28 @@ class DQNTrainer:
             state = env.reset()
             done = False
             episode_reward = 0
-            episode_trades = 0
-            episode_invalid_actions = 0
             episode_rewards = []
 
             while not done:
                 action = agent.act(state, training=False)
-                next_state, reward, done, info = env.step(action)
+                next_state, reward, done, _ = env.step(action)
                 state = next_state
                 episode_rewards.append(reward)
                 episode_reward += reward
                 
-                if info.get('invalid_action'):
-                    episode_invalid_actions += 1
-                if info.get('trade_info'):
-                    episode_trades += 1
-                
             final_portfolio_value = env.balance + env.shares_held * env.data_nparray[env.current_step, env.close_prices_idx]
             return_rate = (final_portfolio_value - env.initial_balance) / env.initial_balance
             total_return_rate += return_rate
-            total_trades += episode_trades
-            total_invalid_actions += episode_invalid_actions
+            total_trades += env.total_trades
+            total_invalid_actions += env.invalid_actions
             
             if verbose:
                 print(f"\nEvaluation Episode {e+1}/{episodes}")
                 print(f"Final Balance: {env.balance:.2f}")
                 print(f"Final Portfolio Value: {final_portfolio_value:.2f}")
                 print(f"Return Rate: {return_rate:.4f}")
-                print(f"Trades: {episode_trades}")
-                print(f"Invalid Actions: {episode_invalid_actions}")
+                print(f"Trades: {env.total_trades}")
+                print(f"Invalid Actions: {env.invalid_actions}")
                 print(f"Average Reward: {np.mean(episode_rewards):.4f}")
                 print(f"Total Shares Bought: {env.total_shares_bought}")
                 print(f"Total Shares Sold: {env.total_shares_sold}")
@@ -224,9 +211,9 @@ class DQNTrainer:
             print(f"\nEvaluation Summary:")
             print(f"Final Balance: {env.balance:.2f}")
             print(f"Final Portfolio Value: {final_portfolio_value:.2f}")
-            print(f"Average Return: {avg_return_rate:.4f}")
-            print(f"Average Trades per Episode: {(total_trades / episodes):.1f}")
-            print(f"Average Invalid Actions per Episode: {(total_invalid_actions / episodes):.1f}")
+            print(f"Average Return Rate: {avg_return_rate:.4f}")
+            print(f"Average Trades: {(total_trades / episodes):.1f}")
+            print(f"Average Invalid Actions: {(total_invalid_actions / episodes):.1f}")
             print(f'Evaluation Time: {format_duration(time.time() - start_time)}')
 
         return avg_return_rate
@@ -437,7 +424,8 @@ class DQNTrainer:
         
         while not done:
             action = agent.act(state, training=False)
-            _, _, done, info = test_env.step(action)
+            next_state, _, done, info = test_env.step(action)
+            state = next_state
         
         info = info['trade_info']
         
