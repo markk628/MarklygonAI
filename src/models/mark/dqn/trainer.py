@@ -114,7 +114,7 @@ class DQNTrainer:
                 state = next_state
                 score += reward
                 if 'did_profit' in info.get('trade_info'):
-                    if info.get['did_profit']:
+                    if info['did_profit']:
                         profit_trades += 1
                     else:
                         loss_trades += 1
