@@ -220,7 +220,7 @@ if __name__=='__main__':
     dqn = DuelingDQNNetwork(
         market_data_timesteps=60, 
         market_data_features=22, 
-        portfolio_info_size=16, 
+        portfolio_info_size=24, 
         market_info_size_flat=7, 
         constraint_size=6, 
         action_size=3
@@ -232,8 +232,8 @@ if __name__=='__main__':
     batch_size = 1024
     
     # Create a dummy input tensor with the expected flattened total size
-    # Total features = (60 * 22) + 15 + 7 + 6 = 1320 + 15 + 7 + 6 = 1348
-    dummy_input = torch.randn(batch_size, (60 * 22) + 16 + 7 + 6) 
+    # Total features = (60 * 22) + 15 + 7 + 6 = 1320 + 24 + 7 + 6 = 1348
+    dummy_input = torch.randn(batch_size, (60 * 22) + 24 + 7 + 6) 
     print(dummy_input.shape)
     
     output = dqn(dummy_input)

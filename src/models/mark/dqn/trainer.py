@@ -88,8 +88,10 @@ class DQNTrainer:
         """
         scores = []
         balances = []
-        validation_scores = []
         invalid_action_counts = []
+        validation_scores = []
+        validation_balances = []
+        validation_invalid_action_counts = []
         
         best_validation_score = float('-inf')
         patience_counter = 0
@@ -113,8 +115,10 @@ class DQNTrainer:
                 agent.train()
                 state = next_state
                 score += reward
-                if 'did_profit' in info.get('trade_info'):
-                    if info['did_profit']:
+                did_profit = info.get('trade_info').get('did_profit')
+                
+                if did_profit is not None:
+                    if did_profit:
                         profit_trades += 1
                     else:
                         loss_trades += 1
@@ -125,22 +129,24 @@ class DQNTrainer:
             invalid_action_counts.append(env.invalid_actions)
             
             if (e + 1) % 5 == 0:
-                print('ooga booga', env.total_trades - profit_trades)
-                print(f"Episode: {e+1}/{episodes}, "
-                      f"Average Score: {score/env.current_step:.4f}, "
-                      f"Score: {score:.4f}, "
+                print(f"\nEpisode: {e+1}/{episodes}, "
+                      f"Average Score Per Step: {np.sum(scores) / env.steps_per_episode:.4f}, "
                       f"Balance: {env.balance:.2f}, "
                       f"Trades: {env.total_trades}, "
                       f"Profit Trades: {profit_trades} "
                       f"Loss Trades: {loss_trades} "
+                      f"P/L: {env.balance - env.initial_balance} "
                       f"Invalid Actions: {env.invalid_actions}, "
                       f"Epsilon: {agent.epsilon:.4f}")
             
             # validation if provided
             if validation_env is not None and (e + 1) % validation_frequency == 0:
-                validation_score = self.evaluate_agent(validation_env, agent, episodes=1, verbose=False)
-                validation_scores.append(validation_score)
+                validation_metrics = self.evaluate_agent(validation_env, agent, episodes=1, verbose=True)
+                validation_scores += validation_metrics['scores']
+                validation_balances += validation_metrics['balances']
+                validation_invalid_action_counts += validation_metrics['invalid_action_counts']
                 
+                validation_score = np.mean(validation_metrics['scores'])
                 # early stopping logic
                 if validation_score > best_validation_score:
                     best_validation_score = validation_score
@@ -163,10 +169,12 @@ class DQNTrainer:
         training_metrics = {
             'scores': scores,
             'balances': balances,
+            'invalid_action_counts': invalid_action_counts,
             'validation_scores': validation_scores,
+            'validation_balances': validation_balances,
+            'validation_invalid_action_counts': validation_invalid_action_counts,
             'loss_history': agent.loss_history,
             'avg_q_values': agent.avg_q_values,
-            'invalid_action_counts': invalid_action_counts
         }
         
         return training_metrics
@@ -180,18 +188,15 @@ class DQNTrainer:
         """
         Evaluate the agent's performance
         """
-        total_return_rate = 0
-        total_trades = 0
-        total_profit_trades = 0
-        total_loss_trades = 0
-        total_invalid_actions = 0
+        scores = []
+        balances = []
+        invalid_action_counts = []
         start_time = time.time()
         
         for e in range(episodes):
             state = env.reset()
+            score = 0
             done = False
-            episode_reward = 0
-            episode_rewards = []
             profit_trades = 0
             loss_trades = 0
 
@@ -199,47 +204,40 @@ class DQNTrainer:
                 action = agent.act(state, training=False)
                 next_state, reward, done, info = env.step(action)
                 state = next_state
-                episode_rewards.append(reward)
-                episode_reward += reward
-                if 'did_profit' in info:
-                    if info.get['did_profit']:
+                score += reward
+                did_profit = info.get('trade_info').get('did_profit')
+                
+                if did_profit is not None:
+                    if did_profit:
                         profit_trades += 1
                     else:
                         loss_trades += 1
                 
-            final_portfolio_value = env.balance + env.shares_held * env.data_nparray[env.current_step, env.close_prices_idx]
-            return_rate = (final_portfolio_value - env.initial_balance) / env.initial_balance
-            total_return_rate += return_rate
-            total_trades += env.total_trades
-            total_invalid_actions += env.invalid_actions
+            scores.append(score)
+            balances.append(env.balance)
+            invalid_action_counts.append(env.invalid_actions)
             
             if verbose:
-                print(f"\nEvaluation Episode {e+1}/{episodes}")
-                print(f"Final Balance: {env.balance:.2f}")
-                print(f"Final Portfolio Value: {final_portfolio_value:.2f}")
-                print(f"Return Rate: {return_rate:.4f}")
-                print(f"Trades: {env.total_trades}")
-                print(f"Profit Trades: {profit_trades}")
-                print(f"Loss Trades: {loss_trades}")
-                print(f"Average Reward: {np.mean(episode_rewards):.4f}")
-                print(f"Total Shares Bought: {env.total_shares_bought}")
-                print(f"Total Shares Sold: {env.total_shares_sold}")
-                print(f"Invalid Actions: {env.invalid_actions}")
-                print(f"Episode Score: {episode_reward:.4f}")
+                print(f"Validation Episode: {e+1}/{episodes}, "
+                      f"Average Score Per Step: {np.sum(scores) / env.steps_per_episode:.4f}, "
+                      f"Balance: {env.balance:.2f}, "
+                      f"Trades: {env.total_trades}, "
+                      f"Profit Trades: {profit_trades} "
+                      f"Loss Trades: {loss_trades} "
+                      f"P/L: {env.balance - env.initial_balance} "
+                      f"Invalid Actions: {env.invalid_actions}, "
+                      f"Epsilon: {agent.epsilon:.4f}")
             
-        avg_return_rate = total_return_rate / episodes
         if verbose:
-            print(f"\nEvaluation Summary:")
-            print(f"Final Balance: {env.balance:.2f}")
-            print(f"Final Portfolio Value: {final_portfolio_value:.2f}")
-            print(f"Average Return Rate: {avg_return_rate:.4f}")
-            print(f"Average Trades: {(total_trades / episodes):.1f}")
-            print(f"Average Profit Trades: {total_profit_trades / total_trades if total_trades > 0 else 0}")
-            print(f"Average Loss Trades: {total_loss_trades / total_trades if total_trades > 0 else 0}")
-            print(f"Average Invalid Actions: {(total_invalid_actions / episodes):.1f}")
             print(f'Evaluation Time: {format_duration(time.time() - start_time)}')
 
-        return avg_return_rate
+        evaluation_metrics = {
+            'scores': scores,
+            'balances': balances,
+            'invalid_action_counts': invalid_action_counts
+        }
+
+        return evaluation_metrics
     
     
     def plot_training_results(self, 
@@ -252,47 +250,47 @@ class DQNTrainer:
         """
         plt.figure(figsize=(15, 10))
         
-        # Plot training scores
+        # plot scores
         plt.subplot(2, 3, 1)
         plt.plot(metrics['scores'], label='Training Score')
-        if metrics['validation_scores']:
-            # Plot validation scores at their corresponding episodes
-            validation_episodes = [i*validation_frequency for i in range(len(metrics['validation_scores']))]
-            plt.plot(validation_episodes, metrics['validation_scores'], 'r-', label='Validation Score')
+        validation_episodes = [i*validation_frequency for i in range(len(metrics['validation_scores']))]
+        plt.plot(validation_episodes, metrics['validation_scores'], 'r-', label='Validation Score')
         plt.xlabel('Episode')
         plt.ylabel('Cumulative Score')
         plt.title(f'{model_name} Learning Curve - Cumulative Score')
         plt.legend()
         
-        # Plot final balance after each episode
+        # plot balances
         plt.subplot(2, 3, 2)
-        plt.plot(metrics['balances'])
+        plt.plot(metrics['balances'], label='Training Balance')
+        validation_balances = [i*validation_frequency for i in range(len(metrics['validation_balances']))]
+        plt.plot(validation_balances, metrics['validation_balances'], 'r-', label='Validation Balance')
         plt.xlabel('Episode')
         plt.ylabel('Final Balance ($)')
         plt.title('Portfolio Value at End of Episode')
         
-        # Plot loss history
-        if metrics['loss_history']:
-            plt.subplot(2, 3, 3)
-            plt.plot(metrics['loss_history'])
-            plt.xlabel('Training Step')
-            plt.ylabel('Loss')
-            plt.title('Training Loss')
+        # plot invalid action counts
+        plt.subplot(2, 3, 3)
+        plt.plot(metrics['invalid_action_counts'], label='Training Invalid Actions')
+        validation_invalid_action_counts = [i*validation_frequency for i in range(len(metrics['validation_invalid_action_counts']))]
+        plt.plot(validation_invalid_action_counts, metrics['validation_invalid_action_counts'], 'r-', label='Validation Invalid Actions')
+        plt.xlabel('Episode')
+        plt.ylabel('Invalid Actions')
+        plt.title('Average Invalid Actions During Training')
         
-        # Plot average Q-values
-        if metrics['avg_q_values']:
-            plt.subplot(2, 3, 4)
-            plt.plot(metrics['avg_q_values'])
-            plt.xlabel('Action Selection')
-            plt.ylabel('Average Q-Value')
-            plt.title('Average Q-Values During Training')
-            
-        if metrics['invalid_action_counts']:
-            plt.subplot(2, 3, 5)
-            plt.plot(metrics['invalid_action_counts'])
-            plt.xlabel('Episode')
-            plt.ylabel('Invalid Actions')
-            plt.title('Average Invalid Actions During Training')
+        # plot loss history
+        plt.subplot(2, 3, 4)
+        plt.plot(metrics['loss_history'])
+        plt.xlabel('Training Step')
+        plt.ylabel('Loss')
+        plt.title('Training Loss')
+        
+        # plot average Q-values
+        plt.subplot(2, 3, 5)
+        plt.plot(metrics['avg_q_values'])
+        plt.xlabel('Action Selection')
+        plt.ylabel('Average Q-Value')
+        plt.title('Average Q-Values During Training')
         
         plt.suptitle(f'{ticker} DQN Training Results')
         plt.tight_layout()
@@ -423,7 +421,7 @@ class DQNTrainer:
             # memory_size=100000,
             update_frequency=4,  
             target_update_frequency=200,
-            gradient_max_norm=5
+            gradient_max_norm=1
         )
         
         print('Training start time:', datetime.today())
@@ -454,8 +452,6 @@ class DQNTrainer:
             next_state, _, done, info = test_env.step(action)
             state = next_state
             actions.append(action)
-        
-        print(actions)
         
         info = info['trade_info']
         
