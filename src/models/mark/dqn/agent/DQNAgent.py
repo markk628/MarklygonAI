@@ -6,7 +6,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
-from torch.types import Number
 
 from src.config.config import (
     BATCH_SIZE,
@@ -17,7 +16,6 @@ from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
 from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
 from src.models.mark.dqn.utils.PrioritizedReplayBuffer import PrioritizedReplayBuffer
 
-pd.set_option('display.max_columns', None)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
@@ -50,18 +48,18 @@ class DQNAgent:
         use_prioritized: bool = True,
         per_alpha: float = 0.6, # Alpha for Prioritized Experience Replay
         per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
-        per_beta_increment: float = 0.001 # Beta increment for PER
+        per_beta_increment: float = 0.001, # Beta increment for PER
+        gradient_max_norm: float = 1.0
     ):
         self.market_data_timesteps: int = market_data_timesteps
         self.market_data_features: int = market_data_features
         self.action_size: int = action_size
-        self.total_steps: int = total_steps
         self.batch_size: int = batch_size
         self.discount_factor: float = discount_factor  # gamma (γ)
         self.epsilon: float = epsilon  # epsilon (ε)
         self.decay_rate_multiplier: float = decay_rate_multiplier
         self.epsilon_min: float = epsilon_min
-        self.epsilon_decay_target_pct: float = epsilon_decay_target_pct
+        self.epsilon_decay_target = total_steps * epsilon_decay_target_pct
         self.learning_rate: float = learning_rate
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
@@ -120,6 +118,8 @@ class DQNAgent:
         # Metrics tracking
         self.loss_history = []
         self.avg_q_values = []
+        
+        self.gradient_max_norm = gradient_max_norm
     
     def remember(self, state, action, reward, next_state, done):
         """
@@ -130,7 +130,7 @@ class DQNAgent:
         else:
             self.memory.append((state, action, reward, next_state, done))
 
-    def act(self, state, training=True) -> Number:
+    def act(self, state, training=True) -> int:
         """
         Select action using epsilon-greedy policy
         """
@@ -145,7 +145,7 @@ class DQNAgent:
                 return random.randrange(self.action_size)
 
         # convert state to tensor
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         
         # get q-values from network
         self.main_network.eval()
@@ -172,7 +172,7 @@ class DQNAgent:
         # only update every update_frequency steps
         if self.training_steps % self.update_frequency != 0:
             return
-            
+
         # sample from memory
         if self.use_prioritized:
             batch, indices, is_weights = self.memory.sample(self.batch_size)
@@ -180,21 +180,14 @@ class DQNAgent:
                 return
                 
             states, actions, rewards, next_states, dones = batch
-            is_weights = torch.FloatTensor(is_weights).to(self.device)
         else:
             minibatch = random.sample(self.memory, self.batch_size)
-            states = np.stack([experience[0] for experience in minibatch]).astype(np.float32)
-            actions = np.array([experience[1] for experience in minibatch])
-            rewards = np.array([experience[2] for experience in minibatch])
-            next_states = np.stack([experience[3] for experience in minibatch]).astype(np.float32)
-            dones = np.array([experience[4] for experience in minibatch])
-
-        # convert to tensors
-        states = torch.FloatTensor(states).to(self.device)
-        actions = torch.LongTensor(actions).unsqueeze(1).to(self.device)
-        rewards = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)
-        next_states = torch.FloatTensor(next_states).to(self.device)
-        dones = torch.FloatTensor(dones).unsqueeze(1).to(self.device)
+            batch = list(zip(*minibatch))
+            states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
+            actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
+            rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
+            next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
+            dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
 
         # get current q-values
         q_values = self.main_network(states).gather(1, actions)
@@ -221,7 +214,7 @@ class DQNAgent:
         self.optimizer.zero_grad()
         loss.backward()
         # gradient clipping to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
         self.optimizer.step()
 
         # update priorities in buffer
@@ -238,12 +231,11 @@ class DQNAgent:
 
         # decay epsilon
         if self.epsilon > self.epsilon_min:
-            self.epsilon = (self.epsilon_min) ** ((self._current_step / (self.total_steps * self.epsilon_decay_target_pct)) ** self.decay_rate_multiplier)
-        # if self.epsilon > self.epsilon_min and self.total_steps * self.epsilon_decay_target_pct > 0:
+            self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
+        # if self.epsilon > self.epsilon_min > 0:
         #     # Calculate the decay steps based on the target percentage
-        #     decay_steps = self.total_steps * self.epsilon_decay_target_pct
         #     # Apply the decay formula
-        #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / decay_steps)
+        #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
 
         self._current_step += 1
         

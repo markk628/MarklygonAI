@@ -4,7 +4,6 @@ import random
 import torch
 import torch.nn as nn
 
-pd.set_option('display.max_columns', None)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)

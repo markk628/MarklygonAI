@@ -32,7 +32,6 @@ from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
 from src.utils.utils import format_duration
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 
-pd.set_option('display.max_columns', None)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
@@ -427,7 +426,7 @@ class DQNTrainer:
         # plot training results
         train_date = datetime.today().strftime(r'%Y-%m-%d_%H-%M-%S')
         training_plot = self.plot_training_results(ticker, training_metrics)
-        training_plot.savefig(f'{RESULTS_DIR}/dqn_{ticker}_{train_date}_training_results.png')
+        training_plot.savefig(f'{RESULTS_DIR}/dqn/dqn_{ticker}_{train_date}_training_results.png')
         
         # evaluate on test set
         print("\nEvaluating on test set...")

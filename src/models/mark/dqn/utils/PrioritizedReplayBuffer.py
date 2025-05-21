@@ -1,9 +1,9 @@
 import numpy as np
-import pandas as pd
 import random
 import torch
 
-pd.set_option('display.max_columns', None)
+from src.config.config import DEVICE
+
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
@@ -17,6 +17,7 @@ class PrioritizedReplayBuffer:
         self.alpha = alpha  # How much prioritization to use (0 = uniform, 1 = full prioritization)
         self.beta = beta  # Importance sampling weight (0 = no correction, 1 = full correction)
         self.beta_increment = beta_increment  # Beta increases over time for more correction
+        self.device = DEVICE
         self.buffer = []
         self.priorities = np.zeros(capacity, dtype=np.float32)
         self.position = 0
@@ -59,11 +60,13 @@ class PrioritizedReplayBuffer:
         self.beta = min(1.0, self.beta + self.beta_increment)
         
         batch = list(map(list, zip(*samples)))
-        states = np.array(batch[0])
-        actions = np.array(batch[1])
-        rewards = np.array(batch[2])
-        next_states = np.array(batch[3])
-        dones = np.array(batch[4])
+
+        states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
+        actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
+        rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
+        next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
+        dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
         
         return (states, actions, rewards, next_states, dones), indices, weights
     

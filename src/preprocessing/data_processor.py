@@ -12,7 +12,9 @@ warnings.filterwarnings('ignore')
 
 from src.config.config import (
     WINDOW_SIZE,
-    DEVICE
+    DEVICE,
+    PRICE_FEATURES,
+    TEMPORAL_FEATURES
 )
 
 class FeatureProcessor:
@@ -49,77 +51,18 @@ class FeatureProcessor:
         self.selected_features = None
         self.feature_importance = None
         
-        # Lists to track feature groups
-        self.price_features = ['open', 'high', 'low', 'close', 'vwap']
-        self.volume_features = ['volume', 'transactions']
-        self.momentum_features = [col for col in self.get_default_features() if 
-                                 any(x in col for x in ['rsi', 'macd', 'roc', 'mfi'])]
-        self.volatility_features = [col for col in self.get_default_features() if 
-                                   any(x in col for x in ['atr', 'bband', 'std'])]
-        self.trend_features = [col for col in self.get_default_features() if 
-                              any(x in col for x in ['ema', 'sma', 'adx', 'di'])]
-        self.oscillator_features = [col for col in self.get_default_features() if 
-                                   any(x in col for x in ['stoch', 'cci', 'ultosc'])]
-        self.time_features = [col for col in self.get_default_features() if 
-                             any(x in col for x in ['minute', 'hour', 'day', 'month', 'quarter'])]
-        self.lag_features = [col for col in self.get_default_features() if 'lag' in col]
-        self.rolling_features = [col for col in self.get_default_features() if 'rolling' in col]
-        
-    def get_default_features(self):
-        """Return the default feature list"""
-        return [
-            'open', 'high', 'low', 'close', 'transactions', 'volume', 'vwap', 
-            'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 'stochrsi_k_21_1min', 'stochrsi_d_21_1min', 
-            'rsi_7_1min', 'rsi_14_1min', 'rsi_21_1min', 
-            'macd_5_13_4_1min', 'macd_signal_5_13_4_1min', 'macd_hist_5_13_4_1min', 
-            'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min', 
-            'roc_5_1min', 'roc_10_1min', 'roc_20_1min', 
-            'ultosc_5_15_30_1min', 'ultosc_7_21_42_1min', 'ultosc_10_30_60_1min', 
-            'plusdi_10_1min', 'plusdi_20_1min', 'plusdi_30_1min', 
-            'minusdi_10_1min', 'minusdi_20_1min', 'minusdi_30_1min', 
-            'adx_10_1min', 'adx_20_1min', 'adx_30_1min', 
-            'cci_10_1min', 'cci_20_1min', 'cci_30_1min', 
-            'ema_3_1min', 'ema_5_1min', 'ema_9_1min', 'ema_21_1min', 'ema_50_1min', 
-            'sma_5_1min', 'sma_10_1min', 'sma_20_1min', 'sma_50_1min', 
-            'obv_1min', 'mfi_7_1min', 'mfi_14_1min', 'mfi_21_1min', 
-            'bband_upper_10_1min', 'bband_middle_10_1min', 'bband_lower_10_1min', 
-            'bband_upper_20_1min', 'bband_middle_20_1min', 'bband_lower_20_1min', 
-            'bband_upper_50_1min', 'bband_middle_50_1min', 'bband_lower_50_1min', 
-            'atr_14_1min', 'atr_21_1min', 
-            'minute', 'minute_sin', 'minute_cos', 
-            'hour', 'hour_sin', 'hour_cos', 
-            'day', 'day_sin', 'day_cos', 
-            'month', 'month_sin', 'month_cos', 
-            'quarter', 'quarter_sin', 'quarter_cos', 
-            'time_since_last_significant_change', 
-            'open_lag_1', 'high_lag_1', 'low_lag_1', 'close_lag_1', 'volume_lag_1', 'vwap_lag_1', 
-            'open_lag_5', 'high_lag_5', 'low_lag_5', 'close_lag_5', 'volume_lag_5', 'vwap_lag_5', 
-            'open_lag_10', 'high_lag_10', 'low_lag_10', 'close_lag_10', 'volume_lag_10', 'vwap_lag_10', 
-            'close_rolling_mean_5', 'close_rolling_std_5', 
-            'volume_rolling_mean_5', 'volume_rolling_std_5', 
-            'close_rolling_mean_15', 'close_rolling_std_15', 
-            'volume_rolling_mean_15', 'volume_rolling_std_15', 
-            'close_rolling_mean_30', 'close_rolling_std_30', 
-            'volume_rolling_mean_30', 'volume_rolling_std_30', 
-            'close_diff_1', 'close_pct_change_1', 'log_return_1', 
-            'high_low_range', 'close_open_range', 
-            'log_return_rolling_std_15', 'log_return_rolling_std_30', 
-            'high_low_ratio', 'close_open_ratio'
-        ]
-        
     def remove_highly_correlated(self, X):
         """Remove highly correlated features"""
-        features_to_drop = ['minute', 'hour', 'day', 'month', 'quarter']
         if isinstance(X, pd.DataFrame):
             corr_matrix = X.corr().abs()
             upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)] + features_to_drop
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
             return X.drop(columns=to_drop), to_drop
         else:
             df = pd.DataFrame(X)
             corr_matrix = df.corr().abs()
             upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (self.price_features + self.time_features)] + features_to_drop
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
             return df.drop(columns=to_drop).values, to_drop
         
     def _build_autoencoder(self, input_dim):
@@ -279,14 +222,10 @@ class FeatureProcessor:
         """
         Fit the feature processor to the training data
         
-        Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The training features
-        y : pandas Series or numpy array, optional
-            The target variable (next price movement for DQN)
-        train_ae : bool, default=False
-            Whether to train the autoencoder (more computationally intensive)
+        Args:
+            X (pandas DataFrame or numpy.array): The training features
+            y (pandas Series or numpy.array, optional): The target variable (next price movement for DQN)
+            train_ae (bool): Whether to train the autoencoder (more computationally intensive)
         """
         # Save original column names if dataframe
         if isinstance(X, pd.DataFrame):
@@ -348,15 +287,11 @@ class FeatureProcessor:
         """
         Transform features using the fitted processor
         
-        Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The features to transform
+        Args:
+            X (pandas.DataFrame or numpy.ndarray): The features to transform
         
         Returns:
-        --------
-        numpy array
-            The selected/extracted features
+            numpy.array: The selected/extracted features
         """
         # Handle DataFrame or numpy array
         if isinstance(X, pd.DataFrame):
@@ -438,14 +373,10 @@ class RollingWindowFeatureProcessor:
                  feature_processor=None,
                  flatten_output=True):
         """
-        Parameters:
-        -----------
-        window_size : int
-            The size of the rolling window for observations
-        feature_processor : FeatureProcessor object
-            The feature processor to use on each window
-        flatten_output : bool
-            Whether to flatten the output for use with fully connected networks
+        Args:
+            window_size (int): The size of the rolling window for observations
+            feature_processor (FeatureProcessor): The feature processor to use on each window
+            flatten_output (bool): Whether to flatten the output for use with fully connected networks
         """
         self.window_size = window_size
         self.feature_processor = FeatureProcessor(window_size=window_size) if feature_processor is None else feature_processor
@@ -485,7 +416,7 @@ class RollingWindowFeatureProcessor:
         """
         Transform features using rolling windows
         
-        Parameters:
+        Args:
             X (pandas.DataFrame or numpy.ndarray): The features to transform
         
         Returns:

@@ -11,7 +11,6 @@ from src.config.config import (
 )
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 
-pd.set_option('display.max_columns', None)
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
@@ -626,7 +625,7 @@ class StockTradingEnv:
         can_trade = (self.current_step - self.last_trade_step) >= self.min_trade_interval
 
         # force sell all shares at the end of the episode
-        if self.current_step >= len(self.data) - 1:
+        if self.current_step >= self.data_nparray.shape[0] - 1:
             done = True
             if self.shares_held > 0:
                 sell_price = self.shares_held * current_price
