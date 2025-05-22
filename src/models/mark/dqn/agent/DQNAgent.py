@@ -14,7 +14,10 @@ from src.config.config import (
 )
 from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
 from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
+from src.models.mark.dqn.model.HierarchicalTradingDQNNetwork import HierarchicalTradingDQNNetwork
+from src.models.mark.dqn.model.HierarchicalTradingDuelingDQNNetwork import HierarchicalTradingDuelingDQNNetwork
 from src.models.mark.dqn.utils.PrioritizedReplayBuffer import PrioritizedReplayBuffer
+from src.models.mark.dqn.utils.PrioritizedReplayBufferVRAM import PrioritizedReplayBufferVRAM
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -27,12 +30,7 @@ class DQNAgent:
     """
     def __init__(
         self, 
-        market_data_timesteps: int,
-        market_data_features: int,
-        portfolio_info_size: int,
-        market_info_size: int,
-        constraint_size: int,
-        action_size: int,
+        sizes,
         total_steps: int,
         learning_rate: float = 0.001,
         discount_factor: float = 0.95,
@@ -45,15 +43,15 @@ class DQNAgent:
         update_frequency: int = 4,
         target_update_frequency: int = 100,
         use_dueling: bool = True,
+        use_hierarchical: bool = True,
         use_prioritized: bool = True,
+        use_vram: bool = True,
         per_alpha: float = 0.6, # Alpha for Prioritized Experience Replay
         per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
         per_beta_increment: float = 0.001, # Beta increment for PER
         gradient_max_norm: float = 1.0
     ):
-        self.market_data_timesteps: int = market_data_timesteps
-        self.market_data_features: int = market_data_features
-        self.action_size: int = action_size
+        self.sizes = sizes
         self.batch_size: int = batch_size
         self.discount_factor: float = discount_factor  # gamma (γ)
         self.epsilon: float = epsilon  # epsilon (ε)
@@ -63,6 +61,7 @@ class DQNAgent:
         self.learning_rate: float = learning_rate
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
+        self.use_vram: bool = use_vram
         self._current_step: int = 0
 
         # early forced exploration settings
@@ -76,11 +75,23 @@ class DQNAgent:
         
         # network initialization
         if use_dueling:
-            self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
-            self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            if use_hierarchical:
+                print('Using Hierarchical Dueling DQN')
+                self.main_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
+                self.target_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
+            else:
+                print('Using Dueling DQN')
+                self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
+                self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
         else:
-            self.main_network: DQNNetwork = DQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
-            self.target_network: DQNNetwork = DQNNetwork(market_data_timesteps, market_data_features, portfolio_info_size, market_info_size, constraint_size, action_size).to(self.device)
+            if use_hierarchical:
+                print('Using Hierarchical DQN')
+                self.main_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
+                self.target_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
+            else:
+                print('Using DQN')
+                self.main_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
+                self.target_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
             
         self.target_network.load_state_dict(self.main_network.state_dict())
         self.target_network.eval() 
@@ -103,7 +114,14 @@ class DQNAgent:
         
         # Memory setup
         if use_prioritized:
-            self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+            if use_vram:
+                stock_data_window_size = sizes['stock_data_window_size']
+                stock_data_feature_size = sizes['stock_data_feature_size']
+                stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
+                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + 1
+                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+            else:
+                self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
         else:
             self.memory: deque = deque(maxlen=memory_size)
             
@@ -142,7 +160,7 @@ class DQNAgent:
                     # force buy or sell
                     return random.choice([0, 2])
             if np.random.rand() < self.epsilon:
-                return random.randrange(self.action_size)
+                return random.randrange(self.sizes['action_size'])
 
         # convert state to tensor
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
@@ -219,6 +237,8 @@ class DQNAgent:
 
         # update priorities in buffer
         if self.use_prioritized:
+            if self.use_vram:
+                td_errors = td_errors.squeeze()
             self.memory.update_priorities(indices, td_errors + 1e-6)  # small constant for stability
 
         # update target network periodically
