@@ -13,10 +13,10 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         self.portfolio_metrics_size = sizes['portfolio_metrics_size']
         self.performance_metrics_size = sizes['performance_metrics_size']
         self.risk_metrics_size = sizes['risk_metrics_size']
-        self.price_action_metris_size = sizes['price_action_metris_size']
+        self.price_action_metrics_size = sizes['price_action_metrics_size']
         self.position_management_metrics_size = sizes['position_management_metrics_size']
         self.trading_behavior_metrics_size = sizes['trading_behavior_metrics_size']
-        self.temporal_metric_size = sizes['temporal_metric_size']
+        self.temporal_metrics_size = sizes['temporal_metrics_size']
         self.action_size = sizes['action_size']
         
         # --- Stock Data Conv1D Branch with Temporal Self-Attention ---
@@ -105,7 +105,7 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         )
         
         self.price_action_branch = nn.Sequential(
-            nn.Linear(self.price_action_metris_size, 32),
+            nn.Linear(self.price_action_metrics_size, 32),
             nn.BatchNorm1d(32),
             nn.LeakyReLU(negative_slope=0.01),
             nn.Dropout(0.2),
@@ -145,9 +145,9 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         self.temporal_feature_dim = 4  # Will be projected to this dimension
         
         # project temporal features to common dimension
-        self.micro_timing_projection = nn.Linear(self.temporal_metric_size, self.temporal_feature_dim)
-        self.intraday_timing_projection = nn.Linear(self.temporal_metric_size, self.temporal_feature_dim)
-        self.weekly_timing_projection = nn.Linear(self.temporal_metric_size, self.temporal_feature_dim)
+        self.micro_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
+        self.intraday_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
+        self.weekly_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
         
         # temporal attention layer
         self.temporal_attention = TemporalAttentionLayer(self.temporal_feature_dim, num_heads=2)
@@ -245,11 +245,11 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         performance_start_idx = portfolio_start_idx + self.portfolio_metrics_size
         risk_start_idx = performance_start_idx + self.performance_metrics_size
         price_action_start_idx = risk_start_idx + self.risk_metrics_size
-        position_management_start_idx = price_action_start_idx + self.price_action_metris_size
+        position_management_start_idx = price_action_start_idx + self.price_action_metrics_size
         trading_behavior_start_idx = position_management_start_idx + self.position_management_metrics_size
         micro_timing_start_idx = trading_behavior_start_idx + self.trading_behavior_metrics_size
-        intraday_timing_start_idx = micro_timing_start_idx + self.temporal_metric_size
-        weekly_timing_start_idx = intraday_timing_start_idx + self.temporal_metric_size
+        intraday_timing_start_idx = micro_timing_start_idx + self.temporal_metrics_size
+        weekly_timing_start_idx = intraday_timing_start_idx + self.temporal_metrics_size
         
         # 1. Process stock data with temporal attention
         stock_data_flat = x[:, :portfolio_start_idx]

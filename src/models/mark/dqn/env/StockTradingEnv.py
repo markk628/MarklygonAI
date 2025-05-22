@@ -1015,10 +1015,10 @@ class StockTradingEnv:
                 'portfolio_metrics_size': 4,
                 'performance_metrics_size': 8,
                 'risk_metrics_size': 4,
-                'price_action_metris_size': 10,
+                'price_action_metrics_size': 10,
                 'position_management_metrics_size': 7,
                 'trading_behavior_metrics_size': 8,
-                'temporal_metric_size': 2,
+                'temporal_metrics_size': 2,
                 'action_size': 3
             }
         return {
