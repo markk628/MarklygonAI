@@ -75,6 +75,8 @@ class PrioritizedReplayBuffer:
         """
         Update priorities based on TD errors
         """
+        indices = indices.to(self.device) if indices.device != self.device else indices
+        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
         for idx, priority in zip(indices, priorities):
             self.priorities[idx] = priority
         

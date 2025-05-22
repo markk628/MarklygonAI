@@ -223,7 +223,7 @@ class DQNAgent:
         # calculate loss
         if self.use_prioritized:
             # TD errors for updating priorities
-            td_errors = torch.abs(q_values - target_q_values).detach().cpu().numpy()
+            td_errors = torch.abs(q_values - target_q_values).detach()
             # wighted MSE loss
             loss = (is_weights.unsqueeze(1) * F.mse_loss(q_values, target_q_values, reduction='none')).mean()
         else:
@@ -239,9 +239,7 @@ class DQNAgent:
 
         # update priorities in buffer
         if self.use_prioritized:
-            if self.use_vram:
-                td_errors = td_errors.squeeze()
-            self.memory.update_priorities(indices, td_errors + 1e-6)  # small constant for stability
+            self.memory.update_priorities(indices, td_errors.squeeze() + 1e-6)  # small constant for stability
 
         # update target network periodically
         self.update_counter += 1

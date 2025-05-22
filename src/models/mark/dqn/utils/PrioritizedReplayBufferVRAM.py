@@ -8,6 +8,8 @@ np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
 
+import time
+
 class PrioritizedReplayBufferVRAM:
     def __init__(self, capacity, state_dim, alpha=0.6, beta=0.4, beta_increment=0.001):
         self.capacity = capacity
@@ -21,7 +23,7 @@ class PrioritizedReplayBufferVRAM:
         self.rewards = torch.zeros((capacity, 1), dtype=torch.float32, device=self.device)
         self.next_states = torch.zeros((capacity, state_dim), dtype=torch.float32, device=self.device)
         self.dones = torch.zeros((capacity, 1), dtype=torch.float32, device=self.device)
-        self.priorities = torch.zeros((capacity,), dtype=torch.float32, device=self.device)
+        self.priorities = torch.zeros(capacity, dtype=torch.float32, device=self.device)
         
         self.position = 0
         self.size = 0
@@ -47,7 +49,6 @@ class PrioritizedReplayBufferVRAM:
         # Priorities for available indices
         probs = (self.priorities[:self.size] + 1e-6) ** self.alpha
         probs /= probs.sum()
-        
         indices = np.random.choice(self.size, batch_size, p=probs.cpu().numpy())
         indices = torch.tensor(indices, dtype=torch.long, device=self.device)
 
@@ -64,8 +65,8 @@ class PrioritizedReplayBufferVRAM:
         return (states, actions, rewards, next_states, dones), indices, weights
 
     def update_priorities(self, indices, priorities):
-        indices = torch.tensor(indices, dtype=torch.long, device=self.device)
-        priorities = torch.tensor(priorities, dtype=torch.float32, device=self.device)
+        indices = indices.to(self.device) if indices.device != self.device else indices
+        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
 
         self.priorities[indices] = priorities
         self.max_priority = max(self.max_priority, priorities.max().item())
