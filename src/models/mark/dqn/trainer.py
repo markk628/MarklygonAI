@@ -14,18 +14,7 @@ from src.config.config import (
     TRAIN_RATIO, 
     VALID_RATIO,
     NUM_EPISODES,
-    EVALUATE_INTERVAL,
-    
-    # PRICE_FEATURES,
-    # VOLUME_FEATURES,
-    # MOMENTUM_FEATURES,
-    # TREND_FEATURES,
-    # VOLATILLITY_FEATURES,
-    # OCILLATOR_FEATURES,
-    # LAGGED_FEATURES,
-    # ROLLING_FEAATURES,
-    # PRICE_RANGE_FEATURES,
-    # TEMPORAL_FEATURES
+    EVALUATE_INTERVAL
 )
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
@@ -129,14 +118,14 @@ class DQNTrainer:
             invalid_action_counts.append(env.invalid_actions)
             
             if (e + 1) % 5 == 0:
-                print(f"\nEpisode: {e+1}/{episodes}, "
-                      f"Average Score Per Step: {np.sum(scores) / env.steps_per_episode:.4f}, "
-                      f"Balance: {env.balance:.2f}, "
-                      f"Trades: {env.total_trades}, "
+                print(f"\nT. Episode: {e+1}/{episodes} | "
+                      f"Average Score Per Step: {score / env.steps_per_episode:.4f} | "
+                      f"Balance: {env.balance:.2f} | "
+                      f"Trades: {env.total_trades} | "
                       f"Profit Trades: {profit_trades} "
-                      f"Loss Trades: {loss_trades} "
-                      f"P/L: {env.balance - env.initial_balance} "
-                      f"Invalid Actions: {env.invalid_actions}, "
+                      f"Loss Trades: {loss_trades} | "
+                      f"P/L: {env.balance - env.initial_balance:.4f} | "
+                      f"Invalid Actions: {env.invalid_actions} | "
                       f"Epsilon: {agent.epsilon:.4f}")
             
             # validation if provided
@@ -218,14 +207,14 @@ class DQNTrainer:
             invalid_action_counts.append(env.invalid_actions)
             
             if verbose:
-                print(f"Validation Episode: {e+1}/{episodes}, "
-                      f"Average Score Per Step: {np.sum(scores) / env.steps_per_episode:.4f}, "
-                      f"Balance: {env.balance:.2f}, "
-                      f"Trades: {env.total_trades}, "
-                      f"Profit Trades: {profit_trades} "
-                      f"Loss Trades: {loss_trades} "
-                      f"P/L: {env.balance - env.initial_balance} "
-                      f"Invalid Actions: {env.invalid_actions}, "
+                print(f"V. Episode: {e+1}/{episodes} | "
+                      f"Average Score Per Step: {score / env.steps_per_episode:.4f} | "
+                      f"Balance: {env.balance:.2f} | "
+                      f"Trades: {env.total_trades} | "
+                      f"Profit Trades: {profit_trades} | "
+                      f"Loss Trades: {loss_trades} | "
+                      f"P/L: {env.balance - env.initial_balance:.4f} | "
+                      f"Invalid Actions: {env.invalid_actions} | "
                       f"Epsilon: {agent.epsilon:.4f}")
             
         if verbose:
@@ -317,10 +306,10 @@ class DQNTrainer:
         
         if buy_indices:
             plt.scatter(buy_indices, [price_history[i] for i in buy_indices], 
-                    color='green', marker='^', s=100, label='Buy')
+                    color='green', marker='^', s=60, label='Buy')
         if sell_indices:
             plt.scatter(sell_indices, [price_history[i] for i in sell_indices], 
-                    color='red', marker='v', s=100, label='Sell')
+                    color='red', marker='v', s=60, label='Sell')
         
         plt.xlabel('Trading Step')
         plt.ylabel('Price ($)')
@@ -361,66 +350,41 @@ class DQNTrainer:
         print('Preprocessing data...')
         window_processsor = RollingWindowFeatureProcessor()
         window_processsor.fit(train_data.iloc[:, :-1], train_data['target'])
-        
-        train_data = train_data[window_processsor.feature_processor.filtered_feature_names]
-        val_data = val_data[window_processsor.feature_processor.filtered_feature_names]
-        test_data = test_data[window_processsor.feature_processor.filtered_feature_names]
-        
-        # price_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[PRICE_FEATURES])
-        # volume_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[VOLUME_FEATURES])
-        # momentum_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[MOMENTUM_FEATURES])
-        # trend_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[TREND_FEATURES])
-        # volatillity_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[VOLATILLITY_FEATURES])
-        # ocillator_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[OCILLATOR_FEATURES])
-        # lagged_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[LAGGED_FEATURES])
-        # rolling_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[ROLLING_FEAATURES])
-        # price_range_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[PRICE_RANGE_FEATURES])
-        # temporal_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data[TEMPORAL_FEATURES])
-        # features_to_drop = price_dropped_cols + volume_dropped_cols + momentum_dropped_cols + trend_dropped_cols + volatillity_dropped_cols + ocillator_dropped_cols + lagged_dropped_cols + rolling_dropped_cols + price_range_dropped_cols + temporal_dropped_cols
-        # train_data = train_data.drop(features_to_drop, axis=1, inplace=False)
-        # val_data = val_data.drop(features_to_drop, axis=1, inplace=False)
-        # test_data = test_data.drop(features_to_drop, axis=1, inplace=False)
-        
-        # global_features_dropped_cols = window_processsor.feature_processor.return_highly_correlated(train_data)
-        
-        # train_data = train_data.drop(global_features_dropped_cols, axis=1, inplace=False)
-        # val_data = val_data.drop(global_features_dropped_cols, axis=1, inplace=False)
-        # test_data = test_data.drop(global_features_dropped_cols, axis=1, inplace=False)
+        use_hierarchical = True
         
         # create environments
         train_env = StockTradingEnv(
             train_data, 
             window_processsor,
-            mode='train'
+            mode='train',
+            use_hierarchical=use_hierarchical
         )
         
         val_env = StockTradingEnv(
             val_data, 
             window_processsor,
-            mode='validation'
+            mode='validation',
+            use_hierarchical=use_hierarchical
         )
         
         test_env = StockTradingEnv(
             test_data, 
             window_processsor,
-            mode='test'
+            mode='test',
+            use_hierarchical=use_hierarchical
         )
         
         # initialize agent
         agent = DQNAgent(
-            market_data_timesteps=WINDOW_SIZE,
-            market_data_features=train_env.feature_extracted_column_count,
-            portfolio_info_size=train_env.portfolio_info_count,
-            market_info_size=train_env.market_info_count, 
-            constraint_size=train_env.constraint_info_count, 
-            action_size=3,
+            sizes=train_env.get_branch_sizes(),
             total_steps=(len(train_data) - WINDOW_SIZE) * NUM_EPISODES,
             decay_rate_multiplier=1,
             epsilon_decay_target_pct=0.4,
-            # batch_size=4094,
-            # memory_size=100000,
             update_frequency=4,  
             target_update_frequency=200,
+            use_dueling=True,
+            use_prioritized=True,
+            use_hierarchical=use_hierarchical,
             gradient_max_norm=1
         )
         
