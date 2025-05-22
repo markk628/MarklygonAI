@@ -68,6 +68,7 @@ class DQNAgent:
         self.initial_exploration_episodes: int = 20
         self.force_trade_probability: float = 0.8
         self.current_episode: int = 0
+        self._action_size = sizes['action_size']
 
         # device setup
         self.device = DEVICE
@@ -118,7 +119,7 @@ class DQNAgent:
                 stock_data_window_size = sizes['stock_data_window_size']
                 stock_data_feature_size = sizes['stock_data_feature_size']
                 stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
-                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + 1
+                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size - self._action_size
                 self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
             else:
                 self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
@@ -160,7 +161,7 @@ class DQNAgent:
                     # force buy or sell
                     return random.choice([0, 2])
             if np.random.rand() < self.epsilon:
-                return random.randrange(self.sizes['action_size'])
+                return random.randrange(self._action_size)
 
         # convert state to tensor
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
