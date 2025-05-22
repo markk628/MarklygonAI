@@ -1,11 +1,12 @@
 import numpy as np
-import pandas as pd
 import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torch.profiler
 from collections import deque
+from torch.cuda.amp import autocast, GradScaler
 
 from src.config.config import (
     BATCH_SIZE,
@@ -140,6 +141,7 @@ class DQNAgent:
         self.avg_q_values = []
         
         self.gradient_max_norm = gradient_max_norm
+        self.scaler = GradScaler()
     
     def remember(self, state, action, reward, next_state, done):
         """
@@ -188,76 +190,83 @@ class DQNAgent:
             return
                 
         self.training_steps += 1
-        
+        self._current_step += 1
         # only update every update_frequency steps
         if self.training_steps % self.update_frequency != 0:
             return
 
-        # sample from memory
-        if self.use_prioritized:
-            batch, indices, is_weights = self.memory.sample(self.batch_size)
-            if batch is None:  # not enough samples
-                return
+        # with torch.profiler.profile(
+        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1), # Adjust for your needs
+        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/dqn_profile'),
+        #     record_shapes=True,
+        #     profile_memory=True,
+        #     with_stack=True
+        # ) as prof:
+        with autocast():
+            # sample from memory
+            if self.use_prioritized:
+                batch, indices, is_weights = self.memory.sample(self.batch_size)
+                if batch is None:  # not enough samples
+                    return
+                    
+                states, actions, rewards, next_states, dones = batch
+            else:
+                minibatch = random.sample(self.memory, self.batch_size)
+                batch = list(zip(*minibatch))
+                states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
+                actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
+                rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
+                next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
+                dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+
+            # get current q-values
+            q_values = self.main_network(states).gather(1, actions)
+
+            # double DQN: get actions from main network
+            with torch.no_grad():
+                next_actions = self.main_network(next_states).max(1, keepdim=True)[1]
+                # get q-values for those actions from target network
+                next_q_values = self.target_network(next_states).gather(1, next_actions)
+                # calculate target q-values
+                target_q_values = rewards + (self.discount_factor * next_q_values * (1 - dones))
+
+            # calculate loss
+            if self.use_prioritized:
+                # TD errors for updating priorities
+                td_errors = torch.abs(q_values - target_q_values).detach()
+                # wighted MSE loss
+                loss = (is_weights.unsqueeze(1) * F.mse_loss(q_values, target_q_values, reduction='none')).mean()
+            else:
+                # SmoothL1Losss
+                loss = self.loss_fn(q_values, target_q_values)
                 
-            states, actions, rewards, next_states, dones = batch
-        else:
-            minibatch = random.sample(self.memory, self.batch_size)
-            batch = list(zip(*minibatch))
-            states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
-            actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
-            rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
-            next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
-            dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+            # optimize
+            self.optimizer.zero_grad()
+            loss.backward()
+            # gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+            self.optimizer.step()
 
-        # get current q-values
-        q_values = self.main_network(states).gather(1, actions)
+            # update priorities in buffer
+            if self.use_prioritized:
+                self.memory.update_priorities(indices, td_errors.squeeze() + 1e-6)  # small constant for stability
 
-        # double DQN: get actions from main network
-        with torch.no_grad():
-            next_actions = self.main_network(next_states).max(1, keepdim=True)[1]
-            # get q-values for those actions from target network
-            next_q_values = self.target_network(next_states).gather(1, next_actions)
-            # calculate target q-values
-            target_q_values = rewards + (self.discount_factor * next_q_values * (1 - dones))
+            # update target network periodically
+            self.update_counter += 1
+            if self.update_counter % self.target_update_frequency == 0:
+                self.target_network.load_state_dict(self.main_network.state_dict())
+                
+            # track loss
+            self.loss_history.append(loss.item())
 
-        # calculate loss
-        if self.use_prioritized:
-            # TD errors for updating priorities
-            td_errors = torch.abs(q_values - target_q_values).detach()
-            # wighted MSE loss
-            loss = (is_weights.unsqueeze(1) * F.mse_loss(q_values, target_q_values, reduction='none')).mean()
-        else:
-            # SmoothL1Losss
-            loss = self.loss_fn(q_values, target_q_values)
-            
-        # optimize
-        self.optimizer.zero_grad()
-        loss.backward()
-        # gradient clipping to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
-        self.optimizer.step()
+            # decay epsilon
+            if self.epsilon > self.epsilon_min:
+                self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
+            # if self.epsilon > self.epsilon_min > 0:
+            #     # Calculate the decay steps based on the target percentage
+            #     # Apply the decay formula
+            #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
 
-        # update priorities in buffer
-        if self.use_prioritized:
-            self.memory.update_priorities(indices, td_errors.squeeze() + 1e-6)  # small constant for stability
-
-        # update target network periodically
-        self.update_counter += 1
-        if self.update_counter % self.target_update_frequency == 0:
-            self.target_network.load_state_dict(self.main_network.state_dict())
-            
-        # track loss
-        self.loss_history.append(loss.item())
-
-        # decay epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
-        # if self.epsilon > self.epsilon_min > 0:
-        #     # Calculate the decay steps based on the target percentage
-        #     # Apply the decay formula
-        #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
-
-        self._current_step += 1
         
     def load(self, file_path: str):
         """Load model weights from file"""
