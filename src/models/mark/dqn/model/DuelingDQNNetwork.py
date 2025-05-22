@@ -1,29 +1,17 @@
-import numpy as np
-import pandas as pd
-import random
 import torch
 import torch.nn as nn
 
-np.random.seed(42)
-torch.manual_seed(42)
-random.seed(42)
 
 class DuelingDQNNetwork(nn.Module):
-    def __init__(self, 
-                 market_data_timesteps: int,
-                 market_data_features: int, 
-                 portfolio_info_size: int,
-                 market_info_size_flat: int, # Renamed to clarify it's the flattened market info
-                 constraint_size: int,
-                 action_size: int):
+    def __init__(self, sizes):
         super(DuelingDQNNetwork, self).__init__()
 
-        self.market_data_timesteps = market_data_timesteps
-        self.market_data_features = market_data_features
-        self.portfolio_info_size = portfolio_info_size
-        self.market_info_size_flat = market_info_size_flat # This is for other flattened market features if any
-        self.constraint_size = constraint_size
-        self.action_size = action_size
+        self.market_data_timesteps = sizes['stock_data_window_size']
+        self.market_data_features = sizes['stock_data_feature_size']
+        self.portfolio_info_size = sizes['portfolio_metrics_size']
+        self.market_info_size_flat = sizes['market_state_metrics_size']
+        self.constraint_size = sizes['constraint_metrics_size']
+        self.action_size = sizes['action_size']
 
         # --- state_layers using Conv1d for 2D market data ---
         # Input to Conv1d: (batch_size, in_channels, sequence_length)
@@ -42,11 +30,7 @@ class DuelingDQNNetwork(nn.Module):
             nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(256),
             nn.Dropout(0.3),
-            # After convolutions, you'll likely want to flatten or pool
-            # to get a fixed-size feature vector for the dense layers.
-            # MaxPool1d can help reduce the sequence length.
-            nn.AdaptiveMaxPool1d(1), # Pools across the time dimension to get a fixed size output
-            nn.Flatten()
+            nn.AdaptiveMaxPool1d(1) # pool to get features ready for Linear layer
         )
         
         # Calculate the output size of the Conv1d layers after AdaptiveMaxPool1d(1)
@@ -65,7 +49,7 @@ class DuelingDQNNetwork(nn.Module):
         )
         
         self.portfolio_layers = nn.Sequential(
-            nn.Linear(portfolio_info_size, 256),
+            nn.Linear(self.portfolio_info_size, 256),
             nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(256),
             nn.Dropout(0.3),
@@ -82,7 +66,7 @@ class DuelingDQNNetwork(nn.Module):
         )
         
         self.market_layers = nn.Sequential(
-            nn.Linear(market_info_size_flat, 64), 
+            nn.Linear(self.market_info_size_flat, 64), 
             nn.LeakyReLU(negative_slope=0.01), # try GELU
             nn.BatchNorm1d(64), # TODO try LayerNorm
             nn.Dropout(0.3),
@@ -95,7 +79,7 @@ class DuelingDQNNetwork(nn.Module):
         )
 
         self.constraint_layers = nn.Sequential(
-            nn.Linear(constraint_size, 64), 
+            nn.Linear(self.constraint_size, 64), 
             nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
@@ -127,7 +111,7 @@ class DuelingDQNNetwork(nn.Module):
             nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),
-            nn.Linear(64, action_size)
+            nn.Linear(64, self.action_size)
         )
 
         # initialize optimized weights
