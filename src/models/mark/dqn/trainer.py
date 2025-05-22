@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import random
+import statistics
 import time
 import torch
 from datetime import datetime
@@ -135,7 +136,7 @@ class DQNTrainer:
                 validation_balances += validation_metrics['balances']
                 validation_invalid_action_counts += validation_metrics['invalid_action_counts']
                 
-                validation_score = np.mean(validation_metrics['scores'])
+                validation_score = statistics.mean(validation_metrics['scores'])
                 # early stopping logic
                 if validation_score > best_validation_score:
                     best_validation_score = validation_score
@@ -385,6 +386,7 @@ class DQNTrainer:
             use_dueling=True,
             use_prioritized=True,
             use_hierarchical=use_hierarchical,
+            use_vram=True,
             gradient_max_norm=1
         )
         

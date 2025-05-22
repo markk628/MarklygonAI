@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import random
+import statistics
 import torch
 from numpy.typing import NDArray
 
@@ -369,8 +370,8 @@ class StockTradingEnv:
                             for i in range(max(0, len(self.portfolio_values)-20), len(self.portfolio_values))
                             if i > 0]
             if recent_returns:
-                avg_return = np.mean(recent_returns)
-                std_return = np.std(recent_returns) if np.std(recent_returns) > 0 else 1e-6
+                avg_return = statistics.mean(recent_returns)
+                std_return = statistics.stdev(recent_returns) if statistics.stdev(recent_returns) > 0 else 1e-6
                 sharpe_ratio = avg_return / std_return  # Simplified Sharpe (no risk-free rate)
                 
                 # sortino ratio (only considering negative returns/downside deviation)
@@ -391,7 +392,7 @@ class StockTradingEnv:
         # time-based states
         time_in_position = self.current_trade_duration / self.steps_per_episode if self.position_open else 0
         # calculate optimal holding time based on historical data
-        optimal_holding_time = np.mean(self.successful_trade_durations) / self.steps_per_episode if len(self.successful_trade_durations) > 0 else 0.1
+        optimal_holding_time = statistics.mean(self.successful_trade_durations) / self.steps_per_episode if len(self.successful_trade_durations) > 0 else 0.1
         # time ratio compared to optimal holding time
         time_ratio_to_optimal = time_in_position / optimal_holding_time if optimal_holding_time > 0 else 0
         time_since_last_trade = np.clip((self.current_step - self.last_trade_step) / self.steps_per_episode, 0, 1)

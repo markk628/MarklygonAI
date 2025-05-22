@@ -17,6 +17,7 @@ from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
 from src.models.mark.dqn.model.HierarchicalTradingDQNNetwork import HierarchicalTradingDQNNetwork
 from src.models.mark.dqn.model.HierarchicalTradingDuelingDQNNetwork import HierarchicalTradingDuelingDQNNetwork
 from src.models.mark.dqn.utils.PrioritizedReplayBuffer import PrioritizedReplayBuffer
+from src.models.mark.dqn.utils.PrioritizedReplayBufferVRAM import PrioritizedReplayBufferVRAM
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -42,8 +43,9 @@ class DQNAgent:
         update_frequency: int = 4,
         target_update_frequency: int = 100,
         use_dueling: bool = True,
-        use_prioritized: bool = True,
         use_hierarchical: bool = True,
+        use_prioritized: bool = True,
+        use_vram: bool = True,
         per_alpha: float = 0.6, # Alpha for Prioritized Experience Replay
         per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
         per_beta_increment: float = 0.001, # Beta increment for PER
@@ -59,6 +61,7 @@ class DQNAgent:
         self.learning_rate: float = learning_rate
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
+        self.use_vram: bool = use_vram
         self._current_step: int = 0
 
         # early forced exploration settings
@@ -111,7 +114,14 @@ class DQNAgent:
         
         # Memory setup
         if use_prioritized:
-            self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+            if use_vram:
+                stock_data_window_size = sizes['stock_data_window_size']
+                stock_data_feature_size = sizes['stock_data_feature_size']
+                stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
+                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + 1
+                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+            else:
+                self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
         else:
             self.memory: deque = deque(maxlen=memory_size)
             
@@ -227,6 +237,8 @@ class DQNAgent:
 
         # update priorities in buffer
         if self.use_prioritized:
+            if self.use_vram:
+                td_errors = td_errors.squeeze()
             self.memory.update_priorities(indices, td_errors + 1e-6)  # small constant for stability
 
         # update target network periodically
