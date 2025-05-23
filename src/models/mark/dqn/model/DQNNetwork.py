@@ -64,7 +64,7 @@ class DQNNetwork(nn.Module):
         )
         
         self.market_branch = nn.Sequential(
-            nn.Linear(self.market_info_size, 64), 
+            nn.Linear(self.market_state_metrics_size, 64), 
             nn.LeakyReLU(negative_slope=0.01),
             nn.BatchNorm1d(64),
             nn.Dropout(0.3),

@@ -44,8 +44,6 @@ class DQNTrainer:
         if drop_cols:
             df.drop(drop_cols, axis=1, inplace=True)
         
-        print(f'{ticker} loaded succesfully')
-        
         return df
 
 
@@ -53,8 +51,6 @@ class DQNTrainer:
         """
         Split data chronologically into train, validation, and test sets
         """
-        print(f'Splitting data...')
-        
         train_end = int(len(data) * train_ratio)
         val_end = train_end + int(len(data) * val_ratio)
         train_data = data.iloc[:train_end].copy().reset_index(drop=True)
@@ -87,8 +83,6 @@ class DQNTrainer:
         patience_counter = 0
         best_model_state = None
         start_time = time.time()
-        
-        print('Training agent...')
         
         for e in range(episodes):
             agent.current_episode = e
@@ -344,15 +338,18 @@ class DQNTrainer:
         
         # load and prepare data
         print('Preparing data...')
-        cutoff = pd.Timestamp('2025-05-05 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
         data = self.load_stock_data(ticker, cutoff)
         train_data, val_data, test_data = self.split_data(data)
         
         print('Preprocessing data...')
         window_processsor = RollingWindowFeatureProcessor()
         window_processsor.fit(train_data.iloc[:, :-1], train_data['target'])
+        use_dueling = True
         use_hierarchical = True
-        
+        use_prioritized = True
+        use_vram = True
+                
         # create environments
         train_env = StockTradingEnv(
             train_data, 
@@ -383,10 +380,10 @@ class DQNTrainer:
             epsilon_decay_target_pct=0.4,
             update_frequency=4,  
             target_update_frequency=200,
-            use_dueling=True,
-            use_prioritized=True,
+            use_dueling=use_dueling,
             use_hierarchical=use_hierarchical,
-            use_vram=True,
+            use_prioritized=use_prioritized,
+            use_vram=use_vram,
             gradient_max_norm=1
         )
         

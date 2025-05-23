@@ -871,12 +871,12 @@ class StockTradingEnv:
                 self.trailing_stop_price = 0
                 self.position_open = False
         else:
-            self.action_history.append(action)
             invalid_action = self._is_invalid_action(action)
             if invalid_action:
                 reward += self._calculate_reward(action, trade_info, False)
                 self.invalid_actions += 1
             else:
+                self.action_history.append(action)
                 if action == 0:  # sell
                     if not can_trade:
                         reward -= 0.1

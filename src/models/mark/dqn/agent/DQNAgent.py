@@ -58,12 +58,12 @@ class DQNAgent:
         self.epsilon: float = epsilon  # epsilon (ε)
         self.decay_rate_multiplier: float = decay_rate_multiplier
         self.epsilon_min: float = epsilon_min
-        self.epsilon_decay_target = total_steps * epsilon_decay_target_pct
+        self.epsilon_decay_target = (total_steps - batch_size) * epsilon_decay_target_pct
         self.learning_rate: float = learning_rate
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
         self.use_vram: bool = use_vram
-        self._current_step: int = 0
+        self._current_step: int = 1
 
         # early forced exploration settings
         self.initial_exploration_episodes: int = 20
@@ -73,10 +73,9 @@ class DQNAgent:
 
         # device setup
         self.device = DEVICE
-        print(f"Using device: {self.device}")
         if torch.cuda.is_available():
             device_idx = torch.cuda.current_device()
-            self.device_capability = torch.cuda.get_device_capability(device_idx)
+            self.device_capability = torch.cuda.get_device_capability(device_idx)[0]
         
         # network initialization
         if use_dueling:
@@ -120,6 +119,7 @@ class DQNAgent:
         # Memory setup
         if use_prioritized:
             if use_vram:
+                print('Using PER VRAM')
                 stock_data_window_size = sizes['stock_data_window_size']
                 stock_data_feature_size = sizes['stock_data_feature_size']
                 stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
@@ -127,8 +127,10 @@ class DQNAgent:
                 state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - self._action_size
                 self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
             else:
+                print('Using PER')
                 self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
         else:
+            print('Using deque')
             self.memory: deque = deque(maxlen=memory_size)
             
         self.loss_fn: nn.SmoothL1Loss = nn.SmoothL1Loss()
@@ -251,11 +253,7 @@ class DQNAgent:
             # decay epsilon
             if self.epsilon > self.epsilon_min:
                 self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
-            # if self.epsilon > self.epsilon_min > 0:
-            #     # Calculate the decay steps based on the target percentage
-            #     # Apply the decay formula
-            #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
-            self._current_step += self.update_frequency
+            self._current_step += 1
             
         # skip if not enough samples
         if len(self.memory) < self.batch_size:
