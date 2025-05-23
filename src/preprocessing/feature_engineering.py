@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 import talib as ta
 import json
-import concurrent.futures
+from  concurrent.futures import ThreadPoolExecutor
 
 from src.config.config import DATA_DIR, CUTOFF_TIMESTAMP, TICKERS
 from src.utils.database import DatabaseManager
-from src.utils import utils
+from src.utils.utils import create_directory, save_to_csv
 
 class FeatureEngineer:
     def __init__(self, timestamp: str=CUTOFF_TIMESTAMP, use_json: bool=False):
@@ -258,9 +258,8 @@ class FeatureEngineer:
         df = self._add_targets(df)
         df = self._drop_rows_before_timestamp(df, timestamp)
         base_dir = DATA_DIR / 'feature_engineered'
-        utils.create_directory(base_dir)
-        df.to_csv(f'{base_dir}/{ticker}.csv', index=False)
-        print(f'{ticker} dataframe saved succesfully')
+        create_directory(base_dir)
+        save_to_csv(df, f'{base_dir}/{ticker}.csv', index=False)
 
     def save_feature_engineered_tickers(self, tickers: list[str]=TICKERS):
         """
