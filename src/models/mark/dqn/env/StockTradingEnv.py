@@ -476,10 +476,10 @@ class StockTradingEnv:
                 self._calculate_price_acceleration(),
                 self._calculate_volatility_trend(),
                 self._calculate_price_relative_to_range_hilo(),
-                # highest_price_and_current_price_ratio,
-                # highest_price_and_entry_price_ratio,
-                # lowest_price_and_current_price_ratio,
-                # lowest_price_and_current_price_ratio
+                highest_price_and_current_price_ratio,
+                highest_price_and_entry_price_ratio,
+                lowest_price_and_current_price_ratio,
+                lowest_price_and_entry_price_ratio
             ], dtype=np.float32)
             
             position_management_metrics = np.array([
