@@ -65,9 +65,8 @@ class PrioritizedReplayBufferVRAM:
         return (states, actions, rewards, next_states, dones), indices, weights
 
     def update_priorities(self, indices, priorities):
-        indices = indices.to(self.device) if indices.device != self.device else indices
-        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
-
+        # indices = indices.to(self.device) if indices.device != self.device else indices
+        # priorities = priorities.to(self.device) if priorities.device != self.device else priorities
         self.priorities[indices] = priorities
         self.max_priority = max(self.max_priority, priorities.max().item())
 
