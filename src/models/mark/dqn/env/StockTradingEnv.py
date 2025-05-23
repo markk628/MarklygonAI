@@ -33,7 +33,7 @@ class StockTradingEnv:
     ):  
         # TODO might be able to remove self.data
         self.data: pd.DataFrame = data.reset_index(drop=True)
-        self.filtered_data = data[feature_processor.feature_processor.filtered_feature_names]
+        self.filtered_data_nparray = data[feature_processor.feature_processor.filtered_feature_names].values
         self.data_nparray: np.ndarray = data.values
         self.high_prices_idx = data.columns.get_loc('high')
         self.low_prices_idx = data.columns.get_loc('low')
@@ -228,7 +228,7 @@ class StockTradingEnv:
                 
         start_idx: int = current_idx - self.window_size
         end_idx: int = current_idx
-        features = self.filtered_data.values[start_idx:end_idx]
+        features = self.filtered_data_nparray[start_idx:end_idx]
         # rolling window scaling: Fit and transform on the features of the current window
         processed_features = self.feature_processor.get_state(features)
         self._feature_cache[current_idx] = processed_features

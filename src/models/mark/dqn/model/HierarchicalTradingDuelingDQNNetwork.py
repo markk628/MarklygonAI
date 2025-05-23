@@ -154,7 +154,7 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         
         # final temporal processing
         self.temporal_output_projection = nn.Sequential(
-            nn.Linear(self.temporal_feature_dim * 3, 16),  # 3 temporal components
+            nn.Linear(self.temporal_feature_dim * 3, 16),  # TODO if month and quarter is added change 3 to 5
             nn.LayerNorm(16),
             nn.Tanh(),
             nn.Dropout(0.1),

@@ -65,6 +65,7 @@ class FeatureProcessor:
             to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
             return df.drop(columns=to_drop).values, to_drop
         
+    # TODO optimize autoencoder
     def _build_autoencoder(self, input_dim):
         """Build a simple autoencoder for feature extraction"""
         class Autoencoder(nn.Module):
