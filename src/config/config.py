@@ -34,7 +34,7 @@ DATA_START_DATE = '1430899200000' # 2015-05-06 4:00 AM UTC
 DATA_FREQUENCY = "minute"  # 일별 데이터
 
 # 데이터 전처리 설정
-WINDOW_SIZE = 30  # 관측 윈도우 크기
+WINDOW_SIZE = 60  # 관측 윈도우 크기
 TRAIN_RATIO = 0.7
 VALID_RATIO = 0.15
 TEST_RATIO = 0.15
@@ -53,19 +53,59 @@ GAMMA = 0.99  # 할인 계수
 TAU = 0.005  # 타겟 네트워크 소프트 업데이트 계수
 ALPHA_INIT = 0.2  # 초기 엔트로피 계수
 TARGET_UPDATE_INTERVAL = 1
-REPLAY_BUFFER_SIZE = 1000000
+
+# DQN 모델 하이퍼파라미터
+
+
+REPLAY_BUFFER_SIZE = 100000
 
 # 학습 설정
 BATCH_SIZE = 256
-NUM_EPISODES = 1000
-EVALUATE_INTERVAL = 10
-SAVE_MODEL_INTERVAL = 50
-MAX_STEPS_PER_EPISODE = 1000
+NUM_EPISODES = 50
+EVALUATE_INTERVAL = 5
 
 # 장치 설정
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 CUTOFF_TIMESTAMP = '2021-05-06 08:00:00'
+
+PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
+VOLUME_FEATURES = ['transactions', 'volume']
+MOMENTUM_FEATURES = ['stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
+                     'stochrsi_k_21_1min', 'stochrsi_d_21_1min', 
+                     'rsi_7_1min', 'rsi_14_1min', 'rsi_21_1min', 
+                     'macd_5_13_4_1min', 'macd_signal_5_13_4_1min', 'macd_hist_5_13_4_1min', 
+                     'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min', 
+                     'roc_5_1min', 'roc_10_1min', 'roc_20_1min', 
+                     'ultosc_5_15_30_1min', 'ultosc_7_21_42_1min', 'ultosc_10_30_60_1min', 'obv_1min']
+TREND_FEATURES = ['ema_3_1min', 'ema_5_1min', 'ema_9_1min', 'ema_21_1min', 'ema_50_1min', 
+                  'sma_5_1min', 'sma_10_1min', 'sma_20_1min', 'sma_50_1min', 
+                  'plusdi_10_1min', 'plusdi_20_1min', 'plusdi_30_1min', 
+                  'minusdi_10_1min', 'minusdi_20_1min', 'minusdi_30_1min', 
+                  'adx_10_1min', 'adx_20_1min', 'adx_30_1min']
+VOLATILLITY_FEATURES = ['bband_upper_10_1min', 'bband_middle_10_1min', 'bband_lower_10_1min', 
+                        'bband_upper_20_1min', 'bband_middle_20_1min', 'bband_lower_20_1min', 
+                        'bband_upper_50_1min', 'bband_middle_50_1min', 'bband_lower_50_1min', 
+                        'atr_14_1min', 'atr_21_1min', 
+                        'close_rolling_std_5', 'close_rolling_std_15', 'close_rolling_std_30',
+                        'volume_rolling_std_5', 'volume_rolling_std_15', 'volume_rolling_std_30', 
+                        'log_return_rolling_std_15', 'log_return_rolling_std_30']
+OCILLATOR_FEATURES = ['cci_10_1min', 'cci_20_1min', 'cci_30_1min', 
+                      'mfi_7_1min', 'mfi_14_1min', 'mfi_21_1min']
+LAGGED_FEATURES = ['open_lag_1', 'high_lag_1', 'low_lag_1', 'close_lag_1', 'volume_lag_1', 'vwap_lag_1', 
+                   'open_lag_5', 'high_lag_5', 'low_lag_5', 'close_lag_5', 'volume_lag_5', 'vwap_lag_5', 
+                   'open_lag_10', 'high_lag_10', 'low_lag_10', 'close_lag_10', 'volume_lag_10', 'vwap_lag_10']
+ROLLING_FEAATURES = ['close_rolling_mean_5', 'volume_rolling_mean_5', 
+                     'close_rolling_mean_15', 'volume_rolling_mean_15', 
+                     'close_rolling_mean_30', 'volume_rolling_mean_30']
+PRICE_RANGE_FEATURES = ['close_diff_1', 'close_pct_change_1', 'log_return_1', 'high_low_range', 'close_open_range', 'high_low_ratio', 'close_open_ratio']
+TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos', 
+                     'hour', 'hour_sin', 'hour_cos', 
+                     'day', 'day_sin', 'day_cos', 
+                     'month', 'month_sin', 'month_cos', 
+                     'quarter', 'quarter_sin', 'quarter_cos',
+                     'time_since_last_significant_change']
+
 
 # 로깅 설정
 def setup_logger(name, log_file, level=logging.INFO):
