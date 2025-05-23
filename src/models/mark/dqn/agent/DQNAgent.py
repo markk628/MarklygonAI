@@ -74,6 +74,9 @@ class DQNAgent:
         # device setup
         self.device = DEVICE
         print(f"Using device: {self.device}")
+        if torch.cuda.is_available():
+            device_idx = torch.cuda.current_device()
+            self.device_capability = torch.cuda.get_device_capability(device_idx)
         
         # network initialization
         if use_dueling:
@@ -143,6 +146,7 @@ class DQNAgent:
         self.gradient_max_norm = gradient_max_norm
         self.scaler = GradScaler()
     
+    
     def remember(self, state, action, reward, next_state, done):
         """
         Store experience in replay buffer
@@ -151,6 +155,7 @@ class DQNAgent:
             self.memory.push(state, action, reward, next_state, done)
         else:
             self.memory.append((state, action, reward, next_state, done))
+
 
     def act(self, state, training=True) -> int:
         """
@@ -181,28 +186,12 @@ class DQNAgent:
             
         return torch.argmax(q_values, dim=1).item()
 
+
     def train(self):
         """
         Train the agent by sampling from replay buffer
         """
-        # skip if not enough samples
-        if len(self.memory) < self.batch_size:
-            return
-                
-        self.training_steps += 1
-        self._current_step += 1
-        # only update every update_frequency steps
-        if self.training_steps % self.update_frequency != 0:
-            return
-
-        # with torch.profiler.profile(
-        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1), # Adjust for your needs
-        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/dqn_profile'),
-        #     record_shapes=True,
-        #     profile_memory=True,
-        #     with_stack=True
-        # ) as prof:
-        with autocast():
+        def train_agent():
             # sample from memory
             if self.use_prioritized:
                 batch, indices, is_weights = self.memory.sample(self.batch_size)
@@ -266,7 +255,30 @@ class DQNAgent:
             #     # Calculate the decay steps based on the target percentage
             #     # Apply the decay formula
             #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
+            self._current_step += self.update_frequency
+            
+        # skip if not enough samples
+        if len(self.memory) < self.batch_size:
+            return
+                
+        self.training_steps += 1
+        
+        # only update every update_frequency steps
+        if self.training_steps % self.update_frequency != 0:
+            return
 
+        # with torch.profiler.profile(
+        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1), # Adjust for your needs
+        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/dqn_profile'),
+        #     record_shapes=True,
+        #     profile_memory=True,
+        #     with_stack=True
+        # ) as prof:
+        if torch.cuda.is_bf16_supported() and self.device_capability >= 7:
+            with autocast():
+                train_agent()
+        else:
+            train_agent()
         
     def load(self, file_path: str):
         """Load model weights from file"""
