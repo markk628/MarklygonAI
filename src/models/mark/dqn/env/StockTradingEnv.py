@@ -128,6 +128,8 @@ class StockTradingEnv:
         self.total_profit: int = 0
         self.total_loss: int = 0
         self.successful_trade_durations = []
+        self.highest_price: float = 0
+        self.lowest_price: float = 0
         
         # market state
         self.market_regime: str = 'unknown'
@@ -176,6 +178,8 @@ class StockTradingEnv:
         self.total_profit = 0
         self.total_loss = 0
         self.successful_trade_durations = []
+        self.highest_price = 0
+        self.lowest_price = 0
         self.market_regime = 'unknown'
         self.market_volatility = 0
         self.portfolio_values = [self.initial_balance]
@@ -413,6 +417,10 @@ class StockTradingEnv:
         highest_price_since_buy_and_current_price_ratio = self.highest_price_since_buy / current_price if current_price > 0 else 0
         lowest_price_since_buy_and_entry_price_ratio = self.lowest_price_since_buy / self.entry_price if self.entry_price > 0 else 0
         lowest_price_since_buy_and_current_price_ratio = self.lowest_price_since_buy / current_price if current_price > 0 else 0
+        highest_price_and_entry_price_ratio = self.highest_price / self.entry_price if self.entry_price > 0 else 0
+        highest_price_and_current_price_ratio = self.highest_price / current_price if current_price > 0 else 0
+        lowest_price_and_entry_price_ratio = self.lowest_price / self.entry_price if self.entry_price > 0 else 0
+        lowest_price_and_current_price_ratio = self.lowest_price / current_price if current_price > 0 else 0
         # potential profit/loss metrics
         potential_profit_ratio = (highest_price_since_buy_and_entry_price_ratio - 1) if self.position_open else 0
         potential_loss_ratio = (1 - lowest_price_since_buy_and_entry_price_ratio) if self.position_open else 0
@@ -467,7 +475,11 @@ class StockTradingEnv:
                 recent_price_change,
                 self._calculate_price_acceleration(),
                 self._calculate_volatility_trend(),
-                self._calculate_price_relative_to_range_hilo()
+                self._calculate_price_relative_to_range_hilo(),
+                # highest_price_and_current_price_ratio,
+                # highest_price_and_entry_price_ratio,
+                # lowest_price_and_current_price_ratio,
+                # lowest_price_and_current_price_ratio
             ], dtype=np.float32)
             
             position_management_metrics = np.array([
@@ -568,7 +580,11 @@ class StockTradingEnv:
             float(self.market_regime == 'high_volatility'), # is market highly volatile
             self.market_volatility,                         # market volatility
             recent_price_change,                            # recent price change
-            trend_direction                                 # trend direction indicator
+            trend_direction,                                # trend direction indicator
+            highest_price_and_current_price_ratio,
+            highest_price_and_entry_price_ratio,
+            lowest_price_and_current_price_ratio,
+            lowest_price_and_current_price_ratio
         ], dtype=np.float32)
         
         # trading constraints and behavioral information
@@ -817,6 +833,10 @@ class StockTradingEnv:
         Actions: 0=Sell all, 1=Hold, 2=Buy max
         """
         current_price = self.data_nparray[self.current_step, self.close_prices_idx]
+        if current_price < self.lowest_price:
+            self.lowest_price = current_price
+        if current_price > self.highest_price:
+            self.highest_price = current_price
         reward = 0
         done = False
         trade_info = {}
@@ -825,8 +845,13 @@ class StockTradingEnv:
         # check if minimum trading interval has passed since last trade
         can_trade = (self.current_step - self.last_trade_step) >= self.min_trade_interval
 
-        # force sell all shares at the end of the episode
-        if self.current_step >= self.data_nparray.shape[0] - 1:
+        # check if model is out of the game
+        is_out_of_game = self.shares_held == 0 and self.balance * self.max_position_size < self.min_trade_amount
+
+        # force sell all shares at the end of the episode or if current max position size is lower than the minimum trade amount
+        if self.current_step >= self.data_nparray.shape[0] - 1 or is_out_of_game:
+            if is_out_of_game:
+                print('OUT OF GAME')
             done = True
             if self.shares_held > 0:
                 sell_price = self.shares_held * current_price
@@ -1017,7 +1042,7 @@ class StockTradingEnv:
                 'portfolio_metrics_size': 4,
                 'performance_metrics_size': 8,
                 'risk_metrics_size': 4,
-                'price_action_metrics_size': 10,
+                'price_action_metrics_size': 14,
                 'position_management_metrics_size': 7,
                 'trading_behavior_metrics_size': 8,
                 'temporal_metrics_size': 2,
@@ -1027,7 +1052,7 @@ class StockTradingEnv:
             'stock_data_window_size': self.window_size,
             'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
             'portfolio_metrics_size': 25,
-            'market_state_metrics_size': 7,
+            'market_state_metrics_size': 11,
             'constraint_metrics_size': 6,
             'action_size': 3
         }
