@@ -1,11 +1,12 @@
+import joblib
 import os
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+import torch
+from scipy.stats import kurtosis, skew, shapiro
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectKBest, mutual_info_regression, f_regression
-import joblib
-import torch
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer
 from torch import nn
 import warnings
 warnings.filterwarnings('ignore')
@@ -14,6 +15,14 @@ from src.config.config import (
     WINDOW_SIZE,
     DEVICE,
     PRICE_FEATURES,
+    VOLUME_FEATURES,
+    MOMENTUM_FEATURES,
+    TREND_FEATURES,
+    VOLATILLITY_FEATURES,
+    OCILLATOR_FEATURES,
+    LAGGED_FEATURES,
+    ROLLING_FEAATURES,
+    PRICE_RANGE_FEATURES,
     TEMPORAL_FEATURES
 )
 
@@ -50,20 +59,12 @@ class FeatureProcessor:
         self.autoencoder = None
         self.selected_features = None
         self.feature_importance = None
-        
-    def remove_highly_correlated(self, X):
-        """Remove highly correlated features"""
-        if isinstance(X, pd.DataFrame):
-            corr_matrix = X.corr().abs()
-            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
-            return X.drop(columns=to_drop), to_drop
-        else:
-            df = pd.DataFrame(X)
-            corr_matrix = df.corr().abs()
-            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
-            return df.drop(columns=to_drop).values, to_drop
+    
+    def return_highly_correlated(self, X):
+        corr_matrix = X.corr().abs()
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) if column not in ['close']]
+        return to_drop
         
     def _build_autoencoder(self, input_dim):
         """Build a simple autoencoder for feature extraction"""
@@ -217,37 +218,28 @@ class FeatureProcessor:
             pca.fit(X)
             return pd.Series(pca.explained_variance_ratio_, 
                            index=feature_names)
-                
+
+    
     def fit(self, X, y=None, train_ae=False):
         """
         Fit the feature processor to the training data
         
-        Args:
-            X (pandas DataFrame or numpy.array): The training features
-            y (pandas Series or numpy.array, optional): The target variable (next price movement for DQN)
-            train_ae (bool): Whether to train the autoencoder (more computationally intensive)
+        Parameters:
+        -----------
+        X : pandas DataFrame or numpy array
+            The training features
+        y : pandas Series or numpy array, optional
+            The target variable (next price movement for DQN)
+        train_ae : bool, default=False
+            Whether to train the autoencoder (more computationally intensive)
         """
-        # Save original column names if dataframe
-        if isinstance(X, pd.DataFrame):
-            self.feature_names = X.columns.tolist()
-        else:
-            self.feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-        # Remove highly correlated features
-        X_filtered, dropped_cols = self.remove_highly_correlated(X)
-        print(f"Removed {len(dropped_cols)} highly correlated features")
-        
-        if isinstance(X, pd.DataFrame) and isinstance(X_filtered, pd.DataFrame):
-            self.filtered_feature_names = X_filtered.columns.tolist()
-        else:
-            self.filtered_feature_names = [feat for i, feat in enumerate(self.feature_names) 
-                                          if i not in dropped_cols]
         
         # Fit the scaler
         if self.scaler is not None:
-            self.scaler.fit(X_filtered)
-            X_scaled = self.scaler.transform(X_filtered)
+            self.scaler.fit(X)
+            X_scaled = self.scaler.transform(X)
         else:
-            X_scaled = X_filtered
+            X_scaled = X
             
         # Feature selection/extraction
         if self.selection_method == 'pca':
@@ -273,7 +265,7 @@ class FeatureProcessor:
             
         elif self.selection_method == 'combined':
             # Rank features by importance
-            feature_ranks = self.feature_ranking(X_filtered, y)
+            feature_ranks = self.feature_ranking(X, y)
             self.feature_importance = feature_ranks
             self.selected_features = feature_ranks.index[:self.n_components].tolist()
             
@@ -287,11 +279,15 @@ class FeatureProcessor:
         """
         Transform features using the fitted processor
         
-        Args:
-            X (pandas.DataFrame or numpy.ndarray): The features to transform
+        Parameters:
+        -----------
+        X : pandas DataFrame or numpy array
+            The features to transform
         
         Returns:
-            numpy.array: The selected/extracted features
+        --------
+        numpy array
+            The selected/extracted features
         """
         # Handle DataFrame or numpy array
         if isinstance(X, pd.DataFrame):
@@ -374,64 +370,16 @@ class RollingWindowFeatureProcessor:
                  flatten_output=True):
         """
         Args:
-            window_size (int): The size of the rolling window for observations
-            feature_processor (FeatureProcessor): The feature processor to use on each window
-            flatten_output (bool): Whether to flatten the output for use with fully connected networks
+            window_size (int) : The size of the rolling window for observations
+            feature_processor (FeatureProcessor) : The feature processor to use on each window
+            flatten_output (bool) : Whether to flatten the output for use with fully connected networks
         """
         self.window_size = window_size
         self.feature_processor = FeatureProcessor(window_size=window_size) if feature_processor is None else feature_processor
         self.flatten_output = flatten_output
-        
-    def fit(self, X, y=None, train_ae=False):
-        """
-        Fit the feature processor to the full dataset
-        For time series, y would typically be the future price movement
-        """
-        if y is not None and len(y) == len(X):
-            self.feature_processor.fit(X, y, train_ae)
-        else:
-            # Create synthetic target as next close price movement
-            if isinstance(X, pd.DataFrame) and 'target' in X.columns:
-                target = X['close'].pct_change().shift(-1).iloc[:-1]
-                self.feature_processor.fit(X.iloc[:-1], target, train_ae)
-            else:
-                self.feature_processor.fit(X, None, train_ae)
-        return self
     
-    def transform_single_window(self, window):
-        """Transform a single window of data"""
-        return self.feature_processor.transform(window)
-    
-    def create_rolling_windows(self, X):
-        """Create rolling windows from sequential data"""
-        if len(X) < self.window_size:
-            raise ValueError(f"Input data length {len(X)} is less than window size {self.window_size}")
-            
-        windows = []
-        for i in range(len(X) - self.window_size + 1):
-            windows.append(X[i:i+self.window_size])
-        return windows
-    
-    def transform(self, X):
-        """
-        Transform features using rolling windows
-        
-        Args:
-            X (pandas.DataFrame or numpy.ndarray): The features to transform
-        
-        Returns:
-            numpy.ndarray: list of numpy arrays with processed features for each window
-        """
-        windows = self.create_rolling_windows(X)
-        processed_windows = []
-        
-        for window in windows:
-            processed = self.transform_single_window(window)
-            if self.flatten_output:
-                processed = processed.reshape(1, -1)
-            processed_windows.append(processed)
-            
-        return processed_windows
+    def fit_trainsform_single_window(self, window):
+        return self.feature_processor.fit_transform(window)
     
     def get_state(self, X):
         """
@@ -443,7 +391,7 @@ class RollingWindowFeatureProcessor:
         Returns:
             numpy.ndarray: The processed state for the DQN.
         """
-        processed = self.transform_single_window(X)
+        processed = self.fit_trainsform_single_window(X)
         if self.flatten_output:
             return processed.flatten()
         else:
