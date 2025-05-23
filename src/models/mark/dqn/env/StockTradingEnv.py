@@ -584,7 +584,7 @@ class StockTradingEnv:
             highest_price_and_current_price_ratio,
             highest_price_and_entry_price_ratio,
             lowest_price_and_current_price_ratio,
-            lowest_price_and_current_price_ratio
+            lowest_price_and_entry_price_ratio
         ], dtype=np.float32)
         
         # trading constraints and behavioral information
