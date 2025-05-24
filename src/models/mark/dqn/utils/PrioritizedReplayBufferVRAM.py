@@ -31,14 +31,12 @@ class PrioritizedReplayBufferVRAM:
 
     def push(self, state, action, reward, next_state, done):
         idx = self.position
-        
         self.states[idx] = torch.from_numpy(state).to(self.device)
         self.actions[idx] = action
         self.rewards[idx] = reward
         self.next_states[idx] = torch.from_numpy(next_state).to(self.device)
         self.dones[idx] = done
-        self.priorities[idx] = self.max_priority
-
+        self.priorities[idx] = self.max_priority # new experiences get max priority to ensure they're sampled
         self.position = (self.position + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
@@ -46,13 +44,15 @@ class PrioritizedReplayBufferVRAM:
         if self.size < batch_size:
             return None, None, None
         
-        # Priorities for available indices
-        probs = (self.priorities[:self.size] + 1e-6) ** self.alpha
-        probs /= probs.sum()
-        indices = np.random.choice(self.size, batch_size, p=probs.cpu().numpy())
+        # calculate sampling probabilities
+        # sample indices based on probabilities
+        # get samples and calculate importance sampling weights
+        # increase beta over time
+        probabilities = (self.priorities[:self.size] + 1e-6) ** self.alpha
+        probabilities /= probabilities.sum()
+        indices = np.random.choice(self.size, batch_size, p=probabilities.cpu().numpy())
         indices = torch.tensor(indices, dtype=torch.long, device=self.device)
-
-        weights = (self.size * probs[indices]) ** -self.beta
+        weights = (self.size * probabilities[indices]) ** -self.beta
         weights /= weights.max()
         self.beta = min(1.0, self.beta + self.beta_increment)
 
@@ -65,8 +65,8 @@ class PrioritizedReplayBufferVRAM:
         return (states, actions, rewards, next_states, dones), indices, weights
 
     def update_priorities(self, indices, priorities):
-        # indices = indices.to(self.device) if indices.device != self.device else indices
-        # priorities = priorities.to(self.device) if priorities.device != self.device else priorities
+        indices = indices.to(self.device) if indices.device != self.device else indices
+        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
         self.priorities[indices] = priorities
         self.max_priority = max(self.max_priority, priorities.max().item())
 

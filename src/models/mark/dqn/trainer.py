@@ -112,7 +112,7 @@ class DQNTrainer:
             balances.append(env.balance)
             invalid_action_counts.append(env.invalid_actions)
             
-            if (e + 1) % 5 == 0:
+            if (e + 1) % validation_frequency == 0:
                 print(f"\nT. Episode: {e+1}/{episodes} | "
                       f"Average Score Per Step: {score / env.steps_per_episode:.4f} | "
                       f"Balance: {env.balance:.2f} | "

@@ -11,6 +11,7 @@ from src.config.config import (
     TRANSACTION_FEE_PERCENT
 )
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
+from src.models.mark.dqn.utils.RollingMinMaxScaler import RollingMinMaxScaler
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -46,54 +47,68 @@ class StockTradingEnv:
         self.use_hierarchical = use_hierarchical
         self.steps_per_episode: int = len(data) - window_size
         self._feature_cache = {}
+        self.risk_free_rate = 0.02 / 252
         
         # trading constraints
-        self.min_trade_interval: int = 2     # minimum interval between trades
-        self.max_position_size: float = 0.7  # maximum position size (how much capitol can be used per trade)
-        self.min_trade_amount: int = 300     # minimum amount required to make a trade
+        self.max_position_size: float = 0.7                         # maximum position size (how much capitol can be used per trade)
+        self.min_trade_amount: int = 300                            # minimum amount required to make a trade
         self.critical_loss_value: float = 0.5 * initial_balance
         
         # reward settings
-        self.profit_reward_weight: int = 75                         # profit reward weight (used to scale rewards for profitable trades)
-        self.loss_penalty_weight: int = 60                          # loss penalty weight (used to scale penalty for loss)
+        self.profit_reward_weight: int = 10                         # profit reward weight (used to scale rewards for profitable trades)
+        self.loss_penalty_weight: int = 10                          # loss penalty weight (used to scale penalty for loss)
         self.trade_reward: float = 0.15                             # reward for trade execution
         self.successful_trade_reward: float = 0.5                   # reward for successful trade
         self.patience_reward: float = 0.05                          # reward for waiting for better opportunities
         self.efficient_capital_usage_reward: float = 0.1            # reward for efficient capital usage
+        self.patience_in_position_reward: float = 0.01
         self.invalid_action_penalty: float = -1.5                   # penalty for taking invalid action
-        self.stop_loss_penalty: float = -3000                       # penalty for reaching stop loss thresholdd
-        self.critical_loss_penalty: float = -8000                   # penalty for reaching critical loss threshold
+        # self.stop_loss_penalty: float = -3000                       # penalty for reaching stop loss thresholdd
+        # self.critical_loss_penalty: float = -8000                   # penalty for reaching critical loss threshold
         self.small_hold_time_penalty: float = -0.0003               # penalty for holding 
         self.consecutive_hold_penalty_base: float = -0.01           # penalty for consecutive holding
         self.consecutive_hold_penalty_max: float = -0.1             # penalty for consecutive holding maximum
         self.exceed_max_profit_threshold_penalty: float = -0.012    # penalty for holding past max profit threshold
         self.exceed_profit_threshold_penalty: float = -0.006        # penalty for holding past profit threshold
         self.exceed_max_loss_threshold_penalty: float = -0.1        # penalty for holding past max loss threshold
-        self.exceed_loss_threshold_penalty: float = -0.05           # penalty for holding past loss threshold
+        self.exceed_loss_threshold_penalty: float = -0.05,          # penalty for holding past loss threshold
+        self.out_of_game_penalty: int = -5                          # penalty for losing all my money
         self.price_movement_alignment_bonus: float = 0.3            # bonus when action aligns with price movement
         self.quick_profit_taking_bonus: float = 0.2                 # bonus for taking profits quickly
+        self.sharpe_reward_weight_positive = 5.0
+        self.sharpe_penalty_weight_negative = 10.0
+        self.max_sharpe_reward = 10.0
+        self.max_sharpe_penalty = -20.0
+        self.sharpe_no_returns_penalty = -5.0
+        self.ranging_no_position_penalty_base = -0.005
+        self.ranging_no_position_penalty_max = -0.05
+        self.ranging_hold_penalty_delay = 10
+        self.trending_up_no_position_penalty_base = -0.01
+        self.trending_up_no_position_penalty_max = -0.1
+        self.trending_up_hold_penalty_delay = 5
+        self.losing_hold_penalty_base = -0.03
 
         # profit/loss threshold settings
-        self.profit_threshold: float = 0.012        # profit-taking threshold
-        self.loss_threshold: float = -0.008         # loss-cutting threshold
-        self.trailing_stop_threshold: float = 0.007 # trailing stop value
-        self.max_profit_threshold: float = 0.025    # maximum profit-taking threshold
-        self.max_loss_threshold: float = -0.025     # maximum loss threshold
+        self.profit_threshold: float = 0.012                        # profit-taking threshold
+        self.loss_threshold: float = -0.008                         # loss-cutting threshold
+        self.trailing_stop_threshold: float = 0.007                 # trailing stop value
+        self.max_profit_threshold: float = 0.025                    # maximum profit-taking threshold
+        self.max_loss_threshold: float = -0.025                     # maximum loss threshold
 
         # additional profitability-related settings
-        self.profit_taking_levels = [0.01, 0.015, 0.02, 0.03]   # tiered profit-taking levels
-        self.profit_taking_weights = [1.0, 1.3, 1.6, 2.0]       # reward weights for each profit-taking level
-        self.volatility_threshold: float = 0.018                # volatility threshold (used to determine whether to adjust behavior during periods of high volatility)
-        self.trend_following_weight: float = 1.5                # trend-following reward weight (encourages the agent to follow the trend by increasing rewards when aligned with it)
+        self.profit_taking_levels = [0.01, 0.015, 0.02, 0.03]       # tiered profit-taking levels
+        self.profit_taking_weights = [1.0, 1.3, 1.6, 2.0]           # reward weights for each profit-taking level
+        self.volatility_threshold: float = 0.018                    # volatility threshold (used to determine whether to adjust behavior during periods of high volatility)
+        self.trend_following_weight: float = 1.5                    # trend-following reward weight (encourages the agent to follow the trend by increasing rewards when aligned with it)
         
         # market regime settings
         self.market_regime_weights = {
-            'trending_up': 1.2,       # bonus for buying in uptrends
-            'trending_down': 1.2,     # bonus for selling in downtrends
-            'ranging': 0.8,           # reduced reward in ranging markets
-            'high_volatility': 0.7    # reduced reward in high volatility
+            'trending_up': 1.2,                                     # bonus for buying in uptrends
+            'trending_down': 1.2,                                   # bonus for selling in downtrends
+            'ranging': 0.8,                                         # reduced reward in ranging markets
+            'high_volatility': 0.7                                  # reduced reward in high volatility
         }
-        self.position_sizing_factor: float = 0.1  # reward component for optimal position sizing
+        self.position_sizing_factor: float = 0.1                    # reward component for optimal position sizing
         
         # state variables
         self.current_step: int = 0
@@ -113,7 +128,6 @@ class StockTradingEnv:
         self.last_portfolio_value: int = initial_balance
         self.last_action = None
         self.last_trade_step: int = -1
-        self.trade_history = []
         self.entry_price: int = 0
         self.max_profit: int = 0
         self.max_loss: int = 0
@@ -130,6 +144,8 @@ class StockTradingEnv:
         self.successful_trade_durations = []
         self.highest_price: float = 0
         self.lowest_price: float = 0
+        self.highest_portfolio_value_seen_so_far = self.initial_balance
+        self.lowest_portfolio_value_seen_so_far = self.initial_balance
         
         # market state
         self.market_regime: str = 'unknown'
@@ -163,7 +179,6 @@ class StockTradingEnv:
         self.last_portfolio_value = self.initial_balance
         self.last_action = None
         self.last_trade_step = -1
-        self.trade_history = []
         self.entry_price = 0
         self.max_profit = 0
         self.max_loss = 0
@@ -180,6 +195,8 @@ class StockTradingEnv:
         self.successful_trade_durations = []
         self.highest_price = 0
         self.lowest_price = 0
+        self.highest_portfolio_value_seen_so_far = self.initial_balance
+        self.lowest_portfolio_value_seen_so_far = self.initial_balance
         self.market_regime = 'unknown'
         self.market_volatility = 0
         self.portfolio_values = [self.initial_balance]
@@ -247,22 +264,18 @@ class StockTradingEnv:
         if self.current_step < 2:
             return 0.0
         
-        # get the last 3 price points
+        # get the last 3 close prices
         current_price = self.data_nparray[self.current_step, self.close_prices_idx]
         prev_price = self.data_nparray[self.current_step - 1, self.close_prices_idx]
         prev_prev_price = self.data_nparray[self.current_step - 2, self.close_prices_idx]
         
-        # calculate first derivatives (velocity)
+        # calculate first velocities
         velocity_current = (current_price - prev_price) / prev_price
         velocity_previous = (prev_price - prev_prev_price) / prev_prev_price
         
-        # calculate second derivative (acceleration)
+        # calculate acceleration then normalize
         acceleration = velocity_current - velocity_previous
-        
-        # normalize to reasonable range (multiply by 1000 to make it more meaningful)
-        normalized_acceleration = np.clip(acceleration * 1000, -1, 1)
-        
-        return normalized_acceleration
+        return np.clip(acceleration * 1000, -1, 1)
     
     
     def _calculate_volatility_trend(self, window=WINDOW_SIZE) -> float:
@@ -293,11 +306,8 @@ class StockTradingEnv:
         if older_volatility > 0:
             volatility_change = (recent_volatility - older_volatility) / older_volatility
             # normalize to -1 to 1 range
-            volatility_trend = np.clip(volatility_change * 5, -1, 1)  # multiply by 5 for sensitivity
-        else:
-            volatility_trend = 0.0
-        
-        return volatility_trend
+            return np.clip(volatility_change * 5, -1, 1)  # multiply by 5 for sensitivity
+        return 0.0
     
     
     def _calculate_price_relative_to_range_hilo(self, lookback_window=WINDOW_SIZE) -> float:
@@ -325,6 +335,10 @@ class StockTradingEnv:
         return np.clip(relative_position, 0, 1)
     
     
+    def _is_out_of_game(self):
+        return self.shares_held == 0 and self.balance * self.max_position_size < self.min_trade_amount
+    
+    
     def _get_state(self) -> NDArray:
         # normalized features
         normalized_features_flattened = self._get_features(self.current_step)
@@ -342,6 +356,7 @@ class StockTradingEnv:
         
         # portfolio information
         normalized_portfolio_value = portfolio_value / self.initial_balance if self.initial_balance > 0 else 0
+        normalized_last_portfolio_value = self.last_portfolio_value / self.initial_balance if self.initial_balance > 0 else 0
         balance_ratio = self.balance / self.initial_balance if self.initial_balance > 0 else 0
         shares_value_ratio = (self.shares_held * current_price) / self.initial_balance if self.initial_balance > 0 else 0
         
@@ -391,10 +406,10 @@ class StockTradingEnv:
             sharpe_ratio = 0
             sortino_ratio = 0
         
-        # normalize ratios to reasonable ranges for RL
         normalized_sharpe = np.clip(sharpe_ratio / 3, -1, 1)  # typical Sharpe ranges from -3 to 3
         normalized_sortino = np.clip(sortino_ratio / 3, -1, 1)  # similarly for Sortino    
             
+        normalized_invalid_actions_count = self.invalid_actions / self.steps_per_episode
         # time-based states
         time_in_position = self.current_trade_duration / self.steps_per_episode if self.position_open else 0
         # calculate optimal holding time based on historical data
@@ -428,6 +443,14 @@ class StockTradingEnv:
 
         normalized_proximity_to_critical_loss = (portfolio_value - self.critical_loss_value) / self.initial_balance
 
+        normalized_consecutive_holds = self.consecutive_holds / self.steps_per_episode
+        normalized_consecutive_trades = self.consecutive_trades / (self.steps_per_episode / 2)
+        normalized_total_trades = self.total_trades / (self.steps_per_episode / 2)
+        encoded_last_action = float(self.last_action) / 2 if self.last_action is not None else 0.5
+        
+        is_buy_invalid_next_step = 1 if (self.shares_held > 0 and self.position_open) or self._is_out_of_game() else 0
+        is_sell_invalid_next_step = 1 if self.shares_held == 0 else 0
+
         # track portfolio value and price history
         self.price_history.append(current_price)
         self.portfolio_values.append(portfolio_value)
@@ -435,16 +458,17 @@ class StockTradingEnv:
         ###########################################################################################
         ######################################### READ ME #########################################
         ###########################################################################################
-        # if any of the metrics bellow changes update the attribute that represents the count for
-        # said metric in self.branch_sizes
+        # if any of the metrics below changes update the metric's value in self.get_branch_sizes()
         
         if self.use_hierarchical:
             # portfolio info states
             portfolio_metrics = np.array([
                 normalized_portfolio_value,
+                normalized_last_portfolio_value,
                 balance_ratio,
                 shares_value_ratio,
-                normalized_shares_held
+                normalized_shares_held,
+                float(self._is_out_of_game())
             ], dtype=np.float32)
             
             performance_metrics = np.array([
@@ -455,7 +479,8 @@ class StockTradingEnv:
                 self.consecutive_profits / 10,
                 self.consecutive_losses / 10,
                 normalized_sharpe,
-                normalized_sortino
+                normalized_sortino,
+                float(self.was_last_trade_profitable)
             ], dtype=np.float32)
             
             risk_metrics = np.array([
@@ -485,22 +510,23 @@ class StockTradingEnv:
             position_management_metrics = np.array([
                 position_utilization_kelly,
                 position_utilization_max,
-                self.invalid_actions / self.steps_per_episode,
+                normalized_invalid_actions_count,
                 highest_price_since_buy_and_entry_price_ratio,
                 highest_price_since_buy_and_current_price_ratio, 
                 lowest_price_since_buy_and_entry_price_ratio,
-                lowest_price_since_buy_and_current_price_ratio
+                lowest_price_since_buy_and_current_price_ratio,
+                is_buy_invalid_next_step,
+                is_sell_invalid_next_step
             ], dtype=np.float32)
             
             trading_behavior_metrics = np.array([
                 time_in_position,
                 time_ratio_to_optimal,
                 time_since_last_trade,
-                self.consecutive_holds / self.steps_per_episode,
-                self.consecutive_trades / (self.steps_per_episode / 2),
-                self.total_trades / (self.steps_per_episode / 2),
-                float(self.last_action) / 2 if self.last_action is not None else 0.5,
-                len(self.trade_history) / (self.steps_per_episode / 2)
+                normalized_consecutive_holds,
+                normalized_consecutive_trades,
+                normalized_total_trades,
+                encoded_last_action
             ], dtype=np.float32)
             
             micro_timing_metrics = np.array([
@@ -545,42 +571,48 @@ class StockTradingEnv:
             )).astype(np.float32)
             
         portfolio_info = np.array([
-            normalized_portfolio_value,                         # normalized portfolio value
-            balance_ratio,                                      # ratio of current and initial balance
-            shares_value_ratio,                                 # ratio of shares value to initial balance
-            normalized_position_pl,                             # normalized profit/loss on current position
-            position_pl_ratio,                                  # profit/loss as percentage of position cost
-            normalized_shares_held,                             # normalized number of shares held
-            position_utilization_kelly,                         # how much of max position size is utilized
-            position_utilization_max,                            # how much of max position size is utilized
-            win_rate,                                           # win rate of trades
-            profit_factor,                                      # ratio of profitable to losing trades
-            self.consecutive_profits / 10,                      # normalized consecutive profitable trades
-            self.consecutive_losses / 10,                       # normalized consecutive losing trades
+            normalized_portfolio_value,
+            normalized_last_portfolio_value,
+            balance_ratio,
+            shares_value_ratio,
+            normalized_position_pl,       
+            position_pl_ratio,            
+            normalized_shares_held,       
+            position_utilization_kelly,   
+            position_utilization_max,     
+            win_rate,                     
+            profit_factor,                
+            self.consecutive_profits / 10,
+            self.consecutive_losses / 10, 
             normalized_sharpe,
             normalized_sortino,
-            time_in_position,                                   # normalized time in current position
+            time_in_position,             
             time_ratio_to_optimal,
-            self.current_drawdown,                              # current drawdown
-            self.max_drawdown,                                  # maximum drawdown
-            self.invalid_actions / self.steps_per_episode,      # normalized invalid acounts count
-            highest_price_since_buy_and_entry_price_ratio,      # ratio of highest price since buy and entry price
-            highest_price_since_buy_and_current_price_ratio,    # ratio of highest price since buy and current price
-            lowest_price_since_buy_and_entry_price_ratio,       # ratio of lowest price since buy and entry price
-            lowest_price_since_buy_and_current_price_ratio,     # ratio of lowest price since buy and current price
+            self.current_drawdown,        
+            self.max_drawdown,            
+            normalized_invalid_actions_count,               
+            highest_price_since_buy_and_entry_price_ratio,  
+            highest_price_since_buy_and_current_price_ratio,
+            lowest_price_since_buy_and_entry_price_ratio,   
+            lowest_price_since_buy_and_current_price_ratio, 
             profit_loss_opportunity_ratio,
-            normalized_proximity_to_critical_loss
+            normalized_proximity_to_critical_loss,
+            float(self._is_out_of_game()),
+            float(self.was_last_trade_profitable)
         ], dtype=np.float32)
         
         # market info states
         market_info = np.array([
-            float(self.market_regime == 'trending_up'),     # is market trending up
-            float(self.market_regime == 'trending_down'),   # is market trending down
-            float(self.market_regime == 'ranging'),         # is market ranging
-            float(self.market_regime == 'high_volatility'), # is market highly volatile
-            self.market_volatility,                         # market volatility
-            recent_price_change,                            # recent price change
-            trend_direction,                                # trend direction indicator
+            float(self.market_regime == 'trending_up'),     
+            float(self.market_regime == 'trending_down'),   
+            float(self.market_regime == 'ranging'),         
+            float(self.market_regime == 'high_volatility'), 
+            self.market_volatility,                         
+            recent_price_change,                            
+            trend_direction,                                
+            self._calculate_price_acceleration(),
+            self._calculate_volatility_trend(),
+            self._calculate_price_relative_to_range_hilo(),
             highest_price_and_current_price_ratio,
             highest_price_and_entry_price_ratio,
             lowest_price_and_current_price_ratio,
@@ -589,12 +621,13 @@ class StockTradingEnv:
         
         # trading constraints and behavioral information
         constraint_info = np.array([
-            self.consecutive_trades / (self.steps_per_episode / 2),                 # normalized consecutive trades
-            time_since_last_trade,                                                  # normalized time since last trade
-            self.consecutive_holds / self.steps_per_episode,                        # normalized consecutive holds 
-            float(self.last_action) / 2 if self.last_action is not None else 0.5,   # normalized last action (-0.5, 0, 0.5)
-            len(self.trade_history) / (self.steps_per_episode / 2),                 # normalized trade history length
-            self.total_trades / (self.steps_per_episode / 2)                        # normalized total trades
+            time_since_last_trade,         
+            normalized_consecutive_holds,  
+            normalized_consecutive_trades, 
+            normalized_total_trades,       
+            encoded_last_action,           
+            is_buy_invalid_next_step,
+            is_sell_invalid_next_step
         ], dtype=np.float32)
 
         return np.concatenate((
@@ -618,97 +651,118 @@ class StockTradingEnv:
         if done:
             final_profit = (portfolio_value - self.initial_balance) / self.initial_balance
             
-            # Reward/penalty based on final performance
+            # reward/penalty based on final performance
             if final_profit > 0:
-                # Stronger reward for ending with profit
+                # stronger reward for ending with profit
                 final_reward = final_profit * self.profit_reward_weight * 3
                 reward_components['final_profit'] = final_reward
                 total_reward += final_reward
                 
-                # Additional reward based on consistency
-                if self.profitable_trades > self.loss_making_trades * 1.5:  # At least 60% win rate
+                # bonus based on consistency
+                if self.profitable_trades > self.loss_making_trades * 1.5:  # at least 60% win rate
                     consistency_reward = final_profit * 0.5
                     reward_components['consistency'] = consistency_reward
                     total_reward += consistency_reward
             else:
-                # Penalty for ending with a loss
+                # penalty for ending with a loss
                 final_penalty = final_profit * self.loss_penalty_weight * 2
                 reward_components['final_loss'] = final_penalty
                 total_reward += final_penalty
                 
-                # Extra penalty for severe losses
+                # extra penalty for severe losses
                 if final_profit < -0.3:
                     severe_loss_penalty = -5 * abs(final_profit)
                     reward_components['severe_loss'] = severe_loss_penalty
                     total_reward += severe_loss_penalty
-
-            # Drawdown penalty
-            if self.max_drawdown > 0.2:  # More than 20% drawdown
-                drawdown_penalty = -self.max_drawdown * 5
-                reward_components['max_drawdown'] = drawdown_penalty
-                total_reward += drawdown_penalty
+                    
+            # invalid action penalty
+            if self._is_invalid_action(action):
+                reward_components['invalid_action'] = self.invalid_action_penalty
+                total_reward += reward_components['invalid_action']
                 
-            # Capital efficiency reward
+            # sharpe ratio reward/penalty
+            sharpe_ratio = self._calculate_sharpe_ratio()
+            sharpe_reward_component = 0.0
+            if sharpe_ratio >= 0:
+                sharpe_reward_component = sharpe_ratio * self.sharpe_reward_weight_positive
+            else: # negative Sharpe Ratio
+                sharpe_reward_component = sharpe_ratio * self.sharpe_penalty_weight_negative
+            sharpe_reward_component = np.clip(sharpe_reward_component, self.max_sharpe_penalty, self.max_sharpe_reward)
+            reward_components['sharpe_ratio_reward'] = sharpe_reward_component
+            total_reward += sharpe_reward_component
+                
+            # capital efficiency reward
             trade_frequency = self.total_trades / (self.steps_per_episode / 2)
-            if trade_frequency > 0.1 and final_profit > 0:  # Reward active trading if profitable
+            if trade_frequency > 0.1 and final_profit > 0:  # reward active trading if profitable
                 capital_efficiency = self.efficient_capital_usage_reward * trade_frequency * 10
                 reward_components['capital_efficiency'] = capital_efficiency
                 total_reward += capital_efficiency
             
             if self.invalid_actions > 0:
-                reward_components['invalid_actions_scaling_factor'] = 1.0 / (1 + (self.invalid_actions * 0.1))
-                total_reward *= reward_components['invalid_actions_scaling_factor'] 
+                reward_components['invalid_actions_scaling_factor'] = self.invalid_actions * self.invalid_action_penalty
+                total_reward = reward_components['invalid_actions_scaling_factor'] 
+            
+            if self._is_out_of_game():
+                reward_components['out_of_game'] = self.out_of_game_penalty
+                total_reward += reward_components['out_of_game']
         else:
-            # Base portfolio change component
-            portfolio_change_pct = (portfolio_value - self.last_portfolio_value) / (self.last_portfolio_value if self.last_portfolio_value != 0 else self.initial_balance)
-            reward_components['portfolio_change'] = portfolio_change_pct * 2  # Double weight on actual portfolio performance
-            total_reward += reward_components['portfolio_change']
-            
-            # Overall profitability component
-            overall_profit_pct = (portfolio_value - self.initial_balance) / self.initial_balance
-            reward_components['overall_profit'] = overall_profit_pct
-            total_reward += reward_components['overall_profit']
-            
-            # Invalid action penalty
+            # invalid action penalty
             if self._is_invalid_action(action):
                 reward_components['invalid_action'] = self.invalid_action_penalty
                 total_reward += reward_components['invalid_action']
             else:
+                # base portfolio change component
+                portfolio_change_pct = (portfolio_value - self.last_portfolio_value) / (self.last_portfolio_value if self.last_portfolio_value != 0 else self.initial_balance)
+                reward_components['portfolio_change'] = portfolio_change_pct * 2
+                total_reward += reward_components['portfolio_change']
+                
+                # overall profitability component
+                overall_profit_pct = (portfolio_value - self.initial_balance) / self.initial_balance
+                reward_components['overall_profit'] = overall_profit_pct
+                total_reward += reward_components['overall_profit']
+                
+                # current drawdown penalty
+                if self.highest_portfolio_value_seen_so_far > 0:
+                    current_drawdown = 1 - portfolio_value / self.highest_portfolio_value_seen_so_far
+                else:
+                    current_drawdown = 0
+                reward_components['step_drawdown_penalty'] = current_drawdown
+                total_reward += current_drawdown
                 # Handle specific trade actions
                 # TODO remove or handle this
-                if trade_info.get('action') == 'FORCED_SELL':
-                    # Handle forced sells (stop loss, trailing stop, critical loss)
-                    match(trade_info.get('type')):
-                        case 'STOP_LOSS_SELL':
-                            reward_components['stop_loss'] = self.stop_loss_penalty * 0.5  # Reduced penalty for proper stop loss
-                            total_reward += reward_components['stop_loss']
-                        case 'TRAILING_STOP_SELL':
-                            # Smaller penalty for trailing stop as it's protecting profits
-                            reward_components['trailing_stop'] = self.stop_loss_penalty * 0.3
-                            total_reward += reward_components['trailing_stop']
-                        case 'CRITICAL_LOSS_SELL':
-                            # Full penalty for hitting critical loss level
-                            reward_components['critical_loss'] = self.critical_loss_penalty
-                            total_reward += reward_components['critical_loss']
-                        case _:
-                            print('Unknown trade info:', trade_info.get('type'))
-                            
-                elif trade_info.get('type') == 'BUY':
-                    # Reward/penalty based on market regime alignment
+                # if trade_info.get('action') == 'FORCED_SELL':
+                #     # Handle forced sells (stop loss, trailing stop, critical loss)
+                #     match(trade_info.get('type')):
+                #         case 'STOP_LOSS_SELL':
+                #             reward_components['stop_loss'] = self.stop_loss_penalty * 0.5  # Reduced penalty for proper stop loss
+                #             total_reward += reward_components['stop_loss']
+                #         case 'TRAILING_STOP_SELL':
+                #             # Smaller penalty for trailing stop as it's protecting profits
+                #             reward_components['trailing_stop'] = self.stop_loss_penalty * 0.3
+                #             total_reward += reward_components['trailing_stop']
+                #         case 'CRITICAL_LOSS_SELL':
+                #             # Full penalty for hitting critical loss level
+                #             reward_components['critical_loss'] = self.critical_loss_penalty
+                #             total_reward += reward_components['critical_loss']
+                #         case _:
+                #             print('Unknown trade info:', trade_info.get('type'))
+                # elif trade_info.get('type') == 'BUY':
+                if trade_info.get('type') == 'BUY':
+                    # reward/penalty based on market regime alignment
                     if self.market_regime == 'trending_up':
-                        # Bonus for buying in uptrend
+                        # bonus for buying in uptrend
                         reward_components['trend_alignment'] = self.trade_reward * self.market_regime_weights['trending_up']
                         total_reward += reward_components['trend_alignment']
                     elif self.market_regime == 'trending_down':
-                        # Penalty for buying in downtrend
+                        # penalty for buying in downtrend
                         reward_components['trend_alignment'] = -self.trade_reward * 0.5
                         total_reward += reward_components['trend_alignment']
                     
-                    # Base trade reward
+                    # base trade reward
                     reward_components['trade_execution'] = self.trade_reward
                     total_reward += reward_components['trade_execution']
                     
-                    # Position sizing component
+                    # position sizing component
                     optimal_position_size = self.initial_balance * self.max_position_size
                     actual_position_size = self.shares_held * current_price
                     position_sizing_ratio = min(actual_position_size / optimal_position_size, 1.0) if optimal_position_size > 0 else 0
@@ -716,90 +770,120 @@ class StockTradingEnv:
                     total_reward += reward_components['position_sizing']
                     
                 elif trade_info.get('type') == 'SELL':
-                    # Calculate profit/loss from this trade
-                    if 'amount' in trade_info:
-                        profit_amount = trade_info['amount']
-                        profit_pct = profit_amount / (self.entry_price * self.shares_held) if self.entry_price > 0 and self.shares_held > 0 else 0
-                        
-                        # Reward based on profit
-                        if profit_pct > 0:
-                            # Scale reward based on profit percentage
-                            profit_reward = profit_pct * self.profit_reward_weight
-                            
-                            # Additional reward for quick profitable trades
-                            if self.current_trade_duration < self.steps_per_episode * 0.3:  # Less than 30% of possible trade steps
-                                profit_reward *= 1.2  # 20% bonus for quick profits
-                                reward_components['quick_profit'] = self.quick_profit_taking_bonus
-                                total_reward += reward_components['quick_profit']
-                                
-                            reward_components['profit_reward'] = profit_reward
-                            total_reward += reward_components['profit_reward']
-                            
-                            # Additional tiered reward based on profit levels
-                            for level, weight in zip(self.profit_taking_levels, self.profit_taking_weights):
-                                if profit_pct > level:
-                                    tier_reward = profit_pct * weight
-                                    reward_components[f'profit_tier_{level}'] = tier_reward
-                                    total_reward += tier_reward
-                        else:
-                            # Penalty based on loss
-                            loss_penalty = profit_pct * self.loss_penalty_weight
-                            reward_components['loss_penalty'] = loss_penalty
-                            total_reward += loss_penalty
+                    # calculate profit/loss from this trade
+                    buy_fee = self.entry_price * self.shares_held * self.transaction_fee
+                    profit_pct = (trade_info['amount'] - trade_info['fee']) / (trade_info['entry_price'] * trade_info['shares']) - buy_fee # if trade_info['entry_price'] > 0 and trade_info['shares'] > 0 else 0
                     
-                    # Trend alignment for selling
+                    # reward based on profit
+                    if profit_pct > 0:
+                        # scale reward based on profit percentage
+                        profit_reward = profit_pct * self.profit_reward_weight
+                        
+                        # additional reward for quick profitable trades
+                        if trade_info['current_trade_duration'] < self.steps_per_episode * 0.3:  # less than 30% of possible trade steps
+                            profit_reward *= 1.2  # 20% bonus for quick profits
+                            reward_components['quick_profit'] = self.quick_profit_taking_bonus
+                            total_reward += reward_components['quick_profit']
+                            
+                        reward_components['profit_reward'] = profit_reward
+                        total_reward += reward_components['profit_reward']
+                        
+                        # additional tiered reward based on profit levels
+                        for level, weight in zip(self.profit_taking_levels, self.profit_taking_weights):
+                            if profit_pct > level:
+                                tier_reward = profit_pct * weight
+                                reward_components[f'profit_tier_{level}'] = tier_reward
+                                total_reward += tier_reward
+                    else:
+                        # penalty based on loss
+                        loss_penalty = profit_pct * self.loss_penalty_weight
+                        reward_components['loss_penalty'] = loss_penalty
+                        total_reward += loss_penalty
+                    
+                    # trend alignment for selling
                     if self.market_regime == 'trending_down':
                         # Bonus for selling in downtrend
                         reward_components['trend_alignment'] = self.trade_reward * self.market_regime_weights['trending_down']
                         total_reward += reward_components['trend_alignment']
                         
-                    # Base trade reward
+                    # base trade reward
                     reward_components['trade_execution'] = self.trade_reward
                     total_reward += reward_components['trade_execution']
                     
                 else:  # HOLD action
-                    # Small continuous penalty for holding to encourage decisive action
-                    reward_components['hold_penalty'] = self.small_hold_time_penalty
-                    total_reward += reward_components['hold_penalty']
+                    # small continuous penalty for holding to encourage decisive action
+                    reward_components['small_hold_time_penalty'] = self.small_hold_time_penalty
+                    total_reward += reward_components['small_hold_time_penalty']
                     
                     if self.shares_held > 0 and self.position_open:
-                        # Progressive holding penalty based on consecutive holds
-                        if self.market_regime != 'ranging':
-                            hold_penalty = self.consecutive_hold_penalty_base * (1 + 0.02 * self.consecutive_holds)
-                            hold_penalty = min(hold_penalty, self.consecutive_hold_penalty_max)  # Cap the penalty
-                            reward_components['progressive_hold_penalty'] = hold_penalty
-                            total_reward += hold_penalty
+                        current_position_pct = (current_price - self.entry_price) / self.entry_price
                         
-                        # Position profit/loss evaluation
-                        if self.entry_price > 0:
-                            current_position_pct = (current_price - self.entry_price) / self.entry_price
-                            
-                            # Penalties for holding beyond thresholds
-                            if current_position_pct > self.max_profit_threshold:
-                                reward_components['exceed_max_profit'] = self.exceed_max_profit_threshold_penalty
-                                total_reward += reward_components['exceed_max_profit']
-                            elif current_position_pct > self.profit_threshold:
-                                reward_components['exceed_profit'] = self.exceed_profit_threshold_penalty
-                                total_reward += reward_components['exceed_profit']
-                            elif current_position_pct < self.max_loss_threshold:
-                                reward_components['exceed_max_loss'] = self.exceed_max_loss_threshold_penalty
-                                total_reward += reward_components['exceed_max_loss']
-                            elif current_position_pct < self.loss_threshold:
-                                reward_components['exceed_loss'] = self.exceed_loss_threshold_penalty
-                                total_reward += reward_components['exceed_loss']
+                        # holding a profitable position
+                        if current_position_pct >= self.profit_threshold:
+                            patience_in_position_reward = self.patience_in_position_reward * (1 + 0.05 * self.consecutive_holds)
+                            # bonus if market is trending up
+                            if self.market_regime == 'trending_up':
+                                patience_in_position_reward *= 1.2
+                            elif self.market_regime == 'ranging':
+                                patience_in_position_reward *= 1.1
+
+                            reward_components['patience_in_position_profit'] = patience_in_position_reward
+                            total_reward += patience_in_position_reward
+
+                        elif current_position_pct > self.max_loss_threshold: # not at max loss threshold yet
+                            patience_in_position_reward = self.patience_in_position_reward * 0.5 * (1 + 0.01 * self.consecutive_holds)
+                            if self.market_regime == 'ranging':
+                                patience_in_position_reward *= 1.1
+                            elif self.market_regime == 'trending_up':
+                                patience_in_position_reward *= 0.8
+                            reward_components['patience_in_position_neutral'] = patience_in_position_reward
+                            total_reward += patience_in_position_reward
                         
+                        # penalty for holding a losing position, especially if the market is trending against it.
+                        # hopefully discourages holding onto losses.
+                        if current_position_pct < 0:
+                            losing_hold_penalty = self.losing_hold_penalty_base * (1 + 0.03 * self.consecutive_holds)
+                            if self.market_regime == 'trending_down':
+                                losing_hold_penalty *= 1.5
+                            reward_components['losing_position_hold_penalty'] = losing_hold_penalty
+                            total_reward += reward_components['losing_position_hold_penalty']
+                        
+                        # penalties for holding beyond thresholds
+                        if current_position_pct > self.max_profit_threshold:
+                            reward_components['exceed_max_profit'] = self.exceed_max_profit_threshold_penalty
+                            total_reward += reward_components['exceed_max_profit']
+                        elif current_position_pct > self.profit_threshold:
+                            reward_components['exceed_profit'] = self.exceed_profit_threshold_penalty
+                            total_reward += reward_components['exceed_profit']
+                        elif current_position_pct < self.max_loss_threshold:
+                            reward_components['exceed_max_loss'] = self.exceed_max_loss_threshold_penalty
+                            total_reward += reward_components['exceed_max_loss']
+                        elif current_position_pct < self.loss_threshold:
+                            reward_components['exceed_loss'] = self.exceed_loss_threshold_penalty
+                            total_reward += reward_components['exceed_loss']
                     else:
-                        # Patience reward for waiting while having no position (only if we have enough balance)
+                        # patience reward for waiting while having no position (only if we have enough balance)
                         if self.balance > self.initial_balance * 0.5 and self.consecutive_holds > 5:
                             patience_reward = min(self.patience_reward * (self.consecutive_holds / 20), self.patience_reward * 2)
                             if self.market_regime == 'trending_down':
                                 patience_reward *= 1.3
                             reward_components['patience'] = patience_reward
                             total_reward += patience_reward  
+                        if self.balance > self.initial_balance * 0.8: # only if there's still a lot of money
+                            if self.market_regime == 'ranging' and self.consecutive_holds > self.ranging_hold_penalty_delay:
+                                ranging_no_position_penalty = self.ranging_no_position_penalty_base * (1 + 0.01 * self.consecutive_holds)
+                                ranging_no_position_penalty = max(ranging_no_position_penalty, self.ranging_no_position_penalty_max)
+                                reward_components['ranging_no_position_penalty'] = ranging_no_position_penalty
+                                total_reward += reward_components['ranging_no_position_penalty']
 
-        # Store reward components for debugging/analysis
+                            elif self.market_regime == 'trending_up' and self.consecutive_holds > self.trending_up_hold_penalty_delay:
+                                trending_up_no_position_penalty = self.trending_up_no_position_penalty_base * (1 + 0.02 * self.consecutive_holds)
+                                trending_up_no_position_penalty = max(trending_up_no_position_penalty, self.trending_up_no_position_penalty_max)
+                                reward_components['trending_up_no_position_penalty'] = trending_up_no_position_penalty
+                                total_reward += reward_components['trending_up_no_position_penalty']
+
         self.reward_components.append(reward_components)
-        return total_reward
+        return total_reward[0] if isinstance(total_reward, np.ndarray) else total_reward
 
     
     def _is_invalid_action(self, action):
@@ -832,69 +916,95 @@ class StockTradingEnv:
         Execute one step in the environment based on the agent's action
         Actions: 0=Sell all, 1=Hold, 2=Buy max
         """
-        current_price = self.data_nparray[self.current_step, self.close_prices_idx]
-        if current_price < self.lowest_price:
-            self.lowest_price = current_price
-        if current_price > self.highest_price:
-            self.highest_price = current_price
+        def sell(is_forced_sell: bool=False):
+            sell_price = self.shares_held * current_price
+            fee = sell_price * self.transaction_fee
+            sell_price_adjusted = sell_price - fee
+            buy_price = self.entry_price * self.shares_held
+            buy_price_fee = buy_price * self.transaction_fee
+            buy_price_adjusted = buy_price + buy_price_fee
+            did_profit = sell_price_adjusted > buy_price_adjusted
+            trade_info = {
+                'type': 'END_OF_EPISODE' if is_forced_sell else 'SELL',
+                'shares': self.shares_held,
+                'price': current_price,
+                'amount': sell_price,
+                'fee': fee,
+                'action': 'FORCED_SELL' if is_forced_sell else action,
+                'entry_price': self.entry_price,
+                'trade_duration': self.current_trade_duration,
+                'did_profit': did_profit
+            }
+            self.balance += sell_price_adjusted
+            self.shares_held = 0
+            self.total_trades += 1
+            self.total_shares_sold += self.shares_held
+            self.consecutive_trades += 1
+            self.last_trade_step = self.current_step
+            self.entry_price = 0 
+            self.max_profit = max(self.max_profit, sell_price_adjusted)
+            self.max_loss = min(self.max_loss, sell_price_adjusted)
+            if did_profit:
+                if self.was_last_trade_profitable:
+                    self.consecutive_profits += 1
+                self.profitable_trades += 1
+                self.total_profit += sell_price_adjusted - buy_price_adjusted
+                self.successful_trade_durations.append(self.current_trade_duration)
+                if len(self.successful_trade_durations) > 1000:
+                    self.successful_trade_durations.pop()
+            else:
+                if not self.was_last_trade_profitable:
+                    self.consecutive_losses += 1
+                self.loss_making_trades += 1
+                self.total_loss += buy_price_adjusted - sell_price_adjusted
+            self.current_trade_duration = 0
+            self.trailing_stop_price = 0 
+            self.position_open = False 
+            return trade_info, did_profit
+
+        def hold():
+            self.consecutive_trades = 0
+            if self.shares_held > 0 and self.position_open:
+                self.current_trade_duration += 1
+        
+        def buy():
+            max_shares_possible = int(self.balance / (current_price * (1 + self.transaction_fee))) if current_price > 0 else 0
+            max_shares_allowed = int(self.initial_balance * self.max_position_size / current_price) if current_price > 0 else 0
+            shares_to_buy = min(max_shares_possible, max_shares_allowed)
+            buy_amount = shares_to_buy * current_price
+            fee = buy_amount * self.transaction_fee
+            cost = buy_amount + fee
+            trade_info = {
+                'type': 'BUY',
+                'shares': shares_to_buy,
+                'price': current_price,
+                'amount': buy_amount,
+                'fee': fee,
+                'action': action
+            }
+            self.balance -= cost
+            self.shares_held += shares_to_buy
+            self.total_shares_bought += shares_to_buy
+            self.total_cost += cost
+            self.entry_price = current_price
+            self.trailing_stop_price = current_price * (1 - self.trailing_stop_threshold)
+            self.position_open = True
+            self.current_trade_duration += 1
+            return trade_info
+    
         reward = 0
         done = False
         trade_info = {}
         did_profit = None
+        current_price = self.data_nparray[self.current_step, self.close_prices_idx]
+        self.lowest_price = min(self.lowest_price, current_price)
+        self.highest_price = max(self.highest_price, current_price)
         
-        # check if minimum trading interval has passed since last trade
-        can_trade = (self.current_step - self.last_trade_step) >= self.min_trade_interval
-
-        # check if model is out of the game
-        is_out_of_game = self.shares_held == 0 and self.balance * self.max_position_size < self.min_trade_amount
-
         # force sell all shares at the end of the episode or if current max position size is lower than the minimum trade amount
-        if self.current_step >= self.data_nparray.shape[0] - 1 or is_out_of_game:
-            if is_out_of_game:
-                print('OUT OF GAME')
+        if self.current_step >= self.data_nparray.shape[0] - 1 or self._is_out_of_game():
             done = True
             if self.shares_held > 0:
-                sell_price = self.shares_held * current_price
-                fee = sell_price * self.transaction_fee
-                sell_price_adjusted = sell_price - fee
-                buy_price = self.entry_price * self.shares_held
-                buy_price_fee = buy_price * self.transaction_fee
-                buy_price_adjusted = buy_price + buy_price_fee
-                did_profit = sell_price_adjusted > buy_price_adjusted
-                trade_info = {
-                    'type': 'END_OF_EPISODE',
-                    'shares': self.shares_held,
-                    'price': current_price,
-                    'amount': sell_price,
-                    'fee': fee,
-                    'action': 'FORCED_SELL',
-                    'did_profit': did_profit
-                }
-                self.balance += sell_price_adjusted
-                self.shares_held = 0
-                self.total_trades += 1
-                self.total_shares_sold += self.shares_held
-                self.consecutive_trades += 1
-                self.last_trade_step = self.current_step 
-                self.entry_price = 0
-                self.max_profit = max(self.max_profit, sell_price_adjusted)
-                self.max_loss = min(self.max_loss, sell_price_adjusted)
-                if did_profit:
-                    if self.was_last_trade_profitable:
-                        self.consecutive_profits += 1
-                    self.profitable_trades += 1
-                    self.total_profit += sell_price_adjusted - buy_price_adjusted
-                    self.successful_trade_durations.append(self.current_trade_duration)
-                    if len(self.successful_trade_durations) > 1000:
-                        self.successful_trade_durations.pop()
-                else:
-                    if not self.was_last_trade_profitable:
-                        self.consecutive_losses += 1
-                    self.loss_making_trades += 1
-                    self.total_loss += buy_price_adjusted - sell_price_adjusted
-                self.current_trade_duration = 0
-                self.trailing_stop_price = 0
-                self.position_open = False
+                trade_info, did_profit = sell(True)
         else:
             invalid_action = self._is_invalid_action(action)
             if invalid_action:
@@ -903,97 +1013,31 @@ class StockTradingEnv:
             else:
                 self.action_history.append(action)
                 if action == 0:  # sell
-                    if not can_trade:
-                        reward -= 0.1
-                    sell_price = self.shares_held * current_price
-                    fee = sell_price * self.transaction_fee
-                    sell_price_adjusted = sell_price - fee
-                    buy_price = self.entry_price * self.shares_held
-                    buy_price_fee = buy_price * self.transaction_fee
-                    buy_price_adjusted = buy_price + buy_price_fee
-                    did_profit = sell_price_adjusted > buy_price_adjusted
-                    trade_info = {
-                        'type': 'SELL',
-                        'shares': self.shares_held,
-                        'price': current_price,
-                        'amount': sell_price,
-                        'fee': fee,
-                        'action': action,
-                        'did_profit': did_profit
-                    }
-                    self.balance += sell_price_adjusted
-                    self.shares_held = 0
-                    self.total_trades += 1
-                    self.total_shares_sold += self.shares_held
-                    self.consecutive_trades += 1
-                    self.last_trade_step = self.current_step
-                    self.entry_price = 0 
-                    self.max_profit = max(self.max_profit, sell_price_adjusted)
-                    self.max_loss = min(self.max_loss, sell_price_adjusted)
-                    if did_profit:
-                        if self.was_last_trade_profitable:
-                            self.consecutive_profits += 1
-                        self.profitable_trades += 1
-                        self.total_profit += sell_price_adjusted - buy_price_adjusted
-                        self.successful_trade_durations.append(self.current_trade_duration)
-                        if len(self.successful_trade_durations) > 1000:
-                            self.successful_trade_durations.pop()
-                    else:
-                        if not self.was_last_trade_profitable:
-                            self.consecutive_losses += 1
-                        self.loss_making_trades += 1
-                        self.total_loss += buy_price_adjusted - sell_price_adjusted
-                    self.current_trade_duration = 0
-                    self.trailing_stop_price = 0 
-                    self.position_open = False 
+                    trade_info, did_profit = sell()
                 elif action == 1:  # hold
-                    self.consecutive_trades = 0
-                    if self.shares_held > 0 and self.position_open:
-                        self.current_trade_duration += 1
+                    hold()
                 elif action == 2:  # buy
-                    max_shares_possible = int(self.balance / (current_price * (1 + self.transaction_fee))) if current_price > 0 else 0
-                    max_shares_allowed = int(self.initial_balance * self.max_position_size / current_price) if current_price > 0 else 0
-                    shares_to_buy = min(max_shares_possible, max_shares_allowed)
-                    buy_amount = shares_to_buy * current_price
-                    fee = buy_amount * self.transaction_fee
-                    cost = buy_amount + fee
-                    trade_info = {
-                        'type': 'BUY',
-                        'shares': shares_to_buy,
-                        'price': current_price,
-                        'amount': buy_amount,
-                        'fee': fee,
-                        'action': action
-                    }
-                    self.balance -= cost
-                    self.shares_held += shares_to_buy
-                    self.total_shares_bought += shares_to_buy
-                    self.total_cost += cost
-                    self.entry_price = current_price
-                    self.trailing_stop_price = current_price * (1 - self.trailing_stop_threshold)
-                    self.position_open = True
-                    self.current_trade_duration += 1
+                    trade_info = buy()
             self.consecutive_holds = self.consecutive_holds + 1 if (action == 1 and self.shares_held > 0) or invalid_action else 0
             
-        if done:
-            if self.mode == 'test':
-                trade_info['max_drawdown'] = self._calculate_max_drawdown()
-                trade_info['sharpe_ratio'] = self._calculate_sharpe_ratio()
-                trade_info['portfolio_values'] = self.portfolio_values
-                trade_info['price_history'] = self.price_history
-                trade_info['action_history'] = self.action_history
-                trade_info['final_balance'] = self.balance
-                trade_info['return_rate'] = (self.balance - self.initial_balance) / self.initial_balance
+        if done and self.mode == 'test':
+            trade_info['max_drawdown'] = self._calculate_max_drawdown()
+            trade_info['sharpe_ratio'] = self._calculate_sharpe_ratio()
+            trade_info['portfolio_values'] = self.portfolio_values
+            trade_info['price_history'] = self.price_history
+            trade_info['action_history'] = self.action_history
+            trade_info['final_balance'] = self.balance
+            trade_info['return_rate'] = (self.balance - self.initial_balance) / self.initial_balance
         
+        portfolio_value = self.balance + self.shares_held * current_price
+        self.highest_portfolio_value_seen_so_far = max(self.highest_portfolio_value_seen_so_far, portfolio_value)
+        self.lowest_portfolio_value_seen_so_far = min(self.lowest_portfolio_value_seen_so_far, portfolio_value)
         if not done:
             self.current_step += 1
         reward += self._calculate_reward(action, trade_info, done)
-            
-        if trade_info:
-            self.trade_history.append(trade_info)
 
         self.last_action = action
-        self.last_portfolio_value = self.balance + self.shares_held * current_price
+        self.last_portfolio_value = portfolio_value
         self.was_last_trade_profitable = did_profit if did_profit is not None else self.was_last_trade_profitable
         
         return self._get_state(), reward, done, {
@@ -1006,28 +1050,20 @@ class StockTradingEnv:
         """
         Calculate the maximum drawdown from peak to trough
         """
-        # convert to numpy array if not already
         values = np.array(self.portfolio_values)
-        # calculate the running maximum
         running_max = np.maximum.accumulate(values)
-        # calculate drawdown in percentage terms
         drawdown = (running_max - values) / running_max
-        # get the maximum drawdown
         max_drawdown = np.max(drawdown)
         return max_drawdown
     
     
-    def _calculate_sharpe_ratio(self, risk_free_rate=0.02/252) -> np.float64:
+    def _calculate_sharpe_ratio(self) -> np.float64:
         """
         Calculate the Sharpe ratio of the portfolio
         """
-        # convert to numpy array if not already
         values = np.array(self.portfolio_values)
-        # calculate daily returns
         daily_returns = np.diff(values) / values[:-1]
-        # calculate excess returns over risk-free rate
-        excess_returns = daily_returns - risk_free_rate
-        # calculate Sharpe ratio (annualized)
+        excess_returns = daily_returns - self.risk_free_rate
         if np.std(excess_returns) == 0:
             return 0
         sharpe_ratio = np.sqrt(252) * np.mean(excess_returns) / np.std(excess_returns)
@@ -1039,20 +1075,37 @@ class StockTradingEnv:
             return {
                 'stock_data_window_size': self.window_size,
                 'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
-                'portfolio_metrics_size': 4,
-                'performance_metrics_size': 8,
+                'portfolio_metrics_size': 6,
+                'performance_metrics_size': 9,
                 'risk_metrics_size': 4,
                 'price_action_metrics_size': 14,
-                'position_management_metrics_size': 7,
-                'trading_behavior_metrics_size': 8,
+                'position_management_metrics_size': 9,
+                'trading_behavior_metrics_size': 7,
                 'temporal_metrics_size': 2,
+                'temporal_metrics_types_count': 3,
                 'action_size': 3
             }
         return {
             'stock_data_window_size': self.window_size,
             'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
-            'portfolio_metrics_size': 25,
+            'portfolio_metrics_size': 28,
             'market_state_metrics_size': 11,
-            'constraint_metrics_size': 6,
+            'constraint_metrics_size': 7,
             'action_size': 3
         }
+        
+    def create_rolling_min_max_scalers(self):
+        states = ['portfolio_value', 'last_portfolio_value', 'balance', 'shares_value', 'shares_held', 
+                  'avg_buy_price', 'position_pl', 'position_pl_ratio', 'profit_factor', 'consecutive_profits',
+                  'consecutive_losses', 'sharpe_ratio', 'sortino', 'current_drawdown', 'proximity_to_critical_loss',
+                  'profit_loss_opportunity_ratio', 'market_volatility', 'recent_price_change', 'price_acceleraiton',
+                  'volatility_trend', 'highest_price', 'lowest_price', 'highest_price_and_lowest_price_ratio',
+                  'highest_price_and_current_price_ratio', 'highest_price_and_entry_price_ratio',
+                  'lowest_price_and_current_price_ratio', 'lowest_price_and_entry_price_ratio',
+                  'position_utilization_kelly', 'invalid_actions', 'highest_price_since_buy', 'lowest_price_since_buy',
+                  'highest_price_since_buy_and_lowest_price_since_buy_ratio', 'highest_price_since_buy_and_current_price_ratio'
+                  'highest_price_since_buy_and_entry_price_ratio', 'lowest_price_since_buy_and_current_price_ratio',
+                  'lowest_price_since_buy_and_entry_price_ratio', 'time_ratio_to_optimal', 'consecutive_holds',
+                  'consecutive_trades', 'total_trades']
+        
+        return {state: RollingMinMaxScaler(self.window_size) for state in states}

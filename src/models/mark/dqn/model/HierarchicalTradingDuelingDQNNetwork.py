@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from src.config.config import BATCH_SIZE
 from src.models.mark.dqn.model.HelperLayers import *
 
 
@@ -377,3 +378,31 @@ class HierarchicalTradingDuelingDQNNetwork(nn.Module):
         # Dueling combination
         q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
         return q_values
+
+
+if __name__=='__main__':
+    sizes = {
+        'stock_data_window_size': 60,
+        'stock_data_feature_size': 22,
+        'portfolio_metrics_size': 6,
+        'performance_metrics_size': 9,
+        'risk_metrics_size': 4,
+        'price_action_metrics_size': 14,
+        'position_management_metrics_size': 9,
+        'trading_behavior_metrics_size': 7,
+        'temporal_metrics_size': 2,
+        'action_size': 3
+    }
+    dqn = HierarchicalTradingDuelingDQNNetwork(sizes)
+    print(dqn)
+
+    # dummy data
+    stock_data_flattened_dim = sizes['stock_data_window_size'] * sizes['stock_data_feature_size']
+    temporal_states_dim = sizes['temporal_metrics_size'] * 3
+    everything_else =  sizes['portfolio_metrics_size'] + sizes['performance_metrics_size'] + sizes['risk_metrics_size'] + sizes['price_action_metrics_size'] + sizes['position_management_metrics_size'] + sizes['trading_behavior_metrics_size'] + temporal_states_dim
+    dummy_input = torch.randn(BATCH_SIZE, stock_data_flattened_dim + everything_else) 
+    print(dummy_input.shape)
+    
+    output = dqn(dummy_input)
+    print("Output Q-values shape:", output.shape) # Should be (batch_size, action_size)
+    assert output.shape == (BATCH_SIZE, sizes['action_size'])

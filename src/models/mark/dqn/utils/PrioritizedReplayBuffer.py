@@ -15,14 +15,14 @@ class PrioritizedReplayBuffer:
     """
     def __init__(self, capacity, alpha=0.6, beta=0.4, beta_increment=0.001):
         self.capacity = capacity
-        self.alpha = alpha  # How much prioritization to use (0 = uniform, 1 = full prioritization)
-        self.beta = beta  # Importance sampling weight (0 = no correction, 1 = full correction)
-        self.beta_increment = beta_increment  # Beta increases over time for more correction
+        self.alpha = alpha 
+        self.beta = beta 
+        self.beta_increment = beta_increment  
         self.device = DEVICE
         self.buffer = []
         self.priorities = np.zeros(capacity, dtype=np.float32)
         self.position = 0
-        self.max_priority = 1.0  # Initial max priority for new transitions
+        self.max_priority = 1.0 
     
     def push(self, state, action, reward, next_state, done):
         """
@@ -33,7 +33,7 @@ class PrioritizedReplayBuffer:
         else:
             self.buffer[self.position] = (state, action, reward, next_state, done)
         
-        # New experiences get max priority to ensure they're sampled
+        # new experiences get max priority to ensure they're sampled
         self.priorities[self.position] = self.max_priority
         self.position = (self.position + 1) % self.capacity
     
@@ -44,24 +44,20 @@ class PrioritizedReplayBuffer:
         if len(self.buffer) < batch_size:
             return None, None, None
         
-        # Calculate sampling probabilities
+        # calculate sampling probabilities
+        # sample indices based on probabilities
+        # get samples and calculate importance sampling weights
+        # increase beta over time
         priorities = self.priorities[:len(self.buffer)]
         probabilities = (priorities + 1e-6) ** self.alpha
         probabilities /= probabilities.sum()
-        
-        # Sample indices based on probabilities
         indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
-        
-        # Get samples and calculate importance sampling weights
         samples = [self.buffer[idx] for idx in indices]
         weights = (len(self.buffer) * probabilities[indices] + 1e-6) ** -self.beta
         weights /= weights.max()  # Normalize weights
-        
-        # Increase beta over time
         self.beta = min(1.0, self.beta + self.beta_increment)
         
         batch = list(map(list, zip(*samples)))
-
         states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
         actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
         rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
@@ -75,8 +71,8 @@ class PrioritizedReplayBuffer:
         """
         Update priorities based on TD errors
         """
-        # indices = indices.to(self.device) if indices.device != self.device else indices
-        # priorities = priorities.to(self.device) if priorities.device != self.device else priorities
+        indices = indices.to(self.device) if indices.device != self.device else indices
+        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
         for idx, priority in zip(indices, priorities):
             self.priorities[idx] = priority
         

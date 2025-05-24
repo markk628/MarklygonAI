@@ -14,9 +14,7 @@ from src.config.config import (
     DEVICE
 )
 from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
-from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
 from src.models.mark.dqn.model.HierarchicalTradingDQNNetwork import HierarchicalTradingDQNNetwork
-from src.models.mark.dqn.model.HierarchicalTradingDuelingDQNNetwork import HierarchicalTradingDuelingDQNNetwork
 from src.models.mark.dqn.utils.PrioritizedReplayBuffer import PrioritizedReplayBuffer
 from src.models.mark.dqn.utils.PrioritizedReplayBufferVRAM import PrioritizedReplayBufferVRAM
 
@@ -47,9 +45,9 @@ class DQNAgent:
         use_hierarchical: bool = True,
         use_prioritized: bool = True,
         use_vram: bool = True,
-        per_alpha: float = 0.6, # Alpha for Prioritized Experience Replay
-        per_beta: float = 0.4,  # Initial Beta for Prioritized Experience Replay
-        per_beta_increment: float = 0.001, # Beta increment for PER
+        per_alpha: float = 0.6,
+        per_beta: float = 0.4, 
+        per_beta_increment: float = 0.001,
         gradient_max_norm: float = 1.0
     ):
         self.sizes = sizes
@@ -78,24 +76,14 @@ class DQNAgent:
             self.device_capability = torch.cuda.get_device_capability(device_idx)[0]
         
         # network initialization
-        if use_dueling:
-            if use_hierarchical:
-                print('Using Hierarchical Dueling DQN')
-                self.main_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
-                self.target_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
-            else:
-                print('Using Dueling DQN')
-                self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
-                self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
+        if use_hierarchical:
+            print(f'Using Hierarchical {"Dueling " if use_dueling else ""}DQN')
+            self.main_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes, use_dueling).to(self.device)
+            self.target_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes, use_dueling).to(self.device)
         else:
-            if use_hierarchical:
-                print('Using Hierarchical DQN')
-                self.main_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
-                self.target_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
-            else:
-                print('Using DQN')
-                self.main_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
-                self.target_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
+            print(f'Using {"Dueling " if use_dueling else ""}DQN')
+            self.main_network: DQNNetwork = DQNNetwork(sizes, use_dueling).to(self.device)
+            self.target_network: DQNNetwork = DQNNetwork(sizes, use_dueling).to(self.device)
             
         self.target_network.load_state_dict(self.main_network.state_dict())
         self.target_network.eval() 
@@ -116,15 +104,16 @@ class DQNAgent:
             verbose=True
         )
         
-        # Memory setup
+        # memory setup
         if use_prioritized:
             if use_vram:
                 print('Using PER VRAM')
                 stock_data_window_size = sizes['stock_data_window_size']
                 stock_data_feature_size = sizes['stock_data_feature_size']
                 stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
-                temporal_metrics_size = sizes['temporal_metrics_size'] * 2 if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
-                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - self._action_size
+                temporal_metrics_types_count = sizes['temporal_metrics_types_count']
+                temporal_metrics_size = sizes['temporal_metrics_size'] * (temporal_metrics_types_count - 1) if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
+                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - temporal_metrics_types_count - self._action_size
                 self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
             else:
                 print('Using PER')
@@ -135,13 +124,13 @@ class DQNAgent:
             
         self.loss_fn: nn.SmoothL1Loss = nn.SmoothL1Loss()
 
-        # Training parameters
+        # training parameters
         self.update_counter: int = 0
         self.target_update_frequency: int = target_update_frequency
         self.update_frequency: int = update_frequency
         self.training_steps: int = 0
         
-        # Metrics tracking
+        # metrics tracking
         self.loss_history = []
         self.avg_q_values = []
         
