@@ -5,7 +5,7 @@ from alpaca_trade_api.stream import Stream
 from alpaca_trade_api.rest import REST, TimeFrame
 from alpaca_trade_api.entity import Position
 from datetime import datetime, timedelta
-from config import DATA_FEED
+from src.web.alpaca_bot.config import DATA_FEED
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -53,6 +53,7 @@ class AlpacaClient:
                 except Exception as e:
                     logger.error(f"거래 데이터 처리 오류: {e}")
             
+            
             async def on_bar(data):
                 try:
                     symbol = data.symbol if hasattr(data, 'symbol') else "Unknown"
@@ -72,6 +73,7 @@ class AlpacaClient:
             for symbol in symbols:
                 self.stream.subscribe_trades(on_trade, symbol)
                 print(f"- {symbol} 거래 데이터 구독")
+                
                 
                 # 1분봉 구독
                 @self.stream.on_bar(symbol)
