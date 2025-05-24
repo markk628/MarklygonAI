@@ -338,7 +338,7 @@ class DQNTrainer:
         
         # load and prepare data
         print('Preparing data...')
-        cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2023-05-06 08:00:00', tz='UTC')
         data = self.load_stock_data(ticker, cutoff)
         train_data, val_data, test_data = self.split_data(data)
         
@@ -376,7 +376,7 @@ class DQNTrainer:
         agent = DQNAgent(
             sizes=train_env.get_branch_sizes(),
             total_steps=(len(train_data) - WINDOW_SIZE) * NUM_EPISODES,
-            decay_rate_multiplier=1,
+            decay_rate_multiplier=0.3,
             epsilon_decay_target_pct=0.4,
             update_frequency=4,  
             target_update_frequency=200,

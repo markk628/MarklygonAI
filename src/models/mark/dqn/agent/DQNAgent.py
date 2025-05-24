@@ -180,12 +180,11 @@ class DQNAgent:
             
         return torch.argmax(q_values, dim=1).item()
 
-
     def train(self):
         """
         Train the agent by sampling from replay buffer
         """
-        def train_agent():
+        def train_agent(use_autocast: bool):
             # sample from memory
             if self.use_prioritized:
                 batch, indices, is_weights = self.memory.sample(self.batch_size)
@@ -225,10 +224,16 @@ class DQNAgent:
                 
             # optimize
             self.optimizer.zero_grad()
-            loss.backward()
-            # gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
-            self.optimizer.step()
+            if use_autocast:
+                self.scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+                self.scaler.step(self.optimizer) # Unscale gradients and apply optimizer step
+                self.scaler.update() # Update the scaler for the next iteration
+            else:
+                loss.backward()
+                # gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+                self.optimizer.step()
 
             # update priorities in buffer
             if self.use_prioritized:
@@ -266,9 +271,9 @@ class DQNAgent:
         # ) as prof:
         if torch.cuda.is_bf16_supported() and self.device_capability >= 7:
             with autocast():
-                train_agent()
+                train_agent(True)
         else:
-            train_agent()
+            train_agent(False)
         
     def load(self, file_path: str):
         """Load model weights from file"""
