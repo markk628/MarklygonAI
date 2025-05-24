@@ -111,9 +111,12 @@ class DQNAgent:
                 stock_data_window_size = sizes['stock_data_window_size']
                 stock_data_feature_size = sizes['stock_data_feature_size']
                 stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
-                temporal_metrics_types_count = sizes['temporal_metrics_types_count']
-                temporal_metrics_size = sizes['temporal_metrics_size'] * (temporal_metrics_types_count - 1) if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
-                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - temporal_metrics_types_count - self._action_size
+                if use_hierarchical:
+                    temporal_metrics_types_count = sizes['temporal_metrics_types_count']
+                    temporal_metrics_size = sizes['temporal_metrics_size'] * (temporal_metrics_types_count - 1) if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
+                    state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - temporal_metrics_types_count - self._action_size
+                else:
+                    state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size - self._action_size
                 self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
             else:
                 print('Using PER')

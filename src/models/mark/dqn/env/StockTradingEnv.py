@@ -1089,7 +1089,7 @@ class StockTradingEnv:
             'stock_data_window_size': self.window_size,
             'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
             'portfolio_metrics_size': 28,
-            'market_state_metrics_size': 11,
+            'market_state_metrics_size': 14,
             'constraint_metrics_size': 7,
             'action_size': 3
         }
