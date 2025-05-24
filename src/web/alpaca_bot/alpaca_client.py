@@ -5,6 +5,7 @@ from alpaca_trade_api.stream import Stream
 from alpaca_trade_api.rest import REST, TimeFrame
 from alpaca_trade_api.entity import Position
 from datetime import datetime, timedelta
+from src.web.alpaca_bot.config import DATA_FEED
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -12,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 class AlpacaClient:
     
     
-    def __init__(self, api_key: str, secret_key: str, base_url: str, data_feed: str = 'iex'):
+    def __init__(self, api_key: str, secret_key: str, base_url: str, data_feed: str = DATA_FEED):
         
         self.api_key = api_key
         self.secret_key = secret_key
@@ -52,14 +53,6 @@ class AlpacaClient:
                 except Exception as e:
                     logger.error(f"거래 데이터 처리 오류: {e}")
             
-            async def on_quote(data):
-                try:
-                    symbol = data.symbol if hasattr(data, 'symbol') else "Unknown"
-                    bid = data.bid_price if hasattr(data, 'bid_price') else 0.0
-                    ask = data.ask_price if hasattr(data, 'ask_price') else 0.0
-                    print(f"[호가] {symbol}: 매수=${bid:.2f}, 매도=${ask:.2f}, 스프레드=${ask-bid:.2f}")
-                except Exception as e:
-                    logger.error(f"호가 데이터 처리 오류: {e}")
             
             async def on_bar(data):
                 try:
@@ -81,8 +74,6 @@ class AlpacaClient:
                 self.stream.subscribe_trades(on_trade, symbol)
                 print(f"- {symbol} 거래 데이터 구독")
                 
-                self.stream.subscribe_quotes(on_quote, symbol)
-                print(f"- {symbol} 호가 데이터 구독")
                 
                 # 1분봉 구독
                 @self.stream.on_bar(symbol)
