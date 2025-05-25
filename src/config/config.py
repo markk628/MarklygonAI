@@ -57,12 +57,13 @@ TARGET_UPDATE_INTERVAL = 1
 # DQN 모델 하이퍼파라미터
 
 
-REPLAY_BUFFER_SIZE = 750000
+REPLAY_BUFFER_SIZE = 350000
 
 # 학습 설정
-BATCH_SIZE = 2048
+BATCH_SIZE = 1024
 NUM_EPISODES = 100
 EVALUATE_INTERVAL = 5
+TRAIN_INTERVAL = 4
 
 # 장치 설정
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -105,7 +106,28 @@ TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos',
                      'month', 'month_sin', 'month_cos', 
                      'quarter', 'quarter_sin', 'quarter_cos',
                      'time_since_last_significant_change']
+FEATURES_RANKED = ['close_pct_change_1', 'log_return_1', 'close_diff_1', 'stochrsi_k_14_1min', 'stochrsi_k_21_1min', 
+                   'close_open_ratio', 'close_open_range', 'cci_10_1min', 'obv_1min', 'rsi_7_1min', 'macd_hist_5_13_4_1min', 
+                   'cci_20_1min', 'roc_5_1min', 'rsi_14_1min', 'stochrsi_d_14_1min', 'stochrsi_d_21_1min', 'cci_30_1min', 
+                   'rsi_21_1min', 'ultosc_5_15_30_1min', 'roc_10_1min', 'mfi_7_1min', 'minusdi_10_1min', 'plusdi_10_1min', 
+                   'ultosc_7_21_42_1min', 'roc_20_1min', 'volume', 'transactions', 'mfi_14_1min', 'ultosc_10_30_60_1min', 
+                   'minusdi_20_1min', 'plusdi_20_1min', 'macd_5_13_4_1min', 'mfi_21_1min', 'macd_hist_12_26_9_1min', 
+                   'minusdi_30_1min', 'plusdi_30_1min', 'close_rolling_std_5', 'volume_rolling_mean_5', 'volume_rolling_std_5', 
+                   'volume_rolling_mean_15', 'volume_rolling_std_15', 'volume_rolling_mean_30', 'volume_rolling_std_30', 
+                   'high_low_ratio', 'volume_lag_1', 'atr_14_1min', 'atr_21_1min', 'log_return_rolling_std_15', 'volume_lag_5', 
+                   'close_rolling_std_15', 'volume_lag_10', 'log_return_rolling_std_30', 'macd_signal_5_13_4_1min', 'vwap', 
+                   'high_low_range', 'vwap_lag_1', 'macd_12_26_9_1min', 'close_rolling_std_30', 'hour', 'close_rolling_mean_5', 
+                   'sma_5_1min', 'vwap_lag_5', 'vwap_lag_10', 'close', 'close_lag_1', 'ema_3_1min', 'bband_middle_10_1min', 
+                   'sma_10_1min', 'open', 'open_lag_1', 'close_lag_5', 'bband_lower_10_1min', 'close_lag_10', 'bband_upper_10_1min', 
+                   'hour_sin', 'high', 'macd_signal_12_26_9_1min', 'low', 'open_lag_5', 'high_lag_1', 'low_lag_1', 'open_lag_10', 
+                   'close_rolling_mean_15', 'bband_middle_20_1min', 'sma_20_1min', 'time_since_last_significant_change', 
+                   'ema_5_1min', 'high_lag_5', 'bband_upper_20_1min', 'low_lag_5', 'bband_lower_20_1min', 'high_lag_10', 
+                   'low_lag_10', 'close_rolling_mean_30', 'ema_9_1min', 'bband_lower_50_1min', 'bband_upper_50_1min', 
+                   'sma_50_1min', 'bband_middle_50_1min', 'ema_21_1min', 'ema_50_1min', 'adx_10_1min', 'hour_cos', 'adx_20_1min', 
+                   'adx_30_1min', 'minute', 'month_cos', 'month_sin', 'month', 'quarter', 'quarter_sin', 'day', 'day_cos', 
+                   'minute_sin', 'day_sin', 'minute_cos', 'quarter_cos']
 
+DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DATABASE}'
 
 # 로깅 설정
 def setup_logger(name, log_file, level=logging.INFO):

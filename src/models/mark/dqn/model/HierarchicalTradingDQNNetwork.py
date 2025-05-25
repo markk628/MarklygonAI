@@ -14,7 +14,7 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         self.portfolio_metrics_size = sizes['portfolio_metrics_size']
         self.performance_metrics_size = sizes['performance_metrics_size']
         self.risk_metrics_size = sizes['risk_metrics_size']
-        self.price_action_metrics_size = sizes['price_action_metrics_size']
+        self.market_state_metrics_size = sizes['market_state_metrics_size']
         self.position_management_metrics_size = sizes['position_management_metrics_size']
         self.trading_behavior_metrics_size = sizes['trading_behavior_metrics_size']
         self.temporal_metrics_size = sizes['temporal_metrics_size']
@@ -109,7 +109,7 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         )
         
         self.price_action_branch = nn.Sequential(
-            nn.Linear(self.price_action_metrics_size, 32),
+            nn.Linear(self.market_state_metrics_size, 32),
             nn.BatchNorm1d(32),
             nn.LeakyReLU(negative_slope=0.01),
             nn.Dropout(0.2),
@@ -150,6 +150,8 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         self.micro_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
         self.intraday_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
         self.weekly_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
+        # self.monthly_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
+        # self.quarterly_timing_projection = nn.Linear(self.temporal_metrics_size, self.temporal_feature_dim)
         
         # temporal attention layer
         self.temporal_attention = TemporalAttentionLayer(self.temporal_feature_dim, num_heads=2)
@@ -266,11 +268,13 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         performance_start_idx = portfolio_start_idx + self.portfolio_metrics_size
         risk_start_idx = performance_start_idx + self.performance_metrics_size
         price_action_start_idx = risk_start_idx + self.risk_metrics_size
-        position_management_start_idx = price_action_start_idx + self.price_action_metrics_size
+        position_management_start_idx = price_action_start_idx + self.market_state_metrics_size
         trading_behavior_start_idx = position_management_start_idx + self.position_management_metrics_size
         micro_timing_start_idx = trading_behavior_start_idx + self.trading_behavior_metrics_size
         intraday_timing_start_idx = micro_timing_start_idx + self.temporal_metrics_size
         weekly_timing_start_idx = intraday_timing_start_idx + self.temporal_metrics_size
+        # monthly_timing_start_idx = weekly_timing_start_idx + self.temporal_metrics_size
+        # quarterly_timing_start_idx = monthly_timing_start_idx + self.temporal_metrics_size
         
         # process stock data with temporal attention
         # extract and reshape market data, then process through covn1d -> self attention layer
@@ -303,15 +307,21 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         micro_timing_raw = x[:, micro_timing_start_idx:intraday_timing_start_idx]
         intraday_timing_raw = x[:, intraday_timing_start_idx:weekly_timing_start_idx]
         weekly_timing_raw = x[:, weekly_timing_start_idx:]
+        # weekly_timing_raw = x[:, weekly_timing_start_idx:monthly_timing_start_idx]
+        # monthly_timing_raw = x[:, monthly_timing_start_idx:quarterly_timing_start_idx]
+        # quarterly_timing_raw = x[:, quarterly_timing_start_idx:]
         
         # project to common dimension
         micro_timing_proj = self.micro_timing_projection(micro_timing_raw)
         intraday_timing_proj = self.intraday_timing_projection(intraday_timing_raw)
         weekly_timing_proj = self.weekly_timing_projection(weekly_timing_raw)
+        # monthly_timing_proj = self.weekly_timing_projection(monthly_timing_raw)
+        # quarterly_timing_proj = self.weekly_timing_projection(quarterly_timing_raw)
         
         # stack temporal features for attention and apply
         # temporal_stack dim (batch_size, 3, temporal_feature_dim)
         temporal_stack = torch.stack([micro_timing_proj, intraday_timing_proj, weekly_timing_proj], dim=1)
+        # temporal_stack = torch.stack([micro_timing_proj, intraday_timing_proj, weekly_timing_proj, monthly_timing_proj, quarterly_timing_proj], dim=1)
         attended_temporal, _ = self.temporal_attention(temporal_stack)
         
         # flatten attended temporal features
@@ -399,7 +409,7 @@ if __name__=='__main__':
         'portfolio_metrics_size': 6,
         'performance_metrics_size': 9,
         'risk_metrics_size': 4,
-        'price_action_metrics_size': 14,
+        'market_state_metrics_size': 14,
         'position_management_metrics_size': 9,
         'trading_behavior_metrics_size': 7,
         'temporal_metrics_size': 2,
@@ -412,7 +422,7 @@ if __name__=='__main__':
     # dummy data
     stock_data_flattened_dim = sizes['stock_data_window_size'] * sizes['stock_data_feature_size']
     temporal_states_dim = sizes['temporal_metrics_size'] * 3
-    everything_else =  sizes['portfolio_metrics_size'] + sizes['performance_metrics_size'] + sizes['risk_metrics_size'] + sizes['price_action_metrics_size'] + sizes['position_management_metrics_size'] + sizes['trading_behavior_metrics_size'] + temporal_states_dim
+    everything_else =  sizes['portfolio_metrics_size'] + sizes['performance_metrics_size'] + sizes['risk_metrics_size'] + sizes['market_state_metrics_size'] + sizes['position_management_metrics_size'] + sizes['trading_behavior_metrics_size'] + temporal_states_dim
     dummy_input = torch.randn(BATCH_SIZE, stock_data_flattened_dim + everything_else) 
     print(dummy_input.shape)
     

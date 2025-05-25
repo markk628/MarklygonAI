@@ -31,13 +31,12 @@ class DQNAgent:
     def __init__(
         self, 
         sizes,
-        total_steps: int,
         learning_rate: float = 0.001,
         discount_factor: float = 0.95,
         epsilon: float = 1.0,
-        decay_rate_multiplier: float = 1,
         epsilon_min: float = 0.01,
-        epsilon_decay_target_pct: float=1,
+        epsilon_decay_rate: int = 5,
+        epsilon_decay_target: int = 100000,
         batch_size: int = BATCH_SIZE,
         memory_size: int = REPLAY_BUFFER_SIZE,
         update_frequency: int = TRAIN_INTERVAL,
@@ -52,17 +51,18 @@ class DQNAgent:
         gradient_max_norm: float = 1.0
     ):
         self.sizes = sizes
-        self.batch_size: int = batch_size
+        self.learning_rate: float = learning_rate
         self.discount_factor: float = discount_factor  # gamma (γ)
         self.epsilon: float = epsilon  # epsilon (ε)
-        self.decay_rate_multiplier: float = decay_rate_multiplier
+        self.epsilon_start: float = epsilon
         self.epsilon_min: float = epsilon_min
-        self.epsilon_decay_target = (total_steps - batch_size) * epsilon_decay_target_pct
-        self.learning_rate: float = learning_rate
+        self.epsilon_decay_rate: int = epsilon_decay_rate
+        self.epsilon_decay_target: int = epsilon_decay_target
+        self.batch_size: int = batch_size
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
         self.use_vram: bool = use_vram
-        self._current_step: int = 1
+        self._current_step: int = 0
 
         # early forced exploration settings
         self.initial_exploration_episodes: int = 20
@@ -118,7 +118,7 @@ class DQNAgent:
                     state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - temporal_metrics_types_count - self._action_size
                 else:
                     state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size - self._action_size
-                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment, use_autocase=True)
             else:
                 print('Using PER')
                 self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
@@ -186,6 +186,8 @@ class DQNAgent:
         Train the agent by sampling from replay buffer
         """
         def train_agent(use_autocast: bool):
+            self._current_step += 1
+            
             # sample from memory
             if self.use_prioritized:
                 batch, indices, is_weights = self.memory.sample(self.batch_size)
@@ -250,8 +252,10 @@ class DQNAgent:
 
             # decay epsilon
             if self.epsilon > self.epsilon_min:
-                self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
-            self._current_step += 1
+                normalized_step = self._current_step / self.epsilon_decay_target
+                normalized_step = min(1.0, normalized_step) 
+                self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * np.exp(-self.epsilon_decay_rate * normalized_step)
+                self.epsilon = max(self.epsilon, self.epsilon_min)
             
         # skip if not enough samples
         if len(self.memory) < self.batch_size:
