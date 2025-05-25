@@ -162,7 +162,7 @@ class DQNTrainer:
         }
         
         return training_metrics
-
+    
 
     def evaluate_agent(self,
                        env: StockTradingEnv, 

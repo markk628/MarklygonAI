@@ -1777,7 +1777,7 @@ class StockTradingEnv:
             
             if self.invalid_actions > 0:
                 reward_components['invalid_actions_scaling_factor'] = self.invalid_actions * self.invalid_action_penalty
-                total_reward = reward_components['invalid_actions_scaling_factor'] 
+                total_reward += reward_components['invalid_actions_scaling_factor'] 
             
             if self._is_out_of_game():
                 reward_components['out_of_game'] = self.out_of_game_penalty
@@ -1788,8 +1788,8 @@ class StockTradingEnv:
                 reward_components['invalid_action'] = self.invalid_action_penalty
                 total_reward += reward_components['invalid_action']
             else:
-                # base portfolio change component
-                portfolio_change_pct = (portfolio_value - self.last_portfolio_value) / (self.last_portfolio_value if self.last_portfolio_value != 0 else self.initial_balance)
+                # base portfolio change component                
+                portfolio_change_pct = (portfolio_value - self.last_portfolio_value) / self.last_portfolio_value
                 reward_components['portfolio_change'] = portfolio_change_pct * 2
                 total_reward += reward_components['portfolio_change']
                 

@@ -11,7 +11,8 @@ from torch.cuda.amp import autocast, GradScaler
 from src.config.config import (
     BATCH_SIZE,
     REPLAY_BUFFER_SIZE,
-    DEVICE
+    DEVICE,
+    TRAIN_INTERVAL
 )
 from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
 from src.models.mark.dqn.model.HierarchicalTradingDQNNetwork import HierarchicalTradingDQNNetwork
@@ -39,7 +40,7 @@ class DQNAgent:
         epsilon_decay_target_pct: float=1,
         batch_size: int = BATCH_SIZE,
         memory_size: int = REPLAY_BUFFER_SIZE,
-        update_frequency: int = 4,
+        update_frequency: int = TRAIN_INTERVAL,
         target_update_frequency: int = 100,
         use_dueling: bool = True,
         use_hierarchical: bool = True,
