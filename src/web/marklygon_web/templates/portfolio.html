@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio - Trading Portfolio App{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+    <h1 style="color: #333; margin-bottom: 0.5rem;">Welcome back, {{ user.first_name }}!</h1>
+    <p style="color: #666;">Here's your portfolio overview</p>
+</div>
+
+<!-- Create New Portfolio Form -->
+<div style="background: #f8f9fa; padding: 2rem; border-radius: 15px; margin-bottom: 2rem;">
+    <h3 style="margin-bottom: 1rem; color: #333;">Create New Portfolio</h3>
+    <form method="POST" action="{{ url_for('create_portfolio') }}">
+        <div style="display: flex; gap: 1rem; align-items: end;">
+            <div style="flex: 1;">
+                <label for="portfolio_name" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333;">Portfolio Name</label>
+                <input type="text" id="portfolio_name" name="portfolio_name" required style="width: 100%; padding: 12px 15px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 1rem;">
+            </div>
+            <div style="flex: 1;">
+                <label for="initial_balance" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #333;">Initial Balance ($)</label>
+                <input type="number" id="initial_balance" name="initial_balance" step="0.01" min="0" value="10000" required style="width: 100%; padding: 12px 15px; border: 2px solid #e1e5e9; border-radius: 10px; font-size: 1rem;">
+            </div>
+            <div>
+                <button type="submit" class="btn" style="margin: 0;">Create Portfolio</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Portfolio Cards -->
+{% if portfolios %}
+    <div class="portfolio-grid">
+        {% for portfolio in portfolios %}
+            <div class="portfolio-card">
+                <h3>{{ portfolio.name }}</h3>
+                <div class="balance">${{ "%.2f"|format(portfolio.current_balance) }}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <small>Initial: ${{ "%.2f"|format(portfolio.initial_balance) }}</small>
+                    </div>
+                    <div>
+                        {% set profit_loss = portfolio.current_balance - portfolio.initial_balance %}
+                        {% if profit_loss > 0 %}
+                            <span style="color: #4ade80;">+${{ "%.2f"|format(profit_loss) }}</span>
+                        {% elif profit_loss < 0 %}
+                            <span style="color: #f87171;">-${{ "%.2f"|format(profit_loss|abs) }}</span>
+                        {% else %}
+                            <span>$0.00</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <small>
+                        {% if portfolio.is_live_trading %}
+                            🔴 Live Trading
+                        {% else %}
+                            🟡 Paper Trading
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div style="text-align: center; padding: 3rem; background: #f8f9fa; border-radius: 15px; margin-bottom: 2rem;">
+        <h3 style="color: #666; margin-bottom: 1rem;">No portfolios yet</h3>
+        <p style="color: #888;">Create your first portfolio to get started with tracking your trades!</p>
+    </div>
+{% endif %}
+
+<!-- Recent Trades Section -->
+<div style="margin-top: 3rem;">
+    <h2 style="margin-bottom: 2rem; color: #333;">Recent Trades</h2>
+    
+    {% if recent_trades %}
+        <table class="trades-table">
+            <thead>
+                <tr>
+                    <th>Date & Time</th>
+                    <th>Portfolio</th>
+                    <th>Type</th>
+                    <th>Shares</th>
+                    <th>Price</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for trade in recent_trades %}
+                    <tr>
+                        <td>{{ trade.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>{{ trade.portfolio.name }}</td>
+                        <td>
+                            <span class="trade-{{ trade.trade_type.value.lower() }}">
+                                {{ trade.trade_type.value }}
+                            </span>
+                        </td>
+                        <td>{{ trade.shares }}</td>
+                        <td>${{ "%.2f"|format(trade.price) }}</td>
+                        <td>${{ "%.2f"|format(trade.amount) }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div style="text-align: center; padding: 2rem; background: #f8f9fa; border-radius: 15px;">
+            <p style="color: #666;">No trades recorded yet. Start trading to see your history here!</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

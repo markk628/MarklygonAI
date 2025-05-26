@@ -1,0 +1,82 @@
+import numpy as np
+import random
+import torch
+
+from src.config.config import DEVICE
+
+np.random.seed(42)
+torch.manual_seed(42)
+random.seed(42)
+
+
+class PrioritizedReplayBuffer:
+    """
+    Prioritized Experience Replay for more efficient learning
+    """
+    def __init__(self, capacity, alpha=0.6, beta=0.4, beta_increment=0.001):
+        self.capacity = capacity
+        self.alpha = alpha 
+        self.beta = beta 
+        self.beta_increment = beta_increment  
+        self.device = DEVICE
+        self.buffer = []
+        self.priorities = np.zeros(capacity, dtype=np.float32)
+        self.position = 0
+        self.max_priority = 1.0 
+    
+    def push(self, state, action, reward, next_state, done):
+        """
+        Store a new experience with max priority
+        """
+        if len(self.buffer) < self.capacity:
+            self.buffer.append((state, action, reward, next_state, done))
+        else:
+            self.buffer[self.position] = (state, action, reward, next_state, done)
+        
+        # new experiences get max priority to ensure they're sampled
+        self.priorities[self.position] = self.max_priority
+        self.position = (self.position + 1) % self.capacity
+    
+    def sample(self, batch_size):
+        """
+        Sample experiences based on their priorities
+        """
+        if len(self.buffer) < batch_size:
+            return None, None, None
+        
+        # calculate sampling probabilities
+        # sample indices based on probabilities
+        # get samples and calculate importance sampling weights
+        # increase beta over time
+        priorities = self.priorities[:len(self.buffer)]
+        probabilities = (priorities + 1e-6) ** self.alpha
+        probabilities /= probabilities.sum()
+        indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
+        samples = [self.buffer[idx] for idx in indices]
+        weights = (len(self.buffer) * probabilities[indices] + 1e-6) ** -self.beta
+        weights /= weights.max()  # Normalize weights
+        self.beta = min(1.0, self.beta + self.beta_increment)
+        
+        batch = list(map(list, zip(*samples)))
+        states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
+        actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
+        rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
+        next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
+        dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+        weights = torch.tensor(weights, dtype=torch.float32, device=self.device)
+        
+        return (states, actions, rewards, next_states, dones), indices, weights
+    
+    def update_priorities(self, indices, priorities):
+        """
+        Update priorities based on TD errors
+        """
+        indices = indices.to(self.device) if indices.device != self.device else indices
+        priorities = priorities.to(self.device) if priorities.device != self.device else priorities
+        for idx, priority in zip(indices, priorities):
+            self.priorities[idx] = priority
+        
+        self.max_priority = max(self.max_priority, priorities.max())
+    
+    def __len__(self):
+        return len(self.buffer)
