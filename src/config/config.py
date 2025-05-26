@@ -127,7 +127,7 @@ FEATURES_RANKED = ['close_pct_change_1', 'log_return_1', 'close_diff_1', 'stochr
                    'adx_30_1min', 'minute', 'month_cos', 'month_sin', 'month', 'quarter', 'quarter_sin', 'day', 'day_cos', 
                    'minute_sin', 'day_sin', 'minute_cos', 'quarter_cos']
 
-DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DATABASE}'
+WEB_DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_WEB}'
 
 # 로깅 설정
 def setup_logger(name, log_file, level=logging.INFO):
