@@ -472,7 +472,7 @@ class StockTradingEnv:
                 'is_trending_down': float(self.market_regime == 'trending_down'),  
                 'is_ranging': float(self.market_regime == 'ranging'),        
                 'is_volatile': float(self.market_regime == 'high_volatility'),
-                'unknonw': float(self.market_regime == 'unknown'),
+                'unknown': float(self.market_regime == 'unknown'),
                 'trend_direction': trend_direction,
                 'volatility': self.market_volatility,
                 'recent_price_change': recent_price_change,

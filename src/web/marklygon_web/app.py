@@ -17,6 +17,15 @@ db.init_app(app)
 def check():
     return 'Flask is working'
 
+@app.route('/profile')
+def profile():
+    return render_template('')
+
+@app.route('/profile/portfolio<portfolio_id>')
+def portfolio():
+    return 
+
+
 @app.cli.command("create-db")
 def create_db_command():
     """Creates database tables and TimescaleDB hypertable using SQLAlchemy-TimescaleDB."""

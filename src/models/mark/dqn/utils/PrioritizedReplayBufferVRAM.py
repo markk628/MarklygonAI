@@ -40,30 +40,6 @@ class PrioritizedReplayBufferVRAM:
         self.priorities[idx] = self.max_priority # new experiences get max priority to ensure they're sampled
         self.position = (self.position + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
-
-    def _sample_no_autocast(self, batch_size):
-        if self.size < batch_size:
-            return None, None, None
-        
-        # calculate sampling probabilities
-        # sample indices based on probabilities
-        # get samples and calculate importance sampling weights
-        # increase beta over time
-        probabilities = (self.priorities[:self.size] + 1e-6) ** self.alpha
-        probabilities /= probabilities.sum()
-        indices = np.random.choice(self.size, batch_size, p=probabilities.cpu().numpy())
-        indices = torch.tensor(indices, dtype=torch.long, device=self.device)
-        weights = (self.size * probabilities[indices]) ** -self.beta
-        weights /= weights.max()
-        self.beta = min(1.0, self.beta + self.beta_increment)
-
-        states = self.states[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices]
-        next_states = self.next_states[indices]
-        dones = self.dones[indices]
-
-        return (states, actions, rewards, next_states, dones), indices, weights
     
     def sample(self, batch_size):
         if self.size < batch_size:
