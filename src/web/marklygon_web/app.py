@@ -109,7 +109,7 @@ def signup():
 def portfolio():
     """Portfolio page - shows user's portfolios and trading history"""
     user_id = session.get('user_id')
-    user = Profile.query.get(user_id)
+    user = session.get(Profile, user_id)
     
     if not user:
         flash('User not found.', 'error')
