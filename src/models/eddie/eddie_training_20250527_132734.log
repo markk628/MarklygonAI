@@ -1,0 +1,72 @@
+2025-05-27 13:27:34,908 - EddieRealDataTraining - INFO - Starting Eddie Real Data Training: eddie_real_data_20250527_132734
+2025-05-27 13:27:34,909 - EddieRealDataTraining - INFO - Results will be saved to: results\eddie_real_data_20250527_132734
+2025-05-27 13:27:34,909 - EddieRealDataTraining - INFO - Data path validated: ..\..\..\data
+2025-05-27 13:27:34,911 - EddieRealDataTraining - INFO - Using device: cuda
+2025-05-27 13:27:34,911 - EddieRealDataTraining - INFO - Using configuration: quick
+2025-05-27 13:27:34,911 - root - INFO - Loading stock data...
+2025-05-27 13:27:34,912 - MarklygonDataProcessor - INFO - Loading data for symbols: ['NVDA', 'TSLA']
+2025-05-27 13:28:01,257 - MarklygonDataProcessor - INFO - Total data loaded: 2004480 rows, 120 columns
+2025-05-27 13:28:01,301 - root - INFO - Preparing features...
+2025-05-27 13:28:01,302 - MarklygonDataProcessor - INFO - Selected 91 features:
+2025-05-27 13:28:01,302 - MarklygonDataProcessor - INFO -   - TA-Lib indicators: 55
+2025-05-27 13:28:01,302 - MarklygonDataProcessor - INFO -   - Time features: 16
+2025-05-27 13:28:01,302 - MarklygonDataProcessor - INFO -   - Lag features: 10
+2025-05-27 13:28:01,302 - MarklygonDataProcessor - INFO -   - Rolling features: 10
+2025-05-27 13:28:06,518 - root - INFO - Creating targets...
+2025-05-27 13:28:07,014 - MarklygonDataProcessor - INFO - Created targets with shapes:
+2025-05-27 13:28:07,031 - MarklygonDataProcessor - INFO -   - sell_intensity: range [-0.762, 0.762]
+2025-05-27 13:28:07,034 - MarklygonDataProcessor - INFO -   - market_regime: range [0.000, 3.000]
+2025-05-27 13:28:07,036 - MarklygonDataProcessor - INFO -   - volatility: range [0.000, 1.000]
+2025-05-27 13:28:07,042 - MarklygonDataProcessor - INFO -   - uncertainty: range [0.000, 1.000]
+2025-05-27 13:28:07,049 - root - INFO - Normalizing features...
+2025-05-27 13:28:08,981 - MarklygonDataProcessor - INFO - Feature scaler fitted
+2025-05-27 13:28:08,981 - root - INFO - Applying PCA...
+2025-05-27 13:28:10,007 - MarklygonDataProcessor - INFO - PCA fitted: 91 -> 20 components
+2025-05-27 13:28:10,008 - MarklygonDataProcessor - INFO - Explained variance: 0.922
+2025-05-27 13:28:10,026 - root - INFO - Creating sequences...
+2025-05-27 13:31:44,598 - MarklygonDataProcessor - INFO - Created 2004422 sequences of length 30
+2025-05-27 13:31:44,599 - MarklygonDataProcessor - INFO - Sequence shape: (2004422, 30, 20)
+2025-05-27 13:31:47,358 - root - INFO - Splitting data...
+2025-05-27 13:31:47,366 - MarklygonDataProcessor - INFO - Data split:
+2025-05-27 13:31:47,366 - MarklygonDataProcessor - INFO -   Train: 1403095 samples
+2025-05-27 13:31:47,366 - MarklygonDataProcessor - INFO -   Validation: 200442 samples
+2025-05-27 13:31:47,367 - MarklygonDataProcessor - INFO -   Test: 400885 samples
+2025-05-27 13:31:47,918 - root - INFO - Data loaders created successfully!
+2025-05-27 13:31:48,567 - EddieRealDataTraining - INFO - Data loading completed successfully
+2025-05-27 13:31:48,570 - MarklygonDataProcessor - INFO - Preprocessor saved to results\eddie_real_data_20250527_132734\preprocessor.pkl
+2025-05-27 13:34:00,802 - EddieTrainer - INFO - Models initialized on cuda
+2025-05-27 13:34:01,294 - EddieTrainer - INFO - Data loaders set: Train=1403095
+2025-05-27 13:34:01,294 - EddieTrainer - INFO - Validation=200442
+2025-05-27 13:34:01,294 - EddieTrainer - INFO - Test=400885
+2025-05-27 13:34:01,294 - EddieTrainer - INFO - Starting training for 5 epochs
+2025-05-27 13:34:01,824 - EddieRealDataTraining - ERROR - Training failed with error: mat1 and mat2 shapes cannot be multiplied (64x1 and 32x16)
+Traceback (most recent call last):
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_real_data.py", line 298, in main
+    results = trainer.train(
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_pipeline.py", line 454, in train
+    train_metrics = self.train_epoch()
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_pipeline.py", line 349, in train_epoch
+    signal_outputs = self.signal_generator(features)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\signal_pipeline\signal_generator.py", line 211, in forward
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\signal_pipeline\attention.py", line 367, in forward
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\container.py", line 215, in forward
+    input = module(input)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (64x1 and 32x16)

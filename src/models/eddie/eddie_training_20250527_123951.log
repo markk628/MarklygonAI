@@ -1,0 +1,41 @@
+2025-05-27 12:39:51,474 - EddieRealDataTraining - INFO - Starting Eddie Real Data Training: eddie_real_data_20250527_123951
+2025-05-27 12:39:51,475 - EddieRealDataTraining - INFO - Results will be saved to: results\eddie_real_data_20250527_123951
+2025-05-27 12:39:51,475 - EddieRealDataTraining - INFO - Data path validated: ..\..\..\data
+2025-05-27 12:39:51,477 - EddieRealDataTraining - INFO - Using device: cuda
+2025-05-27 12:39:51,477 - EddieRealDataTraining - INFO - Using configuration: quick
+2025-05-27 12:39:51,478 - root - INFO - Loading stock data...
+2025-05-27 12:39:51,478 - MarklygonDataProcessor - INFO - Loading data for symbols: ['NVDA', 'TSLA']
+2025-05-27 12:40:16,663 - MarklygonDataProcessor - INFO - Total data loaded: 2004480 rows, 120 columns
+2025-05-27 12:40:16,708 - root - INFO - Preparing features...
+2025-05-27 12:40:16,709 - MarklygonDataProcessor - INFO - Selected 91 features:
+2025-05-27 12:40:16,709 - MarklygonDataProcessor - INFO -   - TA-Lib indicators: 55
+2025-05-27 12:40:16,709 - MarklygonDataProcessor - INFO -   - Time features: 16
+2025-05-27 12:40:16,709 - MarklygonDataProcessor - INFO -   - Lag features: 10
+2025-05-27 12:40:16,709 - MarklygonDataProcessor - INFO -   - Rolling features: 10
+2025-05-27 12:40:22,085 - root - INFO - Creating targets...
+2025-05-27 12:40:22,608 - MarklygonDataProcessor - INFO - Created targets with shapes:
+2025-05-27 12:40:22,625 - MarklygonDataProcessor - INFO -   - sell_intensity: range [-0.762, 0.762]
+2025-05-27 12:40:22,629 - MarklygonDataProcessor - INFO -   - market_regime: range [0.000, 3.000]
+2025-05-27 12:40:22,631 - MarklygonDataProcessor - INFO -   - volatility: range [0.000, 1.000]
+2025-05-27 12:40:22,637 - MarklygonDataProcessor - INFO -   - uncertainty: range [0.000, 1.000]
+2025-05-27 12:40:22,643 - root - INFO - Normalizing features...
+2025-05-27 12:40:24,739 - MarklygonDataProcessor - INFO - Feature scaler fitted
+2025-05-27 12:40:24,739 - root - INFO - Applying PCA...
+2025-05-27 12:40:25,908 - MarklygonDataProcessor - INFO - PCA fitted: 91 -> 20 components
+2025-05-27 12:40:25,908 - MarklygonDataProcessor - INFO - Explained variance: 0.922
+2025-05-27 12:40:25,927 - root - INFO - Creating sequences...
+2025-05-27 12:43:49,842 - MarklygonDataProcessor - INFO - Created 2004422 sequences of length 30
+2025-05-27 12:43:49,842 - MarklygonDataProcessor - INFO - Sequence shape: (2004422, 30, 20)
+2025-05-27 12:43:52,009 - root - INFO - Splitting data...
+2025-05-27 12:43:52,016 - MarklygonDataProcessor - INFO - Data split:
+2025-05-27 12:43:52,017 - MarklygonDataProcessor - INFO -   Train: 1403095 samples
+2025-05-27 12:43:52,017 - MarklygonDataProcessor - INFO -   Validation: 200442 samples
+2025-05-27 12:43:52,017 - MarklygonDataProcessor - INFO -   Test: 400885 samples
+2025-05-27 12:43:52,516 - root - INFO - Data loaders created successfully!
+2025-05-27 12:43:53,070 - EddieRealDataTraining - INFO - Data loading completed successfully
+2025-05-27 12:43:53,082 - MarklygonDataProcessor - INFO - Preprocessor saved to results\eddie_real_data_20250527_123951\preprocessor.pkl
+2025-05-27 12:46:12,200 - EddieRealDataTraining - ERROR - Training failed with error: EddieTrainer.__init__() got an unexpected keyword argument 'project_name'
+Traceback (most recent call last):
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_real_data.py", line 288, in main
+    trainer = EddieTrainer(
+TypeError: EddieTrainer.__init__() got an unexpected keyword argument 'project_name'

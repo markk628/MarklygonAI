@@ -1,0 +1,74 @@
+2025-05-27 13:33:10,456 - EddieRealDataTraining - INFO - Starting Eddie Real Data Training: eddie_real_data_20250527_133310
+2025-05-27 13:33:10,456 - EddieRealDataTraining - INFO - Results will be saved to: results\eddie_real_data_20250527_133310
+2025-05-27 13:33:10,457 - EddieRealDataTraining - INFO - Data path validated: ..\..\..\data
+2025-05-27 13:33:10,459 - EddieRealDataTraining - INFO - Using device: cuda
+2025-05-27 13:33:10,459 - EddieRealDataTraining - INFO - Using configuration: quick
+2025-05-27 13:33:10,460 - root - INFO - Loading stock data...
+2025-05-27 13:33:10,460 - MarklygonDataProcessor - INFO - Loading data for symbols: ['NVDA']
+2025-05-27 13:33:23,070 - MarklygonDataProcessor - INFO - Total data loaded: 1002240 rows, 120 columns
+2025-05-27 13:33:23,070 - root - INFO - Preparing features...
+2025-05-27 13:33:23,071 - MarklygonDataProcessor - INFO - Selected 91 features:
+2025-05-27 13:33:23,071 - MarklygonDataProcessor - INFO -   - TA-Lib indicators: 55
+2025-05-27 13:33:23,071 - MarklygonDataProcessor - INFO -   - Time features: 16
+2025-05-27 13:33:23,071 - MarklygonDataProcessor - INFO -   - Lag features: 10
+2025-05-27 13:33:23,071 - MarklygonDataProcessor - INFO -   - Rolling features: 10
+2025-05-27 13:33:25,093 - root - INFO - Creating targets...
+2025-05-27 13:33:25,337 - MarklygonDataProcessor - INFO - Created targets with shapes:
+2025-05-27 13:33:25,345 - MarklygonDataProcessor - INFO -   - sell_intensity: range [-0.762, 0.762]
+2025-05-27 13:33:25,347 - MarklygonDataProcessor - INFO -   - market_regime: range [0.000, 3.000]
+2025-05-27 13:33:25,348 - MarklygonDataProcessor - INFO -   - volatility: range [0.000, 1.000]
+2025-05-27 13:33:25,351 - MarklygonDataProcessor - INFO -   - uncertainty: range [0.000, 1.000]
+2025-05-27 13:33:25,356 - root - INFO - Normalizing features...
+2025-05-27 13:33:26,355 - MarklygonDataProcessor - INFO - Feature scaler fitted
+2025-05-27 13:33:26,355 - root - INFO - Applying PCA...
+2025-05-27 13:33:26,924 - MarklygonDataProcessor - INFO - PCA fitted: 91 -> 20 components
+2025-05-27 13:33:26,925 - MarklygonDataProcessor - INFO - Explained variance: 0.923
+2025-05-27 13:33:26,936 - root - INFO - Creating sequences...
+2025-05-27 13:35:09,491 - MarklygonDataProcessor - INFO - Created 1002211 sequences of length 30
+2025-05-27 13:35:09,492 - MarklygonDataProcessor - INFO - Sequence shape: (1002211, 30, 20)
+2025-05-27 13:35:10,637 - root - INFO - Splitting data...
+2025-05-27 13:35:10,641 - MarklygonDataProcessor - INFO - Data split:
+2025-05-27 13:35:10,642 - MarklygonDataProcessor - INFO -   Train: 701547 samples
+2025-05-27 13:35:10,642 - MarklygonDataProcessor - INFO -   Validation: 100221 samples
+2025-05-27 13:35:10,642 - MarklygonDataProcessor - INFO -   Test: 200443 samples
+2025-05-27 13:35:10,917 - root - INFO - Data loaders created successfully!
+2025-05-27 13:35:11,140 - EddieRealDataTraining - INFO - Data loading completed successfully
+2025-05-27 13:35:11,141 - MarklygonDataProcessor - INFO - Preprocessor saved to results\eddie_real_data_20250527_133310\preprocessor.pkl
+2025-05-27 13:38:36,533 - EddieTrainer - INFO - Models initialized on cuda
+2025-05-27 13:38:37,047 - EddieTrainer - INFO - Data loaders set: Train=701547
+2025-05-27 13:38:37,047 - EddieTrainer - INFO - Validation=100221
+2025-05-27 13:38:37,047 - EddieTrainer - INFO - Test=200443
+2025-05-27 13:38:37,047 - EddieTrainer - INFO - Starting training for 1 epochs
+2025-05-27 13:38:37,565 - EddieRealDataTraining - ERROR - Training failed with error: mat1 and mat2 shapes cannot be multiplied (2x1 and 32x16)
+Traceback (most recent call last):
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_real_data.py", line 298, in main
+    results = trainer.train(
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_pipeline.py", line 454, in train
+    train_metrics = self.train_epoch()
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\train_pipeline.py", line 349, in train_epoch
+    signal_outputs = self.signal_generator(features)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\signal_pipeline\signal_generator.py", line 214, in forward
+    adaptive_output = self.adaptive_attention(tcn_features)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\ClaudeProjects\AI\dl_dev\finalProject\MarklygonAI\src\models\eddie\signal_pipeline\attention.py", line 371, in forward
+    market_probs = self.market_classifier(global_repr)  # (batch_size, num_market_states)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\container.py", line 215, in forward
+    input = module(input)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1518, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\module.py", line 1527, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Eddie\anaconda3\envs\dl_test\lib\site-packages\torch\nn\modules\linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (2x1 and 32x16)

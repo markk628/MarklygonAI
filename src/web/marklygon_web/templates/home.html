@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Trading Portfolio App{% endblock %}
+
+{% block content %}
+<div style="text-align: center; padding: 3rem 0;">
+    <h1 style="font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+        Welcome to TradingApp
+    </h1>
+    <p style="font-size: 1.2rem; margin-bottom: 2rem; color: #666;">
+        Track your trading portfolios and analyze your performance
+    </p>
+    {% if not session.user_id %}
+        <a href="{{ url_for('signup') }}" class="btn">Get Started</a>
+        <a href="{{ url_for('login') }}" class="btn btn-secondary">Login</a>
+    {% else %}
+        <a href="{{ url_for('portfolio') }}" class="btn">View Portfolio</a>
+    {% endif %}
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; margin-top: 3rem;">
+    <div style="text-align: center; padding: 2rem;">
+        <h3 style="margin-bottom: 1rem; color: #667eea;">📊 Track Performance</h3>
+        <p>Monitor your trading performance across multiple portfolios with detailed analytics.</p>
+    </div>
+    <div style="text-align: center; padding: 2rem;">
+        <h3 style="margin-bottom: 1rem; color: #667eea;">📈 Trade History</h3>
+        <p>Keep detailed records of all your trades with timestamps and performance metrics.</p>
+    </div>
+    <div style="text-align: center; padding: 2rem;">
+        <h3 style="margin-bottom: 1rem; color: #667eea;">💼 Multiple Portfolios</h3>
+        <p>Manage multiple trading portfolios and compare their performance side by side.</p>
+    </div>
+</div>
+{% endblock %}

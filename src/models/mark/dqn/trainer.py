@@ -1,3 +1,4 @@
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -11,21 +12,34 @@ from src.config.config import (
     DATA_DIR, 
     MODELS_DIR, 
     RESULTS_DIR, 
-    WINDOW_SIZE,
     TRAIN_RATIO, 
     VALID_RATIO,
     NUM_EPISODES,
-    EVALUATE_INTERVAL
+    EVALUATE_INTERVAL,
+    FEATURES_RANKED
 )
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
+from src.models.mark.dqn.utils.StateScaler import StateScaler
 from src.utils.utils import format_duration
-from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
 
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+    
 class DQNTrainer:
 
     def load_stock_data(self, ticker: str, cutoff: pd.Timestamp | None=None) -> pd.DataFrame:
@@ -33,7 +47,7 @@ class DQNTrainer:
         Get saved csv data
         """
         print(f'Loading {ticker}...')
-        drop_cols: list[str] = ['timestamp']
+        drop_cols: list[str] = ['timestamp', 'target']
         file_path = DATA_DIR / f'feature_engineered/{ticker.lower()}.csv'
         df = pd.read_csv(file_path)
 
@@ -44,8 +58,6 @@ class DQNTrainer:
         if drop_cols:
             df.drop(drop_cols, axis=1, inplace=True)
         
-        print(f'{ticker} loaded succesfully')
-        
         return df
 
 
@@ -53,8 +65,6 @@ class DQNTrainer:
         """
         Split data chronologically into train, validation, and test sets
         """
-        print(f'Splitting data...')
-        
         train_end = int(len(data) * train_ratio)
         val_end = train_end + int(len(data) * val_ratio)
         train_data = data.iloc[:train_end].copy().reset_index(drop=True)
@@ -64,170 +74,6 @@ class DQNTrainer:
         print(f"Data split: Train {len(train_data)}, Validation {len(val_data)}, Test {len(test_data)}")
         
         return train_data, val_data, test_data
-    
-    
-    def train_agent(self,
-                    env: StockTradingEnv, 
-                    agent: DQNAgent, 
-                    episodes: int=NUM_EPISODES, 
-                    validation_env: StockTradingEnv | None=None,
-                    validation_frequency: int=EVALUATE_INTERVAL,
-                    early_stopping_patience: int=10):
-        """
-        Train the agent with optional validation and early stopping
-        """
-        scores = []
-        balances = []
-        invalid_action_counts = []
-        validation_scores = []
-        validation_balances = []
-        validation_invalid_action_counts = []
-        
-        best_validation_score = float('-inf')
-        patience_counter = 0
-        best_model_state = None
-        start_time = time.time()
-        
-        print('Training agent...')
-        
-        for e in range(episodes):
-            agent.current_episode = e
-            state = env.reset()
-            score = 0
-            done = False
-            profit_trades = 0
-            loss_trades = 0
-
-            while not done:
-                action = agent.act(state)
-                next_state, reward, done, info = env.step(action)
-                agent.remember(state, action, reward, next_state, done)
-                agent.train()
-                state = next_state
-                score += reward
-                did_profit = info.get('trade_info').get('did_profit')
-                
-                if did_profit is not None:
-                    if did_profit:
-                        profit_trades += 1
-                    else:
-                        loss_trades += 1
-
-            agent.scheduler.step(score)
-            scores.append(score)
-            balances.append(env.balance)
-            invalid_action_counts.append(env.invalid_actions)
-            
-            if (e + 1) % 5 == 0:
-                print(f"\nT. Episode: {e+1}/{episodes} | "
-                      f"Average Score Per Step: {score / env.steps_per_episode:.4f} | "
-                      f"Balance: {env.balance:.2f} | "
-                      f"Trades: {env.total_trades} | "
-                      f"Profit Trades: {profit_trades} "
-                      f"Loss Trades: {loss_trades} | "
-                      f"P/L: {env.balance - env.initial_balance:.4f} | "
-                      f"Invalid Actions: {env.invalid_actions} | "
-                      f"Epsilon: {agent.epsilon:.4f}")
-            
-            # validation if provided
-            if validation_env is not None and (e + 1) % validation_frequency == 0:
-                validation_metrics = self.evaluate_agent(validation_env, agent, episodes=1, verbose=True)
-                validation_scores += validation_metrics['scores']
-                validation_balances += validation_metrics['balances']
-                validation_invalid_action_counts += validation_metrics['invalid_action_counts']
-                
-                validation_score = statistics.mean(validation_metrics['scores'])
-                # early stopping logic
-                if validation_score > best_validation_score:
-                    best_validation_score = validation_score
-                    patience_counter = 0
-                    # save best model state
-                    best_model_state = {k: v.cpu() for k, v in agent.main_network.state_dict().items()}
-                else:
-                    patience_counter += 1
-                    
-                if patience_counter >= early_stopping_patience:
-                    print(f"\nEarly stopping triggered at episode {e+1}. Best validation score: {best_validation_score:.4f}")
-                    # restore best model
-                    if best_model_state:
-                        agent.main_network.load_state_dict(best_model_state)
-                        agent.target_network.load_state_dict(best_model_state)
-                    break
-                
-        print(f'Training Time: {format_duration(time.time() - start_time)}')
-        
-        training_metrics = {
-            'scores': scores,
-            'balances': balances,
-            'invalid_action_counts': invalid_action_counts,
-            'validation_scores': validation_scores,
-            'validation_balances': validation_balances,
-            'validation_invalid_action_counts': validation_invalid_action_counts,
-            'loss_history': agent.loss_history,
-            'avg_q_values': agent.avg_q_values,
-        }
-        
-        return training_metrics
-
-
-    def evaluate_agent(self,
-                       env: StockTradingEnv, 
-                       agent: DQNAgent, 
-                       episodes: int=10, 
-                       verbose: bool=True):
-        """
-        Evaluate the agent's performance
-        """
-        scores = []
-        balances = []
-        invalid_action_counts = []
-        start_time = time.time()
-        
-        for e in range(episodes):
-            state = env.reset()
-            score = 0
-            done = False
-            profit_trades = 0
-            loss_trades = 0
-
-            while not done:
-                action = agent.act(state, training=False)
-                next_state, reward, done, info = env.step(action)
-                state = next_state
-                score += reward
-                did_profit = info.get('trade_info').get('did_profit')
-                
-                if did_profit is not None:
-                    if did_profit:
-                        profit_trades += 1
-                    else:
-                        loss_trades += 1
-                
-            scores.append(score)
-            balances.append(env.balance)
-            invalid_action_counts.append(env.invalid_actions)
-            
-            if verbose:
-                print(f"V. Episode: {e+1}/{episodes} | "
-                      f"Average Score Per Step: {score / env.steps_per_episode:.4f} | "
-                      f"Balance: {env.balance:.2f} | "
-                      f"Trades: {env.total_trades} | "
-                      f"Profit Trades: {profit_trades} | "
-                      f"Loss Trades: {loss_trades} | "
-                      f"P/L: {env.balance - env.initial_balance:.4f} | "
-                      f"Invalid Actions: {env.invalid_actions} | "
-                      f"Epsilon: {agent.epsilon:.4f}")
-            
-        if verbose:
-            print(f'Evaluation Time: {format_duration(time.time() - start_time)}')
-
-        evaluation_metrics = {
-            'scores': scores,
-            'balances': balances,
-            'invalid_action_counts': invalid_action_counts
-        }
-
-        return evaluation_metrics
     
     
     def plot_training_results(self, 
@@ -337,40 +183,189 @@ class DQNTrainer:
         return plt
     
     
+    def train_agent(self,
+                    env: StockTradingEnv, 
+                    agent: DQNAgent, 
+                    episodes: int=NUM_EPISODES, 
+                    validation_env: StockTradingEnv | None=None,
+                    validation_frequency: int=EVALUATE_INTERVAL,
+                    early_stopping_patience: int=10):
+        """
+        Train the agent with optional validation and early stopping
+        """
+        scores = []
+        balances = []
+        invalid_action_counts = []
+        validation_scores = []
+        validation_balances = []
+        validation_invalid_action_counts = []
+        
+        best_validation_score = float('-inf')
+        patience_counter = 0
+        best_model_state = None
+        start_time = time.time()
+        
+        for e in range(episodes):
+            agent.current_episode = e
+            state = env.reset()
+            score = 0
+            done = False
+
+            while not done:
+                action = agent.act(state)
+                next_state, reward, done, info = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                agent.train()
+                state = next_state
+                score += reward
+
+            agent.scheduler.step(score)
+            scores.append(score)
+            balances.append(env.balance)
+            invalid_action_counts.append(env.invalid_actions)
+            with open(f'./reward_episode_{e}.json', "w") as file:
+                json.dump(env.reward_components, file, indent=4, cls=NumpyEncoder)
+            
+            # if (e + 1) % validation_frequency == 0:
+            print(f"\nT. Episode: {e+1}/{episodes} | "
+                  f"Steps: {env.current_step} | "
+                  f"Avg. Score: {score / env.current_step:.4f} | "
+                  f"Balance: {env.balance:.2f} | "
+                  f"P. Trades: {env.profitable_trades} | "
+                  f"L. Trades: {env.loss_making_trades} | "
+                  f"P/L: {env.balance - env.initial_balance:.2f} | "
+                  f"Invalid Actions: {env.invalid_actions} | "
+                  f"Epsilon: {agent.epsilon:.4f}")
+            
+            # validation if provided
+            if validation_env is not None and (e + 1) % validation_frequency == 0:
+                validation_metrics = self.evaluate_agent(validation_env, agent, episodes=1, verbose=True)
+                validation_scores += validation_metrics['scores']
+                validation_balances += validation_metrics['balances']
+                validation_invalid_action_counts += validation_metrics['invalid_action_counts']
+                
+                validation_score = statistics.mean(validation_metrics['scores'])
+                # early stopping logic
+                if validation_score > best_validation_score:
+                    best_validation_score = validation_score
+                    patience_counter = 0
+                    # save best model state
+                    best_model_state = {k: v.cpu() for k, v in agent.main_network.state_dict().items()}
+                else:
+                    patience_counter += 1
+                    
+                if patience_counter >= early_stopping_patience:
+                    print(f"\nEarly stopping triggered at episode {e+1}. Best validation score: {best_validation_score:.4f}")
+                    # restore best model
+                    if best_model_state:
+                        agent.main_network.load_state_dict(best_model_state)
+                        agent.target_network.load_state_dict(best_model_state)
+                    break
+                
+        print(f'Training Time: {format_duration(time.time() - start_time)}')
+        
+        training_metrics = {
+            'scores': scores,
+            'balances': balances,
+            'invalid_action_counts': invalid_action_counts,
+            'validation_scores': validation_scores,
+            'validation_balances': validation_balances,
+            'validation_invalid_action_counts': validation_invalid_action_counts,
+            'loss_history': agent.loss_history,
+            'avg_q_values': agent.avg_q_values,
+        }
+        
+        return training_metrics
+    
+
+    def evaluate_agent(self,
+                       env: StockTradingEnv, 
+                       agent: DQNAgent, 
+                       episodes: int=10, 
+                       verbose: bool=True):
+        """
+        Evaluate the agent's performance
+        """
+        scores = []
+        balances = []
+        invalid_action_counts = []
+        start_time = time.time()
+        
+        for e in range(episodes):
+            state = env.reset()
+            score = 0
+            done = False
+
+            while not done:
+                action = agent.act(state, training=False)
+                next_state, reward, done, info = env.step(action)
+                state = next_state
+                score += reward
+                
+            scores.append(score)
+            balances.append(env.balance)
+            invalid_action_counts.append(env.invalid_actions)
+            
+            if verbose:
+                print(f"V. Episode: {e+1}/{episodes} | "
+                      f"Steps: {env.current_step} | "
+                      f"Avg. Score: {score / env.current_step:.4f} | "
+                      f"Balance: {env.balance:.2f} | "
+                      f"P. Trades: {env.profitable_trades} | "
+                      f"L. Trades: {env.loss_making_trades} | "
+                      f"P/L: {env.balance - env.initial_balance:.2f} | "
+                      f"Invalid Actions: {env.invalid_actions} | "
+                      f"Epsilon: {agent.epsilon:.4f}")
+            
+        if verbose:
+            print(f'Evaluation Time: {format_duration(time.time() - start_time)}')
+
+        evaluation_metrics = {
+            'scores': scores,
+            'balances': balances,
+            'invalid_action_counts': invalid_action_counts
+        }
+
+        return evaluation_metrics
+    
+    
     def train_and_evaluate(self):
         print("Let's get this bread")
         # parameters
         ticker = 'AAPL'
+        cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
         
         # load and prepare data
-        print('Preparing data...')
-        cutoff = pd.Timestamp('2025-05-05 08:00:00', tz='UTC')
+        print(f'Preparing data starting from {cutoff}...')
         data = self.load_stock_data(ticker, cutoff)
         train_data, val_data, test_data = self.split_data(data)
         
         print('Preprocessing data...')
-        window_processsor = RollingWindowFeatureProcessor()
-        window_processsor.fit(train_data.iloc[:, :-1], train_data['target'])
-        use_hierarchical = True
-        
+        state_scaler = StateScaler()
+        state_scaler.remove_highly_correlated(train_data)
+        use_dueling = True
+        use_hierarchical = False
+        use_prioritized = True
+        use_vram = True
+                
         # create environments
         train_env = StockTradingEnv(
             train_data, 
-            window_processsor,
+            state_scaler,
             mode='train',
             use_hierarchical=use_hierarchical
         )
         
         val_env = StockTradingEnv(
             val_data, 
-            window_processsor,
+            state_scaler,
             mode='validation',
             use_hierarchical=use_hierarchical
         )
         
         test_env = StockTradingEnv(
             test_data, 
-            window_processsor,
+            state_scaler,
             mode='test',
             use_hierarchical=use_hierarchical
         )
@@ -378,16 +373,12 @@ class DQNTrainer:
         # initialize agent
         agent = DQNAgent(
             sizes=train_env.get_branch_sizes(),
-            total_steps=(len(train_data) - WINDOW_SIZE) * NUM_EPISODES,
-            decay_rate_multiplier=1,
-            epsilon_decay_target_pct=0.4,
-            update_frequency=4,  
+            epsilon_decay_rate=10,
             target_update_frequency=200,
-            use_dueling=True,
-            use_prioritized=True,
+            use_dueling=use_dueling,
             use_hierarchical=use_hierarchical,
-            use_vram=True,
-            gradient_max_norm=1
+            use_prioritized=use_prioritized,
+            use_vram=use_vram
         )
         
         print('Training start time:', datetime.today())
