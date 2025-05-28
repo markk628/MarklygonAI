@@ -1,0 +1,84 @@
+{
+  "tickers": [
+    {
+      "id": "NVDA",
+      "symbol": "NVDA",
+      "company_name": "NVIDIA Corporation",
+      "sector": "Technology",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "AAPL",
+      "symbol": "AAPL",
+      "company_name": "Apple Inc.",
+      "sector": "Technology",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "MSFT",
+      "symbol": "MSFT",
+      "company_name": "Microsoft Corporation",
+      "sector": "Technology",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "AMZN",
+      "symbol": "AMZN",
+      "company_name": "Amazon.com Inc.",
+      "sector": "Consumer Discretionary",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "JPM",
+      "symbol": "JPM",
+      "company_name": "JPMorgan Chase & Co.",
+      "sector": "Financial Services",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "BAC",
+      "symbol": "BAC",
+      "company_name": "Bank of America Corporation",
+      "sector": "Financial Services",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "GS",
+      "symbol": "GS",
+      "company_name": "The Goldman Sachs Group Inc.",
+      "sector": "Financial Services",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "JNJ",
+      "symbol": "JNJ",
+      "company_name": "Johnson & Johnson",
+      "sector": "Healthcare",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "MCD",
+      "symbol": "MCD",
+      "company_name": "McDonald's Corporation",
+      "sector": "Consumer Discretionary",
+      "is_active": true,
+      "phase": 1
+    },
+    {
+      "id": "KO",
+      "symbol": "KO",
+      "company_name": "The Coca-Cola Company",
+      "sector": "Consumer Staples",
+      "is_active": true,
+      "phase": 1
+    }
+  ]
+} 

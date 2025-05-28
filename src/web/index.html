@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarklygonAI - Deep Learning Algorithmic Trading Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Material+Icons">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+    <link rel="stylesheet" href="./css/common.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50 font-roboto">
+    <!-- Navigation Header -->
+    <nav class="bg-white shadow-lg border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center">
+                    <div class="flex-shrink-0 flex items-center">
+                        <div class="text-2xl font-bold text-blue-600">MarklygonAI</div>
+                        <span class="ml-2 text-sm text-gray-500">v1.0</span>
+                    </div>
+                </div>
+
+                <!-- Navigation Menu -->
+                <div class="hidden md:flex items-center space-x-8">
+                    <a href="#dashboard" class="nav-link active" data-page="dashboard">
+                        <i class="material-icons">dashboard</i>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="#portfolio" class="nav-link" data-page="portfolio">
+                        <i class="material-icons">account_balance_wallet</i>
+                        <span>Portfolio</span>
+                    </a>
+                    <a href="#backtest" class="nav-link" data-page="backtest">
+                        <i class="material-icons">analytics</i>
+                        <span>Backtest Results</span>
+                    </a>
+                    <a href="#models" class="nav-link" data-page="models">
+                        <i class="material-icons">psychology</i>
+                        <span>Models</span>
+                    </a>
+                    <a href="#training" class="nav-link" data-page="training">
+                        <i class="material-icons">trending_up</i>
+                        <span>Training</span>
+                    </a>
+                    <a href="#mypage" class="nav-link" data-page="mypage">
+                        <i class="material-icons">account_circle</i>
+                        <span>My Page</span>
+                    </a>
+                </div>
+
+                <!-- User Menu -->
+                <div class="flex items-center space-x-4">
+                    <button class="text-gray-500 hover:text-gray-700 transition-colors">
+                        <i class="material-icons">notifications</i>
+                    </button>
+                    <div class="flex items-center space-x-2">
+                        <img class="h-8 w-8 rounded-full" src="https://via.placeholder.com/32x32?text=U" alt="User">
+                        <span class="text-sm font-medium text-gray-700">AI Trader</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Dashboard Page -->
+        <div id="dashboard-page" class="page-content active">
+            <!-- Hero Section -->
+            <div class="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg shadow-lg text-white p-8 mb-8">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-bold mb-2">Welcome to MarklygonAI</h1>
+                        <p class="text-blue-100 text-lg">Deep Learning Algorithmic Trading Platform</p>
+                        <div class="mt-4 flex items-center space-x-6">
+                            <div>
+                                <div class="text-2xl font-bold">90%</div>
+                                <div class="text-sm text-blue-100">Project Complete</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl font-bold">40</div>
+                                <div class="text-sm text-blue-100">Stock Symbols</div>
+                            </div>
+                            <div>
+                                <div class="text-2xl font-bold">6</div>
+                                <div class="text-sm text-blue-100">AI Models</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hidden lg:block">
+                        <div class="w-32 h-32 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                            <i class="material-icons text-6xl">psychology</i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-green-100 rounded-md flex items-center justify-center">
+                                <i class="material-icons text-green-600 text-sm">trending_up</i>
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-900">Phase 1 Training</p>
+                            <p class="text-lg font-semibold text-gray-900">In Progress</p>
+                            <p class="text-sm text-gray-500">10 symbols</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-blue-100 rounded-md flex items-center justify-center">
+                                <i class="material-icons text-blue-600 text-sm">memory</i>
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-900">Eddie System</p>
+                            <p class="text-lg font-semibold text-gray-900">Active</p>
+                            <p class="text-sm text-gray-500">3.3M parameters</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-yellow-100 rounded-md flex items-center justify-center">
+                                <i class="material-icons text-yellow-600 text-sm">storage</i>
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-900">Data Processing</p>
+                            <p class="text-lg font-semibold text-gray-900">Complete</p>
+                            <p class="text-sm text-gray-500">40/40 symbols</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-purple-100 rounded-md flex items-center justify-center">
+                                <i class="material-icons text-purple-600 text-sm">speed</i>
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-900">Performance</p>
+                            <p class="text-lg font-semibold text-gray-900">Optimized</p>
+                            <p class="text-sm text-gray-500">< 100ms inference</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">Recent Activity</h2>
+                <div class="space-y-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span class="text-sm text-gray-600">Eddie Phase 1 training started - 10 symbols</span>
+                        <span class="text-xs text-gray-400">2 hours ago</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        <span class="text-sm text-gray-600">Feature engineering completed for NVDA, AAPL, MSFT</span>
+                        <span class="text-xs text-gray-400">5 hours ago</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                        <span class="text-sm text-gray-600">Memory optimization system activated</span>
+                        <span class="text-xs text-gray-400">1 day ago</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Other pages will be loaded here -->
+        <div id="portfolio-page" class="page-content hidden"></div>
+        <div id="backtest-page" class="page-content hidden"></div>
+        <div id="models-page" class="page-content hidden"></div>
+        <div id="training-page" class="page-content hidden"></div>
+        <div id="mypage-page" class="page-content hidden"></div>
+    </main>
+
+    <!-- Scripts -->
+    <script src="./js/common.js"></script>
+    <script src="./js/navigation.js"></script>
+    <script src="./js/dashboard.js"></script>
+    <script src="./js/backtest.js"></script>
+    <script src="./js/portfolio.js"></script>
+    <script src="./js/mypage.js"></script>
+</body>
+</html> 

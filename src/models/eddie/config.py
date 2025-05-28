@@ -16,6 +16,7 @@ class TCNConfig:
     dropout: float = 0.2
     activation: str = 'relu'
     use_norm: bool = True
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
     
     def __post_init__(self):
         if self.num_channels is None:
@@ -30,6 +31,7 @@ class AttentionConfig:
     dropout: float = 0.1
     use_positional_encoding: bool = True
     max_seq_length: int = 60
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
 
 
 @dataclass
@@ -40,6 +42,7 @@ class SignalGeneratorConfig:
     seq_len: int = 60  # 60분 윈도우
     output_dim: int = 1  # 매도 강도 [-1, 1]
     use_uncertainty: bool = True  # 모델 불확실성 추정
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
     
     def __post_init__(self):
         if self.tcn is None:
@@ -60,6 +63,7 @@ class TimesNetConfig:
     num_layers: int = 2  # Number of TimesNet layers
     dropout: float = 0.1
     use_multi_scale: bool = True
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
 
 
 @dataclass
@@ -71,6 +75,7 @@ class WaveletConfig:
     denoise_method: str = 'soft'  # 'soft' or 'hard'
     extract_energy: bool = True
     extract_entropy: bool = True
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
 
 
 @dataclass
@@ -81,6 +86,7 @@ class PatternAnalyzerConfig:
     feature_dim: int = 64
     integration_method: str = 'attention'  # 'concat', 'attention', 'fusion'
     use_market_regime: bool = True
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
     
     def __post_init__(self):
         if self.timesnet is None:
@@ -98,6 +104,7 @@ class TALibConfig:
     use_pca: bool = True
     pca_components: int = 20
     normalize: bool = True
+    dtype: str = 'float32'  # 최적화: 데이터 타입 지정
     
     def __post_init__(self):
         if self.selected_indicators is None:
@@ -129,6 +136,7 @@ class TradingEnvironmentConfig:
     max_position_size: float = 1.0  # 최대 포지션 크기 (자본 대비)
     transaction_cost: float = 0.001  # 거래 비용 0.1%
     slippage: float = 0.0001  # 슬리피지 0.01%
+    dtype: str = 'float32'  # 최적화: 데이터 타입 지정
     
     # 상태 공간 구성
     state_features: Dict[str, int] = None
@@ -193,6 +201,17 @@ class TrainingConfig:
     save_every: int = 10
     early_stopping_patience: int = 20
     best_metric: str = 'val_sharpe'  # 'val_loss', 'val_sharpe', 'val_return'
+    
+    # 최적화 설정
+    dtype: torch.dtype = torch.float32  # 최적화: float32 사용
+    autocast_enabled: bool = True  # AMP 자동 캐스팅
+    gradient_clipping: float = 1.0  # 그래디언트 클리핑
+    
+    # 메모리 최적화
+    pin_memory: bool = True  # GPU 메모리 핀잉
+    non_blocking: bool = True  # 비블로킹 GPU 전송
+    prefetch_factor: int = 2  # 데이터 프리페치
+    persistent_workers: bool = True  # 워커 지속성
 
 
 @dataclass
@@ -218,6 +237,11 @@ class EddieConfig:
     use_wandb: bool = True
     log_level: str = "INFO"
     
+    # 성능 최적화 설정
+    dtype: torch.dtype = torch.float32  # 전역 데이터 타입
+    memory_efficient: bool = True  # 메모리 효율성 모드
+    compile_model: bool = True  # 모델 컴파일 (PyTorch 2.0+)
+    
     def __post_init__(self):
         if self.signal_generator is None:
             self.signal_generator = SignalGeneratorConfig()
@@ -234,16 +258,66 @@ class EddieConfig:
 # 기본 설정 인스턴스
 DEFAULT_CONFIG = EddieConfig()
 
+# 🚀 초고속 메모리 최적화 설정 (안정적 훈련용)
+ULTRA_FAST_CONFIG = EddieConfig(
+    signal_generator=SignalGeneratorConfig(
+        tcn=TCNConfig(
+            num_channels=[32, 64, 32],  # 경량화 네트워크
+            dropout=0.1,  # 드롭아웃 감소
+            dtype=torch.float32
+        ),
+        attention=AttentionConfig(
+            d_model=32, 
+            num_heads=4,  # 헤드 수 감소
+            dropout=0.05,  # 드롭아웃 감소
+            dtype=torch.float32
+        ),
+        seq_len=40,  # 시퀀스 길이 단축
+        dtype=torch.float32
+    ),
+    pattern_analyzer=PatternAnalyzerConfig(
+        timesnet=TimesNetConfig(
+            seq_len=40, 
+            d_model=64, 
+            d_ff=128,  # FFN 크기 감소
+            num_layers=1,  # 레이어 수 감소
+            dtype=torch.float32
+        ),
+        feature_dim=32,
+        dtype=torch.float32
+    ),
+    training=TrainingConfig(
+        signal_epochs=15,  # 에포크 수 감소
+        pattern_epochs=20,
+        signal_batch_size=64,  # 배치 크기 최적화
+        pattern_batch_size=32,
+        signal_lr=2e-3,
+        pattern_lr=1e-3,
+        mixed_precision=True,
+        autocast_enabled=True,
+        pin_memory=True,
+        non_blocking=True,
+        prefetch_factor=4,  # 프리페치 증가
+        persistent_workers=True,
+        dtype=torch.float32
+    ),
+    dtype=torch.float32,
+    memory_efficient=True,
+    compile_model=True
+)
+
 # 메모리 효율적 설정 (안정적 훈련용)
 QUICK_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[32, 64, 32]),  # 단순한 네트워크
-        attention=AttentionConfig(d_model=32, num_heads=4),  # 적은 헤드
-        seq_len=50  # 기본 시퀀스 길이
+        tcn=TCNConfig(num_channels=[32, 64, 32], dtype=torch.float32),  # 단순한 네트워크
+        attention=AttentionConfig(d_model=32, num_heads=4, dtype=torch.float32),  # 적은 헤드
+        seq_len=50,  # 기본 시퀀스 길이
+        dtype=torch.float32
     ),
     pattern_analyzer=PatternAnalyzerConfig(
-        timesnet=TimesNetConfig(seq_len=50, d_model=64, d_ff=128),  # 작은 모델
-        feature_dim=32
+        timesnet=TimesNetConfig(seq_len=50, d_model=64, d_ff=128, dtype=torch.float32),  # 작은 모델
+        feature_dim=32,
+        dtype=torch.float32
     ),
     training=TrainingConfig(
         signal_epochs=20,  # 짧은 에포크
@@ -253,34 +327,50 @@ QUICK_CONFIG = EddieConfig(
         signal_lr=1e-3,  # 적절한 학습률
         pattern_lr=5e-4,  # 적절한 학습률
         mixed_precision=True,  # 메모리 절약
+        autocast_enabled=True,
+        pin_memory=True,
+        dtype=torch.float32,
         sac_episodes=5000
-    )
+    ),
+    dtype=torch.float32,
+    memory_efficient=True
 )
 
 # 고성능 설정 (최종 모델용)
 HIGH_PERFORMANCE_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[128, 256, 512, 256, 128]),
-        attention=AttentionConfig(d_model=128, num_heads=16),
-        seq_len=120
+        tcn=TCNConfig(num_channels=[128, 256, 512, 256, 128], dtype=torch.float32),
+        attention=AttentionConfig(d_model=128, num_heads=16, dtype=torch.float32),
+        seq_len=120,
+        dtype=torch.float32
     ),
     pattern_analyzer=PatternAnalyzerConfig(
-        timesnet=TimesNetConfig(seq_len=120, d_model=256),
-        feature_dim=128
+        timesnet=TimesNetConfig(seq_len=120, d_model=256, dtype=torch.float32),
+        feature_dim=128,
+        dtype=torch.float32
     ),
     training=TrainingConfig(
         signal_epochs=300,
         pattern_epochs=500,
-        sac_episodes=100000
-    )
+        sac_episodes=100000,
+        autocast_enabled=True,
+        pin_memory=True,
+        dtype=torch.float32
+    ),
+    dtype=torch.float32,
+    compile_model=True
 )
 
-# 최대 GPU 활용 설정 (RTX 4060 Ti 17.2GB 풀 활용)
+# 최대 GPU 활용 설정 (RTX 4060 Ti 16GB 풀 활용)
 MAX_GPU_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[256, 512, 1024, 2048, 1024, 512, 256]),  # 매우 깊고 넓은 네트워크
-        attention=AttentionConfig(d_model=256, num_heads=32),  # 큰 어텐션 모델
-        seq_len=120  # 긴 시퀀스
+        tcn=TCNConfig(
+            num_channels=[256, 512, 1024, 2048, 1024, 512, 256],  # 매우 깊고 넓은 네트워크
+            dtype=torch.float32
+        ),
+        attention=AttentionConfig(d_model=256, num_heads=32, dtype=torch.float32),  # 큰 어텐션 모델
+        seq_len=120,  # 긴 시퀀스
+        dtype=torch.float32
     ),
     pattern_analyzer=PatternAnalyzerConfig(
         timesnet=TimesNetConfig(
@@ -288,9 +378,11 @@ MAX_GPU_CONFIG = EddieConfig(
             d_model=512,  # 훨씬 큰 모델
             d_ff=2048,  # 매우 큰 feedforward
             num_kernels=16,  # 더 많은 커널
-            num_layers=6  # 더 깊은 TimesNet
+            num_layers=6,  # 더 깊은 TimesNet
+            dtype=torch.float32
         ),
-        feature_dim=256
+        feature_dim=256,
+        dtype=torch.float32
     ),
     training=TrainingConfig(
         signal_epochs=50,
@@ -300,16 +392,27 @@ MAX_GPU_CONFIG = EddieConfig(
         signal_lr=1e-2,  # 매우 큰 배치에 맞는 높은 학습률
         pattern_lr=5e-3,  # 큰 배치에 맞는 높은 학습률
         mixed_precision=True,  # 필수
+        autocast_enabled=True,
+        pin_memory=True,
+        non_blocking=True,
+        dtype=torch.float32,
         sac_episodes=50000
-    )
+    ),
+    dtype=torch.float32,
+    memory_efficient=True,
+    compile_model=True
 )
 
 # 울트라 고성능 설정 (리소스 최대 활용)
 ULTRA_HIGH_PERFORMANCE_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[512, 1024, 2048, 4096, 2048, 1024, 512]),  # 극도로 깊은 네트워크
-        attention=AttentionConfig(d_model=512, num_heads=64),  # 초대형 어텐션
-        seq_len=240  # 매우 긴 시퀀스 (4시간)
+        tcn=TCNConfig(
+            num_channels=[512, 1024, 2048, 4096, 2048, 1024, 512],  # 극도로 깊은 네트워크
+            dtype=torch.float32
+        ),
+        attention=AttentionConfig(d_model=512, num_heads=64, dtype=torch.float32),  # 초대형 어텐션
+        seq_len=240,  # 매우 긴 시퀀스 (4시간)
+        dtype=torch.float32
     ),
     pattern_analyzer=PatternAnalyzerConfig(
         timesnet=TimesNetConfig(
@@ -317,9 +420,11 @@ ULTRA_HIGH_PERFORMANCE_CONFIG = EddieConfig(
             d_model=1024,  # 초대형 모델
             d_ff=4096,  # 초대형 feedforward
             num_kernels=32,  # 최대 커널 수
-            num_layers=8  # 매우 깊은 TimesNet
+            num_layers=8,  # 매우 깊은 TimesNet
+            dtype=torch.float32
         ),
-        feature_dim=512
+        feature_dim=512,
+        dtype=torch.float32
     ),
     training=TrainingConfig(
         signal_epochs=100,
@@ -329,6 +434,15 @@ ULTRA_HIGH_PERFORMANCE_CONFIG = EddieConfig(
         signal_lr=2e-2,  # 초대형 배치에 맞는 매우 높은 학습률
         pattern_lr=1e-2,  # 초대형 배치에 맞는 높은 학습률
         mixed_precision=True,  # 필수
+        autocast_enabled=True,
+        pin_memory=True,
+        non_blocking=True,
+        prefetch_factor=8,  # 최대 프리페치
+        persistent_workers=True,
+        dtype=torch.float32,
         sac_episodes=100000
-    )
+    ),
+    dtype=torch.float32,
+    memory_efficient=True,
+    compile_model=True
 ) 
