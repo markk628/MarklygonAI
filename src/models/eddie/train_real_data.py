@@ -14,6 +14,8 @@ import argparse
 from datetime import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
+import psutil  # 메모리 모니터링용
+import gc  # 가비지 컬렉션용
 
 # Setup paths
 current_dir = Path(__file__).parent
@@ -21,7 +23,7 @@ sys.path.append(str(current_dir))
 
 # Eddie imports
 try:
-    from config import EddieConfig, DEFAULT_CONFIG, QUICK_CONFIG, HIGH_PERFORMANCE_CONFIG, MAX_GPU_CONFIG
+    from config import EddieConfig, DEFAULT_CONFIG, QUICK_CONFIG, HIGH_PERFORMANCE_CONFIG, MAX_GPU_CONFIG, ULTRA_HIGH_PERFORMANCE_CONFIG
     from data_loader import create_data_loaders, MarklygonDataProcessor
     from train_pipeline import EddieTrainer
     from utils.integration import EddiePredictor
@@ -30,7 +32,7 @@ except ImportError:
     # Handle relative imports when running as script
     import sys
     sys.path.append('.')
-    from config import EddieConfig, DEFAULT_CONFIG, QUICK_CONFIG, HIGH_PERFORMANCE_CONFIG, MAX_GPU_CONFIG
+    from config import EddieConfig, DEFAULT_CONFIG, QUICK_CONFIG, HIGH_PERFORMANCE_CONFIG, MAX_GPU_CONFIG, ULTRA_HIGH_PERFORMANCE_CONFIG
     from data_loader import create_data_loaders, MarklygonDataProcessor
     from train_pipeline import EddieTrainer
     from utils.integration import EddiePredictor
@@ -40,16 +42,28 @@ except ImportError:
 warnings.filterwarnings('ignore')
 plt.style.use('seaborn-v0_8')
 
-def setup_logging(log_level: str = 'INFO') -> logging.Logger:
+def setup_logging(log_level: str = 'INFO', verbose: bool = True) -> logging.Logger:
     """로깅 설정"""
+    # 더 상세한 포맷을 사용 (verbose 모드일 때)
+    if verbose:
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+    else:
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format=log_format,
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(f'eddie_training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+            logging.FileHandler(f'eddie_training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log', encoding='utf-8')
         ]
     )
+    
+    # verbose 모드에서는 더 많은 라이브러리의 로그도 보여줍니다
+    if verbose:
+        logging.getLogger('MarklygonDataProcessor').setLevel(logging.INFO)
+        logging.getLogger('root').setLevel(logging.INFO)
+    
     return logging.getLogger('EddieRealDataTraining')
 
 def parse_arguments():
@@ -65,7 +79,7 @@ def parse_arguments():
                        help='Stock symbols to train on')
     
     # Model arguments  
-    parser.add_argument('--config', type=str, choices=['default', 'quick', 'high_perf', 'max_gpu'],
+    parser.add_argument('--config', type=str, choices=['default', 'quick', 'high_perf', 'max_gpu', 'ultra'],
                        default='quick', help='Configuration preset (optimized for RTX 4060 Ti)')
     parser.add_argument('--epochs', type=int, default=50,
                        help='Number of training epochs')
@@ -75,10 +89,12 @@ def parse_arguments():
     # Training arguments
     parser.add_argument('--device', type=str, default='auto',
                        help='Device to use (cpu, cuda, auto)')
-    parser.add_argument('--num_workers', type=int, default=4,
+    parser.add_argument('--num_workers', type=int, default=12,
                        help='Number of data loader workers')
     parser.add_argument('--save_dir', type=str, default='./results',
                        help='Directory to save results')
+    parser.add_argument('--early_stopping_patience', type=int, default=10,
+                       help='Early stopping patience (number of epochs)')
     
     # Experiment arguments
     parser.add_argument('--experiment_name', type=str, 
@@ -88,6 +104,11 @@ def parse_arguments():
                        help='Use Weights & Biases for logging')
     parser.add_argument('--dry_run', action='store_true',
                        help='Perform dry run (data loading only)')
+    parser.add_argument('--verbose', action='store_true', default=True,
+                       help='Enable verbose logging (default: True)')
+    parser.add_argument('--log_level', type=str, default='INFO',
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                       help='Logging level')
     
     return parser.parse_args()
 
@@ -97,7 +118,8 @@ def get_config(config_name: str) -> EddieConfig:
         'default': DEFAULT_CONFIG,
         'quick': QUICK_CONFIG,
         'high_perf': HIGH_PERFORMANCE_CONFIG,
-        'max_gpu': MAX_GPU_CONFIG
+        'max_gpu': MAX_GPU_CONFIG,
+        'ultra': ULTRA_HIGH_PERFORMANCE_CONFIG
     }
     return configs.get(config_name, QUICK_CONFIG)  # Default to optimized quick config
 
@@ -216,14 +238,52 @@ def perform_data_analysis(
     
     print(f"\nData analysis plots saved to {save_dir / 'data_analysis.png'}")
 
+def monitor_memory_usage(stage: str = "Unknown"):
+    """메모리 사용량 모니터링 및 로깅"""
+    # System Memory
+    memory = psutil.virtual_memory()
+    memory_gb = memory.used / (1024**3)
+    memory_percent = memory.percent
+    
+    # GPU Memory
+    gpu_memory_str = "N/A"
+    if torch.cuda.is_available():
+        gpu_memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+        gpu_memory_reserved = torch.cuda.memory_reserved() / (1024**3)
+        gpu_memory_str = f"Allocated: {gpu_memory_allocated:.2f}GB, Reserved: {gpu_memory_reserved:.2f}GB"
+    
+    log_msg = f"[{stage}] Memory - System: {memory_gb:.2f}GB ({memory_percent:.1f}%), GPU: {gpu_memory_str}"
+    print(log_msg)
+    logging.info(log_msg)
+    
+    return {
+        'system_memory_gb': memory_gb,
+        'system_memory_percent': memory_percent,
+        'gpu_memory_allocated_gb': gpu_memory_allocated if torch.cuda.is_available() else 0,
+        'gpu_memory_reserved_gb': gpu_memory_reserved if torch.cuda.is_available() else 0
+    }
+
+def cleanup_memory():
+    """메모리 정리"""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print("🧹 메모리 정리 완료")
+
 def main():
     """메인 실행 함수"""
     # Parse arguments
     args = parse_arguments()
     
     # Setup logging
-    logger = setup_logging()
-    logger.info(f"Starting Eddie Real Data Training: {args.experiment_name}")
+    logger = setup_logging(log_level=args.log_level, verbose=args.verbose)
+    logger.info(f"🚀 Starting Eddie Real Data Training: {args.experiment_name}")
+    
+    if args.verbose:
+        logger.info(f"💡 Verbose mode enabled - detailed progress logging active")
+        logger.info(f"📊 Configuration: {args.config}")
+        logger.info(f"🎯 Target symbols: {args.symbols[:5]}{'...' if len(args.symbols) > 5 else ''}")
+        logger.info(f"🏋️ Training epochs: {args.epochs}, Batch size: {args.batch_size}")
     
     # Setup directories
     save_dir = Path(args.save_dir) / args.experiment_name
@@ -250,13 +310,18 @@ def main():
     config.training.num_epochs = args.epochs
     config.training.batch_size = args.batch_size
     config.training.device = str(device)
+    config.training.early_stopping_patience = args.early_stopping_patience
     
     try:
         print("\n" + "="*50)
         print("LOADING AND PREPROCESSING DATA")
         print("="*50)
         
+        # Initial memory monitoring
+        monitor_memory_usage("Start")
+        
         # Create data loaders
+        print(f"Loading data for {len(args.symbols)} symbols...")
         train_loader, val_loader, test_loader, processor = create_data_loaders(
             data_path=str(data_path),
             config=config,
@@ -264,6 +329,10 @@ def main():
             batch_size=args.batch_size,
             num_workers=args.num_workers
         )
+        
+        # Monitor memory after data loading
+        monitor_memory_usage("After Data Loading")
+        cleanup_memory()
         
         logger.info("Data loading completed successfully")
         

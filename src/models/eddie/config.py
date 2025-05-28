@@ -234,26 +234,26 @@ class EddieConfig:
 # 기본 설정 인스턴스
 DEFAULT_CONFIG = EddieConfig()
 
-# 최적화된 고성능 설정 (RTX 4060 Ti 17.2GB 최적화)
+# 메모리 효율적 설정 (안정적 훈련용)
 QUICK_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[64, 128, 256, 128, 64]),  # Deeper network
-        attention=AttentionConfig(d_model=64, num_heads=16),  # More attention heads
-        seq_len=60  # Longer sequence for better patterns
+        tcn=TCNConfig(num_channels=[32, 64, 32]),  # 단순한 네트워크
+        attention=AttentionConfig(d_model=32, num_heads=4),  # 적은 헤드
+        seq_len=50  # 기본 시퀀스 길이
     ),
     pattern_analyzer=PatternAnalyzerConfig(
-        timesnet=TimesNetConfig(seq_len=60, d_model=128, d_ff=512),  # Larger model
-        feature_dim=64
+        timesnet=TimesNetConfig(seq_len=50, d_model=64, d_ff=128),  # 작은 모델
+        feature_dim=32
     ),
     training=TrainingConfig(
-        signal_epochs=30,  # More epochs
-        pattern_epochs=50,  # More epochs
-        signal_batch_size=512,  # Large batch for GPU utilization
-        pattern_batch_size=256,  # Large batch for GPU utilization
-        signal_lr=3e-3,  # Higher learning rate for larger batch
-        pattern_lr=1.5e-3,  # Higher learning rate for larger batch
-        mixed_precision=True,  # Enable mixed precision for speed
-        sac_episodes=10000
+        signal_epochs=20,  # 짧은 에포크
+        pattern_epochs=30,  # 짧은 에포크
+        signal_batch_size=32,  # 작은 배치
+        pattern_batch_size=16,  # 작은 배치
+        signal_lr=1e-3,  # 적절한 학습률
+        pattern_lr=5e-4,  # 적절한 학습률
+        mixed_precision=True,  # 메모리 절약
+        sac_episodes=5000
     )
 )
 
@@ -278,28 +278,57 @@ HIGH_PERFORMANCE_CONFIG = EddieConfig(
 # 최대 GPU 활용 설정 (RTX 4060 Ti 17.2GB 풀 활용)
 MAX_GPU_CONFIG = EddieConfig(
     signal_generator=SignalGeneratorConfig(
-        tcn=TCNConfig(num_channels=[128, 256, 512, 1024, 512, 256, 128]),  # Very deep
-        attention=AttentionConfig(d_model=128, num_heads=32),  # Maximum attention heads
-        seq_len=120  # Long sequences for complex patterns
+        tcn=TCNConfig(num_channels=[256, 512, 1024, 2048, 1024, 512, 256]),  # 매우 깊고 넓은 네트워크
+        attention=AttentionConfig(d_model=256, num_heads=32),  # 큰 어텐션 모델
+        seq_len=120  # 긴 시퀀스
     ),
     pattern_analyzer=PatternAnalyzerConfig(
         timesnet=TimesNetConfig(
             seq_len=120, 
-            d_model=256, 
-            d_ff=1024,  # Large feedforward
-            num_kernels=12,  # More kernels
-            num_layers=4  # Deeper TimesNet
+            d_model=512,  # 훨씬 큰 모델
+            d_ff=2048,  # 매우 큰 feedforward
+            num_kernels=16,  # 더 많은 커널
+            num_layers=6  # 더 깊은 TimesNet
         ),
-        feature_dim=128
+        feature_dim=256
     ),
     training=TrainingConfig(
         signal_epochs=50,
         pattern_epochs=100,
-        signal_batch_size=1024,  # Maximum batch size
-        pattern_batch_size=512,  # Large batch size
-        signal_lr=5e-3,  # Higher learning rate for very large batch
-        pattern_lr=2.5e-3,  # Higher learning rate for large batch
-        mixed_precision=True,  # Essential for large models
-        sac_episodes=20000
+        signal_batch_size=2048,  # 매우 큰 배치 크기
+        pattern_batch_size=1024,  # 큰 배치 크기
+        signal_lr=1e-2,  # 매우 큰 배치에 맞는 높은 학습률
+        pattern_lr=5e-3,  # 큰 배치에 맞는 높은 학습률
+        mixed_precision=True,  # 필수
+        sac_episodes=50000
+    )
+)
+
+# 울트라 고성능 설정 (리소스 최대 활용)
+ULTRA_HIGH_PERFORMANCE_CONFIG = EddieConfig(
+    signal_generator=SignalGeneratorConfig(
+        tcn=TCNConfig(num_channels=[512, 1024, 2048, 4096, 2048, 1024, 512]),  # 극도로 깊은 네트워크
+        attention=AttentionConfig(d_model=512, num_heads=64),  # 초대형 어텐션
+        seq_len=240  # 매우 긴 시퀀스 (4시간)
+    ),
+    pattern_analyzer=PatternAnalyzerConfig(
+        timesnet=TimesNetConfig(
+            seq_len=240, 
+            d_model=1024,  # 초대형 모델
+            d_ff=4096,  # 초대형 feedforward
+            num_kernels=32,  # 최대 커널 수
+            num_layers=8  # 매우 깊은 TimesNet
+        ),
+        feature_dim=512
+    ),
+    training=TrainingConfig(
+        signal_epochs=100,
+        pattern_epochs=200,
+        signal_batch_size=4096,  # 초대형 배치
+        pattern_batch_size=2048,  # 초대형 배치
+        signal_lr=2e-2,  # 초대형 배치에 맞는 매우 높은 학습률
+        pattern_lr=1e-2,  # 초대형 배치에 맞는 높은 학습률
+        mixed_precision=True,  # 필수
+        sac_episodes=100000
     )
 ) 

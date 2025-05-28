@@ -283,7 +283,7 @@ class TorchWaveletTransform(nn.Module):
         
         self.wavelet = wavelet
         self.levels = levels
-        self.device = device or torch.device('cpu')
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Generate wavelet filters and convert to torch tensors
         wt = WaveletTransform(wavelet, levels)
@@ -321,8 +321,8 @@ class TorchWaveletTransform(nn.Module):
             wt = WaveletTransform(self.wavelet, self.levels)
             coeffs = wt.dwt_decompose(signal)
             
-            approx_coeffs.append(torch.tensor(coeffs[0], device=self.device))
-            detail_coeffs.append([torch.tensor(c, device=self.device) for c in coeffs[1:]])
+            approx_coeffs.append(torch.tensor(coeffs[0], device=x.device))
+            detail_coeffs.append([torch.tensor(c, device=x.device) for c in coeffs[1:]])
         
         # Pad and stack coefficients
         approx_tensor = self._pad_and_stack(approx_coeffs)
@@ -414,7 +414,7 @@ class TorchWaveletTransform(nn.Module):
                 prob = prob[prob > 0]  # Remove zeros
                 entropy = -torch.sum(prob * torch.log2(prob + 1e-8))
             else:
-                entropy = torch.tensor(0.0, device=x.device)
+                entropy = torch.tensor(0.0, device=x.device, dtype=x.dtype)
             
             entropies.append(entropy)
         
@@ -431,7 +431,8 @@ class WaveletFeatureExtractor(nn.Module):
         wavelet: str = 'db4',
         levels: int = 5,
         feature_dim: int = 64,
-        use_denoising: bool = True
+        use_denoising: bool = True,
+        device: torch.device = None
     ):
         super().__init__()
         
@@ -439,8 +440,9 @@ class WaveletFeatureExtractor(nn.Module):
         self.levels = levels
         self.feature_dim = feature_dim
         self.use_denoising = use_denoising
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        self.torch_wavelet = TorchWaveletTransform(wavelet, levels)
+        self.torch_wavelet = TorchWaveletTransform(wavelet, levels, device=self.device)
         
         # Feature projection layers
         self.approx_projection = nn.Linear(1, feature_dim // 4)

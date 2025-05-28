@@ -409,7 +409,7 @@ class EddieDataProcessor:
         Returns:
             features: 전처리된 특징 텐서
         """
-        from sklearn.preprocessing import StandardScaler
+        from sklearn.preprocessing import StandardScaler, RobustScaler
         from sklearn.decomposition import PCA
         
         # Handle missing values
@@ -429,7 +429,7 @@ class EddieDataProcessor:
         # Normalization
         if self.config.talib.normalize:
             if fit_scaler or self.feature_scaler is None:
-                self.feature_scaler = StandardScaler()
+                self.feature_scaler = RobustScaler()
                 normalized_data = self.feature_scaler.fit_transform(indicators_subset.values)
             else:
                 normalized_data = self.feature_scaler.transform(indicators_subset.values)

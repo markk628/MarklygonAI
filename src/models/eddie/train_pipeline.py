@@ -4,13 +4,21 @@ Signal Generator + Pattern Analyzer 통합 훈련 시스템
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 import pandas as pd
 from pathlib import Path
 import logging
-import wandb
 from typing import Dict, List, Tuple, Optional, Any
+
+# Optional wandb import
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    print("Warning: wandb not available. Training will proceed without logging to Weights & Biases.")
 import pickle
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -163,8 +171,11 @@ class EddieTrainer:
         self.test_loader = None
         
         # Initialize wandb
-        if self.use_wandb:
+        if self.use_wandb and WANDB_AVAILABLE:
             self._setup_wandb()
+        elif self.use_wandb and not WANDB_AVAILABLE:
+            self.logger.warning("wandb requested but not available. Proceeding without logging.")
+            self.use_wandb = False
         
         # Training state
         self.epoch = 0
@@ -463,7 +474,7 @@ class EddieTrainer:
             )
             
             # Wandb logging
-            if self.use_wandb:
+            if self.use_wandb and WANDB_AVAILABLE:
                 wandb.log({
                     'epoch': epoch,
                     'train/total_loss': train_metrics['total_loss'],
@@ -491,7 +502,7 @@ class EddieTrainer:
         if self.test_loader is not None:
             self.evaluate()
         
-        if self.use_wandb:
+        if self.use_wandb and WANDB_AVAILABLE:
             wandb.finish()
             
         # Return training results

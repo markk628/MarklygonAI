@@ -10,12 +10,16 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
 import pickle
 import logging
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.decomposition import PCA
 import warnings
+import os
+import time
+import psutil
 warnings.filterwarnings('ignore')
 
 from config import EddieConfig, DEFAULT_CONFIG
+from memory_manager import get_memory_manager, safe_memory_operation, MemoryManager
 
 
 class MarklygonDataProcessor:
@@ -281,9 +285,9 @@ class MarklygonDataProcessor:
             normalized_features: 정규화된 피처 배열
         """
         if fit_scaler or self.feature_scaler is None:
-            self.feature_scaler = StandardScaler()
+            self.feature_scaler = RobustScaler()
             normalized_features = self.feature_scaler.fit_transform(features_df.values)
-            self.logger.info("Feature scaler fitted")
+            self.logger.info("Feature scaler (RobustScaler) fitted")
         else:
             normalized_features = self.feature_scaler.transform(features_df.values)
         
@@ -313,6 +317,332 @@ class MarklygonDataProcessor:
             pca_features = self.pca.transform(features)
         
         return pca_features
+    
+    @safe_memory_operation("Chunked Sequence Creation")
+    def create_sequences_chunked(
+        self, 
+        features: np.ndarray, 
+        targets: pd.DataFrame,
+        metadata: pd.DataFrame,
+        seq_len: int = None,
+        chunk_size: int = 100000  # 청크 크기 (메모리 절약)
+    ) -> Tuple[np.ndarray, Dict[str, np.ndarray], pd.DataFrame]:
+        """
+        메모리 효율적인 청크 기반 시퀀스 생성
+        
+        Args:
+            features: PCA 변환된 피처 배열
+            targets: 타겟 데이터프레임
+            metadata: 메타데이터 (symbol, timestamp 등)
+            seq_len: 시퀀스 길이
+            chunk_size: 청크 크기 (메모리 절약)
+            
+        Returns:
+            sequences: 시퀀스 피처 배열
+            sequence_targets: 시퀀스 타겟 딕셔너리
+            sequence_metadata: 시퀀스 메타데이터
+        """
+        if seq_len is None:
+            seq_len = self.config.signal_generator.seq_len
+        
+        memory_manager = MemoryManager()
+        start_time = time.time()
+        
+        # 메모리 상태 체크
+        memory_manager.monitor_and_log("Before Chunked Sequence Creation")
+        
+        # 청크 크기 동적 조정
+        suggested_chunk_size = memory_manager.suggest_chunk_size(chunk_size)
+        if suggested_chunk_size != chunk_size:
+            self.logger.info(f"🔧 Adjusting initial chunk size: {chunk_size:,} → {suggested_chunk_size:,}")
+            chunk_size = suggested_chunk_size
+        
+        # 임시 디렉토리 생성
+        temp_dir = Path("temp_sequences")
+        temp_dir.mkdir(exist_ok=True)
+        
+        # 심볼별로 청크 생성
+        symbols = metadata['symbol'].unique()
+        chunk_files = []
+        peak_memory_usage = 0
+        
+        for symbol in symbols:
+            mask = metadata['symbol'] == symbol
+            symbol_features = features[mask]
+            symbol_targets = targets.loc[mask]
+            symbol_metadata = metadata.loc[mask]
+            
+            if len(symbol_features) < seq_len:
+                self.logger.warning(f"Not enough data for {symbol}: {len(symbol_features)} < {seq_len}")
+                continue
+            
+            self.logger.info(f"Processing sequences for {symbol}: {len(symbol_features)} samples")
+            
+            # 심볼별 청크 처리
+            total_sequences = len(symbol_features) - seq_len + 1
+            
+            for chunk_start in range(0, total_sequences, chunk_size):
+                # 메모리 압박 시 청크 크기 동적 조정
+                current_chunk_size = memory_manager.suggest_chunk_size(chunk_size)
+                if current_chunk_size != chunk_size:
+                    self.logger.info(f"🔧 Dynamic chunk size adjustment: {chunk_size:,} → {current_chunk_size:,}")
+                    chunk_size = current_chunk_size
+                
+                chunk_end = min(chunk_start + chunk_size, total_sequences)
+                
+                # 청크 시퀀스 생성
+                chunk_sequences = []
+                chunk_targets = {col: [] for col in targets.columns}
+                chunk_metadata = []
+                
+                for i in range(chunk_start, chunk_end):
+                    # 피처 시퀀스 (seq_len, features)
+                    seq_features = symbol_features[i:i + seq_len]
+                    chunk_sequences.append(seq_features)
+                    
+                    # 타겟 (마지막 시점)
+                    target_idx = i + seq_len - 1
+                    for col in targets.columns:
+                        chunk_targets[col].append(symbol_targets.iloc[target_idx][col])
+                    
+                    # 메타데이터 (마지막 시점)
+                    chunk_metadata.append(symbol_metadata.iloc[target_idx])
+                
+                # 청크를 numpy 배열로 변환
+                chunk_sequences = np.array(chunk_sequences)
+                chunk_targets = {col: np.array(values) for col, values in chunk_targets.items()}
+                chunk_metadata = pd.DataFrame(chunk_metadata).reset_index(drop=True)
+                
+                # 청크를 파일로 저장 (메모리 절약)
+                chunk_filename = f"chunk_{symbol}_{chunk_start}_{chunk_end}.pkl"
+                chunk_file = temp_dir / chunk_filename
+                
+                chunk_data = {
+                    'sequences': chunk_sequences,
+                    'targets': chunk_targets,
+                    'metadata': chunk_metadata
+                }
+                
+                with open(chunk_file, 'wb') as f:
+                    pickle.dump(chunk_data, f)
+                
+                chunk_files.append(chunk_file)
+                
+                self.logger.info(f"Saved chunk {symbol}_{chunk_start}_{chunk_end}: {len(chunk_sequences)} sequences")
+                
+                # 메모리 정리
+                del chunk_sequences, chunk_targets, chunk_metadata, chunk_data
+                
+                # 메모리 상태 모니터링
+                current_status = memory_manager.get_memory_status()
+                current_usage = current_status['system_used_percent']
+                peak_memory_usage = max(peak_memory_usage, current_usage)
+                
+                self.logger.info(f"📊 After cleanup: {current_usage:.0f}% memory usage")
+                
+                memory_manager.monitor_and_log(f"Processing {symbol}")
+                
+                # 강제 가비지 컬렉션
+                import gc
+                gc.collect()
+        
+        # **NEW APPROACH: Memory-efficient chunk combination using streaming**
+        self.logger.info(f"🔄 Streaming {len(chunk_files)} chunks into final arrays...")
+        
+        # 첫 번째 청크로 배열 크기 결정
+        with open(chunk_files[0], 'rb') as f:
+            first_chunk = pickle.load(f)
+        
+        total_sequences = sum([
+            len(pickle.load(open(chunk_file, 'rb'))['sequences']) 
+            for chunk_file in chunk_files
+        ])
+        
+        seq_shape = first_chunk['sequences'].shape[1:]  # (seq_len, features)
+        target_cols = list(first_chunk['targets'].keys())
+        
+        self.logger.info(f"📊 Total sequences to combine: {total_sequences:,}")
+        self.logger.info(f"📐 Sequence shape: {seq_shape}")
+        
+        # **Memory-efficient approach: Pre-allocate arrays**
+        try:
+            # 메모리 맵을 사용한 대용량 배열 생성
+            sequences_file = temp_dir / "sequences_memmap.dat"
+            all_sequences = np.memmap(
+                sequences_file, 
+                dtype=np.float32, 
+                mode='w+', 
+                shape=(total_sequences, *seq_shape)
+            )
+            
+            all_targets = {}
+            for col in target_cols:
+                target_file = temp_dir / f"targets_{col}_memmap.dat"
+                all_targets[col] = np.memmap(
+                    target_file,
+                    dtype=np.float32,
+                    mode='w+',
+                    shape=(total_sequences,)
+                )
+            
+            self.logger.info(f"✅ Created memory-mapped arrays for {total_sequences:,} sequences")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Memory mapping failed: {e}")
+            # Fallback: 더 작은 배치로 처리
+            return self._create_sequences_streaming_fallback(chunk_files, temp_dir)
+        
+        # 청크별로 스트리밍 방식으로 데이터 복사
+        all_metadata = []
+        current_idx = 0
+        
+        for i, chunk_file in enumerate(chunk_files):
+            chunk_start_time = time.time()
+            
+            self.logger.info(f"📦 Loading chunk {i+1}/{len(chunk_files)}: {chunk_file.name}")
+            
+            with open(chunk_file, 'rb') as f:
+                chunk_data = pickle.load(f)
+            
+            chunk_size = len(chunk_data['sequences'])
+            end_idx = current_idx + chunk_size
+            
+            # 메모리 맵에 직접 복사 (메모리 효율적)
+            all_sequences[current_idx:end_idx] = chunk_data['sequences']
+            
+            for col in target_cols:
+                all_targets[col][current_idx:end_idx] = chunk_data['targets'][col]
+            
+            all_metadata.append(chunk_data['metadata'])
+            
+            current_idx = end_idx
+            
+            # 청크 파일 삭제 (메모리 정리)
+            os.remove(chunk_file)
+            
+            # 메모리 모니터링
+            memory_manager.monitor_and_log(f"Chunk {i+1}/{len(chunk_files)} Streamed")
+            
+            chunk_time = time.time() - chunk_start_time
+            self.logger.info(f"⏱️ Chunk {i+1} streamed in {chunk_time:.1f}s")
+            
+            # 진행상황 업데이트
+            progress = ((i + 1) / len(chunk_files)) * 100
+            eta_min = ((time.time() - start_time) / (i + 1)) * (len(chunk_files) - i - 1) / 60
+            self.logger.info(f"📊 Progress: {i+1}/{len(chunk_files)} chunks ({progress:.1f}%) - ETA: {eta_min:.1f}min")
+            
+            # 정기적인 마일스톤 로깅
+            if (i + 1) % 10 == 0:
+                elapsed_time = time.time() - start_time
+                self.logger.info(f"🎯 Milestone: Streamed {i + 1}/{len(chunk_files)} chunks in {elapsed_time/60:.1f}min")
+        
+        # 메모리 맵을 일반 배열로 변환 (필요한 경우)
+        self.logger.info(f"🔄 Converting memory maps to arrays...")
+        
+        # 메타데이터 합치기
+        final_metadata = pd.concat(all_metadata, ignore_index=True)
+        
+        # 메모리 맵 파일들 정리
+        try:
+            sequences_file.unlink()
+            for col in target_cols:
+                target_file = temp_dir / f"targets_{col}_memmap.dat"
+                if target_file.exists():
+                    target_file.unlink()
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not clean memory map files: {e}")
+        
+        # 임시 디렉토리 정리
+        import shutil
+        if temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir)
+                self.logger.info(f"🗑️ Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Could not clean temp directory {temp_dir}: {e}")
+        
+        total_time = time.time() - start_time
+        final_sequences_size_gb = all_sequences.nbytes / (1024**3)
+        
+        self.logger.info(f"🎉 Streaming combination completed successfully!")
+        self.logger.info(f"📈 Created {len(all_sequences):,} sequences of length {seq_len}")
+        self.logger.info(f"🔢 Final sequence shape: {all_sequences.shape}")
+        self.logger.info(f"📦 Final array size: {final_sequences_size_gb:.2f}GB")
+        self.logger.info(f"⏱️ Total processing time: {total_time/60:.2f} minutes")
+        self.logger.info(f"⚡ Average speed: {len(all_sequences)/total_time:.0f} sequences/second")
+        self.logger.info(f"🔺 Peak memory usage: {peak_memory_usage:.1f}%")
+        
+        # 메모리 사용량 최종 체크
+        final_status = memory_manager.get_memory_status()
+        if torch.cuda.is_available():
+            final_gpu_memory = torch.cuda.memory_allocated() / 1e9
+            self.logger.info(f"💾 Final memory - System: {final_status['system_used_percent']:.1f}%, GPU: {final_gpu_memory:.2f}GB")
+        
+        return all_sequences, all_targets, final_metadata
+    
+    def _create_sequences_streaming_fallback(self, chunk_files, temp_dir):
+        """
+        Fallback method for when memory mapping fails
+        Uses smaller batch processing
+        """
+        self.logger.info(f"🔄 Using streaming fallback approach...")
+        
+        # 더 작은 배치로 처리
+        batch_size = 5  # 한 번에 5개 청크만 처리
+        all_sequences_list = []
+        all_targets_dict = {}
+        all_metadata_list = []
+        
+        for i in range(0, len(chunk_files), batch_size):
+            batch_files = chunk_files[i:i + batch_size]
+            
+            batch_sequences = []
+            batch_targets = {}
+            batch_metadata = []
+            
+            for chunk_file in batch_files:
+                with open(chunk_file, 'rb') as f:
+                    chunk_data = pickle.load(f)
+                
+                batch_sequences.append(chunk_data['sequences'])
+                
+                for col, values in chunk_data['targets'].items():
+                    if col not in batch_targets:
+                        batch_targets[col] = []
+                    batch_targets[col].append(values)
+                
+                batch_metadata.append(chunk_data['metadata'])
+                
+                # 청크 파일 삭제
+                os.remove(chunk_file)
+            
+            # 배치 결합
+            if batch_sequences:
+                combined_sequences = np.concatenate(batch_sequences, axis=0)
+                all_sequences_list.append(combined_sequences)
+                
+                for col, values_list in batch_targets.items():
+                    if col not in all_targets_dict:
+                        all_targets_dict[col] = []
+                    all_targets_dict[col].append(np.concatenate(values_list, axis=0))
+                
+                all_metadata_list.extend(batch_metadata)
+            
+            self.logger.info(f"📦 Processed batch {i//batch_size + 1}/{(len(chunk_files) + batch_size - 1)//batch_size}")
+            
+            # 메모리 정리
+            del batch_sequences, batch_targets, batch_metadata
+            import gc
+            gc.collect()
+        
+        # 최종 결합
+        final_sequences = np.concatenate(all_sequences_list, axis=0)
+        final_targets = {col: np.concatenate(values_list, axis=0) for col, values_list in all_targets_dict.items()}
+        final_metadata = pd.concat(all_metadata_list, ignore_index=True)
+        
+        self.logger.info(f"✅ Fallback streaming completed: {len(final_sequences):,} sequences")
+        
+        return final_sequences, final_targets, final_metadata
     
     def create_sequences(
         self, 
@@ -471,7 +801,7 @@ class MarklygonDataProcessor:
 
 class MarklygonDataset(Dataset):
     """
-    Eddie 시스템용 PyTorch 데이터셋
+    Eddie 시스템용 PyTorch 데이터셋 (GPU 메모리 최적화)
     """
     
     def __init__(
@@ -480,7 +810,9 @@ class MarklygonDataset(Dataset):
         targets: Dict[str, np.ndarray],
         metadata: pd.DataFrame = None
     ):
-        self.features = torch.FloatTensor(features)
+        # RTX 4060 Ti 16GB 로컬 환경에서는 pinned memory 사용 가능
+        # 단, 한 번에 모든 데이터를 GPU로 이동하지 않고 배치별로 처리
+        self.features = torch.FloatTensor(features)  # CPU에 저장
         self.targets = {k: torch.FloatTensor(v) for k, v in targets.items()}
         self.metadata = metadata
         
@@ -531,6 +863,15 @@ def create_data_loaders(
     if config is None:
         config = DEFAULT_CONFIG
     
+    # 메모리 관리자를 통한 배치 크기 최적화
+    memory_manager = get_memory_manager()
+    original_batch_size = batch_size
+    optimized_batch_size = memory_manager.suggest_batch_size(batch_size)
+    
+    if optimized_batch_size != batch_size:
+        logging.info(f"🔧 Optimizing batch size for memory safety: {batch_size} → {optimized_batch_size}")
+        batch_size = optimized_batch_size
+    
     # 데이터 프로세서 초기화
     processor = MarklygonDataProcessor(config)
     
@@ -564,9 +905,9 @@ def create_data_loaders(
     
     metadata = raw_data[metadata_columns].reset_index(drop=True)
     
-    # 7. 시퀀스 생성
-    logging.info("Creating sequences...")
-    sequences, sequence_targets, sequence_metadata = processor.create_sequences(
+    # 7. 시퀀스 생성 (메모리 효율적 방식)
+    logging.info("Creating sequences (chunked)...")
+    sequences, sequence_targets, sequence_metadata = processor.create_sequences_chunked(
         pca_features, targets_df, metadata, config.signal_generator.seq_len
     )
     
@@ -587,18 +928,24 @@ def create_data_loaders(
         test_data['features'], test_data['targets'], test_data['metadata']
     )
     
-    # 10. 데이터 로더 생성
+    # 10. 데이터 로더 생성 (RTX 4060 Ti 16GB 최적화)
+    # RTX 4060 Ti에서는 더 많은 worker와 pinned memory 활용 가능
+    optimized_num_workers = min(num_workers, 4)  # RTX 4060 Ti에서는 4개까지 가능
+    
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True
+        num_workers=optimized_num_workers, pin_memory=True,  # RTX 4060 Ti에서 활용
+        persistent_workers=True if optimized_num_workers > 0 else False
     )
     val_loader = DataLoader(
         val_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True
+        num_workers=optimized_num_workers, pin_memory=True,
+        persistent_workers=True if optimized_num_workers > 0 else False
     )
     test_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True
+        num_workers=optimized_num_workers, pin_memory=True,
+        persistent_workers=True if optimized_num_workers > 0 else False
     )
     
     logging.info("Data loaders created successfully!")
