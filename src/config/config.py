@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.config.apikeys import POLYGON_APIKEY
 from src.config.database_values import *
+from src.config.flask import *
 
 # 프로젝트 루트 디렉토리
 ROOT_DIR = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -57,17 +58,24 @@ TARGET_UPDATE_INTERVAL = 1
 # DQN 모델 하이퍼파라미터
 
 
-REPLAY_BUFFER_SIZE = 100000
+REPLAY_BUFFER_SIZE = 750000
 
 # 학습 설정
-BATCH_SIZE = 256
+BATCH_SIZE = 2048
+CUTOFF_TIMESTAMP = '2021-05-06 08:00:00'
 NUM_EPISODES = 50
 EVALUATE_INTERVAL = 5
+TRAIN_INTERVAL = 4
+
+# 평가 설정
+ANNUAL_RISK_FREE_RATE = 0.02
+TRADING_DAYS_PER_YEAR = 252
+MINUTES_PER_TRADING_DAY = 390
+MINUTES_PER_YEAR = TRADING_DAYS_PER_YEAR * MINUTES_PER_TRADING_DAY
 
 # 장치 설정
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-CUTOFF_TIMESTAMP = '2021-05-06 08:00:00'
 
 PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
 VOLUME_FEATURES = ['transactions', 'volume']
@@ -106,6 +114,7 @@ TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos',
                      'quarter', 'quarter_sin', 'quarter_cos',
                      'time_since_last_significant_change']
 
+WEB_DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_WEB}'
 
 # 로깅 설정
 def setup_logger(name, log_file, level=logging.INFO):

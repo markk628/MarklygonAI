@@ -11,7 +11,8 @@ from torch.cuda.amp import autocast, GradScaler
 from src.config.config import (
     BATCH_SIZE,
     REPLAY_BUFFER_SIZE,
-    DEVICE
+    DEVICE,
+    TRAIN_INTERVAL
 )
 from src.models.mark.dqn.model.DQNNetwork import DQNNetwork
 from src.models.mark.dqn.model.DuelingDQNNetwork import DuelingDQNNetwork
@@ -32,16 +33,15 @@ class DQNAgent:
     def __init__(
         self, 
         sizes,
-        total_steps: int,
         learning_rate: float = 0.001,
         discount_factor: float = 0.95,
         epsilon: float = 1.0,
-        decay_rate_multiplier: float = 1,
         epsilon_min: float = 0.01,
-        epsilon_decay_target_pct: float=1,
+        epsilon_decay_rate: int = 5,
+        epsilon_decay_target: int = 100000,
         batch_size: int = BATCH_SIZE,
         memory_size: int = REPLAY_BUFFER_SIZE,
-        update_frequency: int = 4,
+        update_frequency: int = TRAIN_INTERVAL,
         target_update_frequency: int = 100,
         use_dueling: bool = True,
         use_hierarchical: bool = True,
@@ -53,13 +53,14 @@ class DQNAgent:
         gradient_max_norm: float = 1.0
     ):
         self.sizes = sizes
-        self.batch_size: int = batch_size
+        self.learning_rate: float = learning_rate
         self.discount_factor: float = discount_factor  # gamma (γ)
         self.epsilon: float = epsilon  # epsilon (ε)
-        self.decay_rate_multiplier: float = decay_rate_multiplier
+        self.epsilon_start: float = epsilon
         self.epsilon_min: float = epsilon_min
-        self.epsilon_decay_target = total_steps * epsilon_decay_target_pct
-        self.learning_rate: float = learning_rate
+        self.epsilon_decay_rate: int = epsilon_decay_rate
+        self.epsilon_decay_target: int = epsilon_decay_target
+        self.batch_size: int = batch_size
         self.use_dueling: bool = use_dueling
         self.use_prioritized: bool = use_prioritized
         self.use_vram: bool = use_vram
@@ -76,27 +77,17 @@ class DQNAgent:
         print(f"Using device: {self.device}")
         if torch.cuda.is_available():
             device_idx = torch.cuda.current_device()
-            self.device_capability = torch.cuda.get_device_capability(device_idx)
+            self.device_capability = torch.cuda.get_device_capability(device_idx)[0]
         
         # network initialization
-        if use_dueling:
-            if use_hierarchical:
-                print('Using Hierarchical Dueling DQN')
-                self.main_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
-                self.target_network: HierarchicalTradingDuelingDQNNetwork = HierarchicalTradingDuelingDQNNetwork(sizes).to(self.device)
-            else:
-                print('Using Dueling DQN')
-                self.main_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
-                self.target_network: DuelingDQNNetwork = DuelingDQNNetwork(sizes).to(self.device)
+        if use_hierarchical:
+            print(f'Using Hierarchical {"Dueling " if use_dueling else ""}DQN')
+            self.main_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes, use_dueling).to(self.device)
+            self.target_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes, use_dueling).to(self.device)
         else:
-            if use_hierarchical:
-                print('Using Hierarchical DQN')
-                self.main_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
-                self.target_network: HierarchicalTradingDQNNetwork = HierarchicalTradingDQNNetwork(sizes).to(self.device)
-            else:
-                print('Using DQN')
-                self.main_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
-                self.target_network: DQNNetwork = DQNNetwork(sizes).to(self.device)
+            print(f'Using {"Dueling " if use_dueling else ""}DQN')
+            self.main_network: DQNNetwork = DQNNetwork(sizes, use_dueling).to(self.device)
+            self.target_network: DQNNetwork = DQNNetwork(sizes, use_dueling).to(self.device)
             
         self.target_network.load_state_dict(self.main_network.state_dict())
         self.target_network.eval() 
@@ -120,15 +111,22 @@ class DQNAgent:
         # Memory setup
         if use_prioritized:
             if use_vram:
+                print('Using PER VRAM')
                 stock_data_window_size = sizes['stock_data_window_size']
                 stock_data_feature_size = sizes['stock_data_feature_size']
                 stock_data_flattened_size = stock_data_window_size * stock_data_feature_size
-                temporal_metrics_size = sizes['temporal_metrics_size'] * 2 if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
-                state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - self._action_size
-                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
+                if use_hierarchical:
+                    temporal_metrics_types_count = sizes['temporal_metrics_types_count']
+                    temporal_metrics_size = sizes['temporal_metrics_size'] * (temporal_metrics_types_count - 1) if use_hierarchical else 0 # TODO if month and quarter gets added change the 3 to a 5
+                    state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size + temporal_metrics_size - temporal_metrics_types_count - self._action_size
+                else:
+                    state_dim = stock_data_flattened_size + sum(sizes.values()) - stock_data_window_size - stock_data_feature_size - self._action_size
+                self.memory: PrioritizedReplayBufferVRAM = PrioritizedReplayBufferVRAM(memory_size, state_dim, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment, use_autocase=True)
             else:
+                print('Using PER')
                 self.memory: PrioritizedReplayBuffer = PrioritizedReplayBuffer(memory_size, alpha=per_alpha, beta=per_beta, beta_increment=per_beta_increment)
         else:
+            print('Using deque')
             self.memory: deque = deque(maxlen=memory_size)
             
         self.loss_fn: nn.SmoothL1Loss = nn.SmoothL1Loss()
@@ -191,7 +189,9 @@ class DQNAgent:
         """
         Train the agent by sampling from replay buffer
         """
-        def train_agent():
+        def train_agent(use_autocast: bool):
+            self._current_step += 1
+            
             # sample from memory
             if self.use_prioritized:
                 batch, indices, is_weights = self.memory.sample(self.batch_size)
@@ -231,10 +231,16 @@ class DQNAgent:
                 
             # optimize
             self.optimizer.zero_grad()
-            loss.backward()
-            # gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
-            self.optimizer.step()
+            if use_autocast:
+                self.scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+                self.scaler.step(self.optimizer) # Unscale gradients and apply optimizer step
+                self.scaler.update() # Update the scaler for the next iteration
+            else:
+                loss.backward()
+                # gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+                self.optimizer.step()
 
             # update priorities in buffer
             if self.use_prioritized:
@@ -250,12 +256,10 @@ class DQNAgent:
 
             # decay epsilon
             if self.epsilon > self.epsilon_min:
-                self.epsilon = (self.epsilon_min) ** ((self._current_step / self.epsilon_decay_target) ** self.decay_rate_multiplier)
-            # if self.epsilon > self.epsilon_min > 0:
-            #     # Calculate the decay steps based on the target percentage
-            #     # Apply the decay formula
-            #     self.epsilon = self.epsilon_min + (self.epsilon - self.epsilon_min) * np.exp(-self.decay_rate_multiplier * self._current_step / self.epsilon_decay_target)
-            self._current_step += self.update_frequency
+                normalized_step = self._current_step / self.epsilon_decay_target
+                normalized_step = min(1.0, normalized_step) 
+                self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * np.exp(-self.epsilon_decay_rate * normalized_step)
+                self.epsilon = max(self.epsilon, self.epsilon_min)
             
         # skip if not enough samples
         if len(self.memory) < self.batch_size:
@@ -276,9 +280,9 @@ class DQNAgent:
         # ) as prof:
         if torch.cuda.is_bf16_supported() and self.device_capability >= 7:
             with autocast():
-                train_agent()
+                train_agent(True)
         else:
-            train_agent()
+            train_agent(False)
         
     def load(self, file_path: str):
         """Load model weights from file"""
