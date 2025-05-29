@@ -1,0 +1,587 @@
+{
+  "portfolio_summary": {
+    "total_value": 125430.50,
+    "total_return": 15.67,
+    "daily_change": 2.34,
+    "daily_change_amount": 2850.20,
+    "active_positions": 12,
+    "new_positions_today": 2,
+    "win_rate": 68.4,
+    "win_rate_change": 1.2,
+    "last_updated": "2025-01-28T15:30:00Z"
+  },
+  
+  "performance_history": [
+    {
+      "date": "2024-01-01",
+      "portfolio_value": 100000,
+      "daily_return": 0,
+      "cumulative_return": 0
+    },
+    {
+      "date": "2024-01-02",
+      "portfolio_value": 100850,
+      "daily_return": 0.85,
+      "cumulative_return": 0.85
+    },
+    {
+      "date": "2024-01-03",
+      "portfolio_value": 101200,
+      "daily_return": 0.35,
+      "cumulative_return": 1.20
+    },
+    {
+      "date": "2024-01-04",
+      "portfolio_value": 100950,
+      "daily_return": -0.25,
+      "cumulative_return": 0.95
+    },
+    {
+      "date": "2024-01-05",
+      "portfolio_value": 102100,
+      "daily_return": 1.14,
+      "cumulative_return": 2.10
+    },
+    {
+      "date": "2024-01-08",
+      "portfolio_value": 103250,
+      "daily_return": 1.13,
+      "cumulative_return": 3.25
+    },
+    {
+      "date": "2024-01-09",
+      "portfolio_value": 102900,
+      "daily_return": -0.34,
+      "cumulative_return": 2.90
+    },
+    {
+      "date": "2024-01-10",
+      "portfolio_value": 104500,
+      "daily_return": 1.56,
+      "cumulative_return": 4.50
+    },
+    {
+      "date": "2024-01-11",
+      "portfolio_value": 105200,
+      "daily_return": 0.67,
+      "cumulative_return": 5.20
+    },
+    {
+      "date": "2024-01-12",
+      "portfolio_value": 106800,
+      "daily_return": 1.52,
+      "cumulative_return": 6.80
+    },
+    {
+      "date": "2024-01-15",
+      "portfolio_value": 108900,
+      "daily_return": 1.97,
+      "cumulative_return": 8.90
+    },
+    {
+      "date": "2024-01-16",
+      "portfolio_value": 110450,
+      "daily_return": 1.42,
+      "cumulative_return": 10.45
+    },
+    {
+      "date": "2024-01-17",
+      "portfolio_value": 112100,
+      "daily_return": 1.49,
+      "cumulative_return": 12.10
+    },
+    {
+      "date": "2024-01-18",
+      "portfolio_value": 113800,
+      "daily_return": 1.52,
+      "cumulative_return": 13.80
+    },
+    {
+      "date": "2024-01-19",
+      "portfolio_value": 115600,
+      "daily_return": 1.58,
+      "cumulative_return": 15.60
+    },
+    {
+      "date": "2024-01-22",
+      "portfolio_value": 117200,
+      "daily_return": 1.38,
+      "cumulative_return": 17.20
+    },
+    {
+      "date": "2024-01-23",
+      "portfolio_value": 118900,
+      "daily_return": 1.45,
+      "cumulative_return": 18.90
+    },
+    {
+      "date": "2024-01-24",
+      "portfolio_value": 120100,
+      "daily_return": 1.01,
+      "cumulative_return": 20.10
+    },
+    {
+      "date": "2024-01-25",
+      "portfolio_value": 121800,
+      "daily_return": 1.42,
+      "cumulative_return": 21.80
+    },
+    {
+      "date": "2024-01-26",
+      "portfolio_value": 123500,
+      "daily_return": 1.40,
+      "cumulative_return": 23.50
+    },
+    {
+      "date": "2024-01-27",
+      "portfolio_value": 122580,
+      "daily_return": -0.74,
+      "cumulative_return": 22.58
+    },
+    {
+      "date": "2024-01-28",
+      "portfolio_value": 125430.50,
+      "daily_return": 2.34,
+      "cumulative_return": 25.43
+    }
+  ],
+
+  "model_performance": [
+    {
+      "model_id": 1,
+      "model_name": "Eddie",
+      "model_type": "Signal Generator + Pattern Analyzer",
+      "status": "active",
+      "allocation_percentage": 35.0,
+      "current_value": 43900.67,
+      "total_return": 18.92,
+      "daily_change": 2.84,
+      "positions": [
+        {
+          "ticker": "NVDA",
+          "quantity": 150.0,
+          "average_price": 485.20,
+          "current_price": 512.80,
+          "market_value": 76920.00,
+          "unrealized_pnl": 4140.00,
+          "return_percentage": 5.68
+        },
+        {
+          "ticker": "MSFT",
+          "quantity": 200.0,
+          "average_price": 378.45,
+          "current_price": 395.60,
+          "market_value": 79120.00,
+          "unrealized_pnl": 3430.00,
+          "return_percentage": 4.53
+        },
+        {
+          "ticker": "AMZN",
+          "quantity": 80.0,
+          "average_price": 142.30,
+          "current_price": 158.90,
+          "market_value": 12712.00,
+          "unrealized_pnl": 1328.00,
+          "return_percentage": 11.66
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-28T15:25:00Z",
+        "action": "BUY",
+        "ticker": "NVDA",
+        "confidence": 0.87,
+        "price": 512.80
+      }
+    },
+    {
+      "model_id": 3,
+      "model_name": "SugarMixCoffee",
+      "model_type": "Ensemble",
+      "status": "active",
+      "allocation_percentage": 25.0,
+      "current_value": 31357.62,
+      "total_return": 22.45,
+      "daily_change": 1.89,
+      "positions": [
+        {
+          "ticker": "AMZN",
+          "quantity": 120.0,
+          "average_price": 145.20,
+          "current_price": 158.90,
+          "market_value": 19068.00,
+          "unrealized_pnl": 1644.00,
+          "return_percentage": 9.43
+        },
+        {
+          "ticker": "JPM",
+          "quantity": 180.0,
+          "average_price": 168.90,
+          "current_price": 175.30,
+          "market_value": 31554.00,
+          "unrealized_pnl": 1152.00,
+          "return_percentage": 3.79
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-28T14:45:00Z",
+        "action": "HOLD",
+        "ticker": "AMZN",
+        "confidence": 0.72,
+        "price": 158.90
+      }
+    },
+    {
+      "model_id": 2,
+      "model_name": "Mark",
+      "model_type": "Neural Network",
+      "status": "active",
+      "allocation_percentage": 20.0,
+      "current_value": 25086.10,
+      "total_return": 8.76,
+      "daily_change": 1.45,
+      "positions": [
+        {
+          "ticker": "AAPL",
+          "quantity": 140.0,
+          "average_price": 182.40,
+          "current_price": 189.20,
+          "market_value": 26488.00,
+          "unrealized_pnl": 952.00,
+          "return_percentage": 3.73
+        },
+        {
+          "ticker": "MSFT",
+          "quantity": 85.0,
+          "average_price": 385.60,
+          "current_price": 395.60,
+          "market_value": 33626.00,
+          "unrealized_pnl": 850.00,
+          "return_percentage": 2.59
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-28T13:20:00Z",
+        "action": "SELL",
+        "ticker": "AAPL",
+        "confidence": 0.65,
+        "price": 189.20
+      }
+    },
+    {
+      "model_id": 4,
+      "model_name": "Mint",
+      "model_type": "Transformer",
+      "status": "active",
+      "allocation_percentage": 12.0,
+      "current_value": 15051.66,
+      "total_return": 11.45,
+      "daily_change": 2.10,
+      "positions": [
+        {
+          "ticker": "BAC",
+          "quantity": 400.0,
+          "average_price": 34.80,
+          "current_price": 37.20,
+          "market_value": 14880.00,
+          "unrealized_pnl": 960.00,
+          "return_percentage": 6.90
+        },
+        {
+          "ticker": "GS",
+          "quantity": 45.0,
+          "average_price": 445.20,
+          "current_price": 468.90,
+          "market_value": 21100.50,
+          "unrealized_pnl": 1066.50,
+          "return_percentage": 5.32
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-28T12:15:00Z",
+        "action": "BUY",
+        "ticker": "GS",
+        "confidence": 0.78,
+        "price": 468.90
+      }
+    },
+    {
+      "model_id": 5,
+      "model_name": "Jeawan",
+      "model_type": "LSTM",
+      "status": "training",
+      "allocation_percentage": 5.0,
+      "current_value": 6267.22,
+      "total_return": 7.89,
+      "daily_change": 1.23,
+      "positions": [
+        {
+          "ticker": "JNJ",
+          "quantity": 80.0,
+          "average_price": 162.50,
+          "current_price": 167.80,
+          "market_value": 13424.00,
+          "unrealized_pnl": 424.00,
+          "return_percentage": 3.26
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-28T11:30:00Z",
+        "action": "HOLD",
+        "ticker": "JNJ",
+        "confidence": 0.58,
+        "price": 167.80
+      }
+    },
+    {
+      "model_id": 6,
+      "model_name": "BNM",
+      "model_type": "CNN",
+      "status": "inactive",
+      "allocation_percentage": 3.0,
+      "current_value": 3767.23,
+      "total_return": 4.32,
+      "daily_change": 0.89,
+      "positions": [
+        {
+          "ticker": "KO",
+          "quantity": 120.0,
+          "average_price": 58.90,
+          "current_price": 61.20,
+          "market_value": 7344.00,
+          "unrealized_pnl": 276.00,
+          "return_percentage": 3.90
+        }
+      ],
+      "last_signal": {
+        "timestamp": "2025-01-27T16:45:00Z",
+        "action": "HOLD",
+        "ticker": "KO",
+        "confidence": 0.45,
+        "price": 61.20
+      }
+    }
+  ],
+
+  "sector_allocation": [
+    {
+      "sector": "Technology",
+      "percentage": 62.5,
+      "value": 78394.06,
+      "change": 2.84
+    },
+    {
+      "sector": "Financial Services",
+      "percentage": 28.3,
+      "value": 35497.23,
+      "change": 1.67
+    },
+    {
+      "sector": "Healthcare",
+      "percentage": 5.4,
+      "value": 6773.22,
+      "change": 1.23
+    },
+    {
+      "sector": "Consumer Staples",
+      "percentage": 2.9,
+      "value": 3638.44,
+      "change": 0.89
+    },
+    {
+      "sector": "Consumer Discretionary",
+      "percentage": 0.9,
+      "value": 1127.55,
+      "change": 1.45
+    }
+  ],
+
+  "risk_metrics": {
+    "portfolio_beta": 1.12,
+    "volatility": 0.18,
+    "sharpe_ratio": 1.67,
+    "max_drawdown": -8.45,
+    "var_95": -2.34,
+    "correlation_sp500": 0.82
+  },
+
+  "recent_trades": [
+    {
+      "timestamp": "2025-01-28T15:25:00Z",
+      "model": "Eddie",
+      "action": "BUY",
+      "ticker": "NVDA",
+      "quantity": 25,
+      "price": 512.80,
+      "total_value": 12820.00,
+      "confidence": 0.87
+    },
+    {
+      "timestamp": "2025-01-28T14:10:00Z",
+      "model": "Mark",
+      "action": "SELL",
+      "ticker": "AAPL",
+      "quantity": 30,
+      "price": 189.20,
+      "total_value": 5676.00,
+      "confidence": 0.65
+    },
+    {
+      "timestamp": "2025-01-28T13:45:00Z",
+      "model": "Mint",
+      "action": "BUY",
+      "ticker": "GS",
+      "quantity": 10,
+      "price": 468.90,
+      "total_value": 4689.00,
+      "confidence": 0.78
+    },
+    {
+      "timestamp": "2025-01-28T12:30:00Z",
+      "model": "SugarMixCoffee",
+      "action": "HOLD",
+      "ticker": "AMZN",
+      "quantity": 0,
+      "price": 158.90,
+      "total_value": 0,
+      "confidence": 0.72
+    }
+  ],
+
+  "metadata": {
+    "last_updated": "2025-01-28T15:30:00Z",
+    "base_currency": "USD",
+    "total_models": 6,
+    "active_models": 4,
+    "training_models": 1,
+    "inactive_models": 1
+  },
+
+  "portfolios": [
+    {
+      "model_id": "eddie-001",
+      "model_name": "Eddie",
+      "total_value": 512340.00,
+      "total_invested": 450000.00,
+      "total_return": 62340.00,
+      "return_percentage": 13.85,
+      "daily_pnl": 2340.00,
+      "holdings": [
+        {
+          "ticker": "NVDA",
+          "company_name": "NVIDIA Corporation",
+          "quantity": 45.0,
+          "average_price": 285.45,
+          "current_price": 312.67,
+          "market_value": 14070.15,
+          "unrealized_pnl": 1224.90,
+          "weight": 2.75
+        },
+        {
+          "ticker": "AAPL",
+          "company_name": "Apple Inc.",
+          "quantity": 150.0,
+          "average_price": 178.23,
+          "current_price": 185.45,
+          "market_value": 27817.50,
+          "unrealized_pnl": 1083.00,
+          "weight": 5.43
+        },
+        {
+          "ticker": "MSFT",
+          "company_name": "Microsoft Corporation",
+          "quantity": 85.0,
+          "average_price": 342.11,
+          "current_price": 356.78,
+          "market_value": 30326.30,
+          "unrealized_pnl": 1246.95,
+          "weight": 5.92
+        }
+      ],
+      "performance_history": [
+        {"date": "2025-01-20", "value": 498234.50, "return": 10.72},
+        {"date": "2025-01-21", "value": 502156.30, "return": 11.59},
+        {"date": "2025-01-22", "value": 507845.20, "return": 12.86},
+        {"date": "2025-01-23", "value": 504123.10, "return": 12.03},
+        {"date": "2025-01-24", "value": 509876.40, "return": 13.31},
+        {"date": "2025-01-25", "value": 512340.00, "return": 13.85}
+      ]
+    },
+    {
+      "model_id": "mark-001",
+      "model_name": "Mark",
+      "total_value": 467823.00,
+      "total_invested": 420000.00,
+      "total_return": 47823.00,
+      "return_percentage": 11.39,
+      "daily_pnl": -1245.00,
+      "holdings": [
+        {
+          "ticker": "NVDA",
+          "company_name": "NVIDIA Corporation",
+          "quantity": 38.0,
+          "average_price": 278.90,
+          "current_price": 312.67,
+          "market_value": 11881.46,
+          "unrealized_pnl": 1283.26,
+          "weight": 2.54
+        },
+        {
+          "ticker": "AAPL",
+          "company_name": "Apple Inc.",
+          "quantity": 120.0,
+          "average_price": 182.15,
+          "current_price": 185.45,
+          "market_value": 22254.00,
+          "unrealized_pnl": 396.00,
+          "weight": 4.76
+        }
+      ],
+      "performance_history": [
+        {"date": "2025-01-20", "value": 452134.20, "return": 7.65},
+        {"date": "2025-01-21", "value": 458762.30, "return": 9.23},
+        {"date": "2025-01-22", "value": 463245.80, "return": 10.30},
+        {"date": "2025-01-23", "value": 461892.40, "return": 9.98},
+        {"date": "2025-01-24", "value": 469068.00, "return": 11.69},
+        {"date": "2025-01-25", "value": 467823.00, "return": 11.39}
+      ]
+    },
+    {
+      "model_id": "sugarmixcoffee-001",
+      "model_name": "SugarMixCoffee",
+      "total_value": 386754.00,
+      "total_invested": 350000.00,
+      "total_return": 36754.00,
+      "return_percentage": 10.50,
+      "daily_pnl": 567.00,
+      "holdings": [
+        {
+          "ticker": "JPM",
+          "company_name": "JPMorgan Chase & Co.",
+          "quantity": 95.0,
+          "average_price": 145.23,
+          "current_price": 149.78,
+          "market_value": 14229.10,
+          "unrealized_pnl": 432.25,
+          "weight": 3.68
+        }
+      ],
+      "performance_history": [
+        {"date": "2025-01-20", "value": 375623.40, "return": 7.32},
+        {"date": "2025-01-21", "value": 379845.20, "return": 8.53},
+        {"date": "2025-01-22", "value": 383912.60, "return": 9.69},
+        {"date": "2025-01-23", "value": 381456.80, "return": 8.99},
+        {"date": "2025-01-24", "value": 386187.00, "return": 10.34},
+        {"date": "2025-01-25", "value": 386754.00, "return": 10.50}
+      ]
+    }
+  ],
+
+  "overall_statistics": {
+    "total_portfolio_value": 1366917.00,
+    "total_invested": 1220000.00,
+    "total_return": 146917.00,
+    "overall_return_percentage": 12.04,
+    "best_performing_model": "eddie-001",
+    "worst_performing_model": "sugarmixcoffee-001"
+  }
+} 
