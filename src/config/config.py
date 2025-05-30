@@ -114,6 +114,29 @@ TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos',
                      'quarter', 'quarter_sin', 'quarter_cos',
                      'time_since_last_significant_change']
 
+CORE_FEATURES = ['open', 'high', 'low', 'close', 'transactions', 'volume', 'vwap']
+AUXILIARY_FEATURES = [
+    'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
+    'rsi_14_1min', 
+    'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min',
+    'roc_10_1min',
+    'obv_1min',
+    'ema_3_1min', 'ema_9_1min', 'ema_21_1min',
+    'plusdi_20_1min', 'minusdi_20_1min', 'adx_20_1min',
+    'bband_upper_20_1min', 'bband_lower_20_1min',
+    'atr_14_1min', 'cci_20_1min', 'mfi_14_1min',
+    'volume_rolling_std_15', 'log_return_rolling_std_15',
+    'close_diff_1', 'log_return_1'
+]
+FILTERED_TEMPORAL_FEATURES = ['minute_sin', 'minute_cos', 
+                              'hour_sin', 'hour_cos', 
+                              'day_sin', 'day_cos', 
+                              'month_sin', 'month_cos', 
+                              'quarter_sin', 'quarter_cos',
+                              'time_since_last_significant_change']
+
+STOCK_FEATURES = CORE_FEATURES + AUXILIARY_FEATURES + FILTERED_TEMPORAL_FEATURES
+
 WEB_DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_WEB}'
 
 # 로깅 설정

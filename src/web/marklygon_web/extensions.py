@@ -3,6 +3,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 
 from src.config.config import PRODUCT_SECRET_KEY, DEV_SECRET_KEY, WEB_DATABASE_URI
+# from src.web.marklygon_web.models import Profile, Portfolio, TradingSession, TradeHistory, MarklygonModel, BacktestHistory
 
 def create_app():
     app = Flask(__name__)

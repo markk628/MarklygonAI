@@ -190,7 +190,7 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         # # stock data (64) + attended stock features (16) + temporal features (12) + 6 other features (16 each)
         # combined_feature_size = 64 + 16 + 12 + (6 * 16)
         # 6 auxiliary + 1 attended stock + 1 temporal
-        self.num_fused_features = 8
+        self.num_fused_features = 9
         # stock data (64) + attended stock features (16) + temporal features (16) + 6 other features (16 each)
         combined_feature_size = 64 + (self.num_fused_features * 16)
         
@@ -289,20 +289,20 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         # input dim (batch_size, channels, seq_len)
         # output dim (batch_size, processed_market_data_size, 1)
         stock_data_flat = x[:, :portfolio_start_idx]
-        # stock_data_reshaped = stock_data_flat.view(-1, self.stock_data_feature_size, self.stock_data_window_size)
-        stock_data_reshaped = stock_data_flat.permute(0, 2, 1)
+        stock_data_reshaped = stock_data_flat.view(-1, self.stock_data_feature_size, self.stock_data_window_size)
+        # stock_data_reshaped = stock_data_flat.permute(0, 2, 1)
         conv_output = self.stock_data_conv1d_branch(stock_data_reshaped)
         
         # apply self-attention to temporal patterns
         # reshape for attention (batch_size, channels, seq_len) -> (batch_size, seq_len, channels)
-        # conv_for_attention = conv_output.transpose(1, 2)
-        conv_for_attention = conv_output.permute(0, 2, 1)
+        conv_for_attention = conv_output.transpose(1, 2)
+        # conv_for_attention = conv_output.permute(0, 2, 1)
         attended_conv, _ = self.stock_data_attention(conv_for_attention)
         
         # pool and process
         # reshape for pooling (batch_size, seq_len, channels) -> (batch, channels, seq_len)
-        # attended_conv = attended_conv.transpose(1, 2)  # (batch, channels, seq_len)
-        attended_conv = attended_conv.permute(0, 2, 1)  # (batch, channels, seq_len)
+        attended_conv = attended_conv.transpose(1, 2)  # (batch, channels, seq_len)
+        # attended_conv = attended_conv.permute(0, 2, 1)  # (batch, channels, seq_len)
         pooled_conv = self.stock_data_pool(attended_conv).squeeze(-1)
         stock_data_features = self.stock_data_linear_branch(pooled_conv)
         
@@ -336,8 +336,8 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         attended_temporal, _ = self.temporal_attention(temporal_stack)
         
         # flatten attended temporal features
-        # temporal_features = attended_temporal.view(batch_size, -1)
-        temporal_features = attended_temporal.view(-1, self.temporal_feature_dim * self.temporal_metrics_types_count)
+        temporal_features = attended_temporal.view(batch_size, -1)
+        # temporal_features = attended_temporal.view(-1, self.temporal_feature_dim * self.temporal_metrics_types_count)
         temporal_features = self.temporal_output_projection(temporal_features)
         
         # cross modal attention
@@ -387,8 +387,8 @@ class HierarchicalTradingDQNNetwork(nn.Module):
         ], dim=1)  # shape: (batch_size, 7, feature_dim)
 
         refined_fusion, _ = self.feature_fusion_attention(fused_features_seq)
-        # refined_fusion_flat = refined_fusion.view(batch_size, -1)
-        refined_fusion_flat = refined_fusion.view(-1, self.num_fused_features * self.feature_dim)
+        refined_fusion_flat = refined_fusion.view(batch_size, -1)
+        # refined_fusion_flat = refined_fusion.view(-1, self.num_fused_features * self.feature_dim)
         final_features = torch.cat([stock_data_features, stock_attended, refined_fusion_flat], dim=1)
 
         if self.use_dueling:

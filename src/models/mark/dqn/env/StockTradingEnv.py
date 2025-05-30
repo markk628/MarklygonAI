@@ -11,7 +11,10 @@ from src.config.config import (
     INITIAL_BALANCE,
     TRANSACTION_FEE_PERCENT,
     ANNUAL_RISK_FREE_RATE,
-    MINUTES_PER_YEAR
+    MINUTES_PER_YEAR,
+    CORE_FEATURES,
+    AUXILIARY_FEATURES,
+    FILTERED_TEMPORAL_FEATURES
 )
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 
@@ -41,7 +44,7 @@ class StockTradingEnv:
         self.data: pd.DataFrame = data.reset_index(drop=True)
         self.steps_per_episode: int = len(data) - window_size
         self.data_nparray: np.ndarray = data.values
-        self.filtered_data_nparray = data[feature_processor.feature_processor.filtered_feature_names].values
+        self.stock_data_nparray: np.ndarray = data[CORE_FEATURES + AUXILIARY_FEATURES].values
         self.high_prices_idx = data.columns.get_loc('high')
         self.low_prices_idx = data.columns.get_loc('low')
         self.close_prices_idx = data.columns.get_loc('close')
@@ -343,7 +346,7 @@ class StockTradingEnv:
                 
         start_idx: int = current_idx - self.window_size
         end_idx: int = current_idx
-        features = self.filtered_data_nparray[start_idx:end_idx]
+        features = self.stock_data_nparray[start_idx:end_idx]
         # rolling window scaling: Fit and transform on the features of the current window
         processed_features = self.feature_processor.get_state(features)
         self._feature_cache[current_idx] = processed_features
@@ -440,19 +443,13 @@ class StockTradingEnv:
         if self.use_hierarchical:
             # portfolio info states
             portfolio_metrics = np.array([
-                portfolio_value,
-                self.last_portfolio_value,
-                self.balance,
+                portfolio_value / self.last_portfolio_value,
                 balance_ratio,
-                self.shares_held,
-                shares_value,
                 shares_value_ratio,
                 float(is_out_of_game)
             ], dtype=np.float32)
             
             performance_metrics = np.array([
-                avg_buy_price,
-                position_pl,
                 position_pl_ratio,
                 position_pl_ratio_initial_balance,
                 win_rate,
@@ -460,18 +457,17 @@ class StockTradingEnv:
                 avg_loss,
                 win_loss_ratio,
                 avg_win_loss_ratio,
-                self.consecutive_profits,
-                self.consecutive_losses,
+                self.consecutive_profits / self.total_trades,
+                self.consecutive_losses / self.total_trades,
                 sharpe_ratio,
                 sortino_ratio,
-                float(self.was_last_trade_profitable),
-                self.last_transaction_fee
+                float(self.was_last_trade_profitable)
             ], dtype=np.float32)
             
             risk_metrics = np.array([
                 self.current_drawdown,
                 self.max_drawdown,
-                proximity_to_critical_loss,
+                proximity_to_critical_loss / portfolio_value,
                 potential_profit_ratio,
                 potential_loss_ratio
             ], dtype=np.float32)
@@ -495,7 +491,7 @@ class StockTradingEnv:
             ], dtype=np.float32)
             
             position_management_metrics = np.array([
-                self.invalid_actions,
+                self.invalid_actions / self.steps_per_episode,
                 highest_price_since_buy_and_entry_price_ratio,
                 highest_price_since_buy_and_current_price_ratio, 
                 lowest_price_since_buy_and_entry_price_ratio,
@@ -509,11 +505,9 @@ class StockTradingEnv:
                 optimal_holding_time,
                 time_ratio_to_optimal,
                 time_since_last_trade,
-                self.consecutive_holds,
-                self.consecutive_trades,
-                self.total_trades,
-                # float(self.last_action) / 2 if self.last_action is not None else 0.5,
-                self.total_trades 
+                self.consecutive_holds / self.steps_per_episode,
+                self.consecutive_trades / self.total_trades,
+                self.total_trades / self.steps_per_episode,
             ], dtype=np.float32)
             
             temporal_metrics = np.array([
@@ -1150,6 +1144,7 @@ class StockTradingEnv:
             done = True
             if self.shares_held > 0:
                 trade_info, did_profit = sell(True)
+                self.action_history.append(0)
         else:
             if invalid_action:
                 self.invalid_actions += 1
@@ -1337,9 +1332,9 @@ class StockTradingEnv:
         if self.use_hierarchical:
             return {
                 'stock_data_window_size': self.window_size,
-                'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
-                'portfolio_metrics_size': 8,
-                'performance_metrics_size': 15,
+                'stock_data_feature_size': len(CORE_FEATURES + AUXILIARY_FEATURES),
+                'portfolio_metrics_size': 4,
+                'performance_metrics_size': 12,
                 'risk_metrics_size': 5,
                 'market_state_metrics_size': 15,
                 'position_management_metrics_size': 7,
@@ -1351,7 +1346,7 @@ class StockTradingEnv:
             }
         return {
             'stock_data_window_size': self.window_size,
-            'stock_data_feature_size': self.feature_processor.feature_processor.n_components,
+            'stock_data_feature_size': len(CORE_FEATURES + AUXILIARY_FEATURES),
             'portfolio_metrics_size': 32,
             'market_state_metrics_size': 15,
             'constraint_metrics_size': 10,

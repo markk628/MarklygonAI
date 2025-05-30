@@ -1,17 +1,17 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
-from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
-from src.web.marklygon_web.models import db, Profile, Portfolio, TradeHistory, TradingSession, TradeType
 from datetime import datetime
 
-from src.config.config import WEB_DATABASE_URI, DATABASE_WEB
+from src.web.marklygon_web.models import *
+from src.config.config import DATABASE_WEB
 from src.utils.database import DatabaseManager
+from src.web.marklygon_web.extensions import *
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
-app.config['SQLALCHEMY_DATABASE_URI'] = WEB_DATABASE_URI
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# app = Flask(__name__)
+# app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')
+# app.config['SQLALCHEMY_DATABASE_URI'] = WEB_DATABASE_URI
+# app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize the database
 db.init_app(app)

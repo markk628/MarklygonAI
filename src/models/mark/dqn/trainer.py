@@ -12,18 +12,19 @@ from src.config.config import (
     DATA_DIR, 
     MODELS_DIR, 
     RESULTS_DIR, 
-    WINDOW_SIZE,
     TRAIN_RATIO, 
     VALID_RATIO,
     NUM_EPISODES,
-    EVALUATE_INTERVAL
+    EVALUATE_INTERVAL,
+    CORE_FEATURES,
+    AUXILIARY_FEATURES,
+    STOCK_FEATURES
 )
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 from src.utils.utils import format_duration
-# from src.web.marklygon_web.models import BacktestHistory, ModelType, MarklygonModel
-# from src.web.marklygon_web.extensions import app, db
+from src.web.marklygon_web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -43,7 +44,7 @@ class NumpyEncoder(json.JSONEncoder):
 
 class DQNTrainer:
 
-    def load_stock_data(self, ticker: str, cutoff: pd.Timestamp | None=None, drop_cols: list[str]=['timestamp']) -> tuple[pd.DataFrame, datetime, datetime]:
+    def load_stock_data(self, ticker: str, cutoff: pd.Timestamp | None=None, cols_to_keep: list[str]=STOCK_FEATURES) -> tuple[pd.DataFrame, datetime, datetime]:
         """
         Get saved csv data
         """
@@ -57,8 +58,7 @@ class DQNTrainer:
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df = df[df['timestamp'] >= cutoff]
             
-        df.drop(drop_cols, axis=1, inplace=True)
-        return df, start_date, end_date
+        return df[cols_to_keep], start_date, end_date
 
 
     def split_data(self, data: pd.DataFrame, train_ratio: float=TRAIN_RATIO, val_ratio: float=VALID_RATIO):
@@ -78,48 +78,48 @@ class DQNTrainer:
         return train_data, val_data, test_data
     
     
-    # def save_backtest_results_to_db(self,
-    #                                 model: ModelType,
-    #                                 ticker: str,
-    #                                 info: dict[str, float]) -> tuple[int, str]:
-    #     backtest_date = info['backtest_date']
-    #     backtest_date_for_path = backtest_date.strftime(r'%Y-%m-%d_%H-%M-%S')
-    #     return_rate = info['return_rate'] * 100
+    def save_backtest_results_to_db(self,
+                                    model_type: ModelType,
+                                    ticker: str,
+                                    info: dict[str, float]) -> tuple[int, str]:
+        backtest_date = info['backtest_date']
+        backtest_date_for_path = backtest_date.strftime(r'%Y-%m-%d_%H-%M-%S')
+        return_rate = info['return_rate'] * 100
         
-    #     with app.app_context():
-    #         db.create_all()
-    #         model = MarklygonModel(
-    #             model=model,
-    #             ticker=ticker
-    #         )
-    #         db.session.add(model)
-    #         db.session.flush()
+        with app.app_context():
+            db.create_all()
+            model = MarklygonModel(
+                model=model_type,
+                ticker=ticker
+            )
+            db.session.add(model)
+            db.session.flush()
             
-    #         model_id = model.id
-    #         model_path = f'{MODELS_DIR}/dqn/dqn_{model.id}_{ticker}_{backtest_date_for_path}_{return_rate:.4f}.pth'
-    #         model.model_path = model_path
+            model_id = model.id
+            model_path = f'{MODELS_DIR}/dqn/dqn_{model.id}_{ticker}_{backtest_date_for_path}_{return_rate:.4f}.pth'
+            model.model_path = model_path
 
-    #         backtest = BacktestHistory(
-    #             model=model,
-    #             backtest_date=backtest_date,
-    #             start_date=info['start_date'],
-    #             end_date=info['end_date'],
-    #             initial_balance=info['initial_balance'],
-    #             final_balance=info['final_balance'],
-    #             net_profit=info['net_profit'],
-    #             total_trades=info['total_trades'],
-    #             winning_trades=info['winning_trades'],
-    #             losing_trades=info['losing_trades'],
-    #             return_rate=return_rate,
-    #             max_drawdown=info['max_drawdown'],
-    #             sharpe_ratio=info['sharpe_ratio'],
-    #             calmar_ratio=info['calmar_ratio'],
-    #             invalid_actions=info['invalid_actions'],
-    #         )
+            backtest = BacktestHistory(
+                model=model,
+                backtest_date=backtest_date,
+                start_date=info['start_date'],
+                end_date=info['end_date'],
+                initial_balance=info['initial_balance'],
+                final_balance=info['final_balance'],
+                net_profit=info['net_profit'],
+                total_trades=info['total_trades'],
+                winning_trades=info['winning_trades'],
+                losing_trades=info['losing_trades'],
+                return_rate=return_rate,
+                max_drawdown=info['max_drawdown'],
+                sharpe_ratio=info['sharpe_ratio'],
+                calmar_ratio=info['calmar_ratio'],
+                invalid_actions=info['invalid_actions'],
+            )
 
-    #         db.session.add(backtest)
-    #         db.session.commit()
-    #     return model_id, model_path
+            db.session.add(backtest)
+            db.session.commit()
+        return model_id, model_path
     
     
     def plot_training_results(self, 
@@ -270,8 +270,8 @@ class DQNTrainer:
             scores.append(score)
             balances.append(env.balance)
             invalid_action_counts.append(env.invalid_actions)
-            with open(f'./reward_episode_{e}.json', "w") as file:
-                json.dump(env.reward_components, file, indent=4, cls=NumpyEncoder)
+            # with open(f'./reward_episode_{e}.json', "w") as file:
+            #     json.dump(env.reward_components, file, indent=4, cls=NumpyEncoder)
             
             # if (e + 1) % validation_frequency == 0:
             print(f"\nT. Episode: {e+1}/{episodes} | "
@@ -380,7 +380,7 @@ class DQNTrainer:
         print("Let's get this bread")
         # parameters
         ticker = 'AAPL'
-        cutoff = pd.Timestamp('2025-05-05 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2025-04-29 08:00:00', tz='UTC')
         
         # load and prepare data
         print(f'Preparing data starting from {cutoff}...')
@@ -389,7 +389,7 @@ class DQNTrainer:
         
         print('Preprocessing data...')
         window_processsor = RollingWindowFeatureProcessor()
-        window_processsor.fit(train_data.iloc[:, :-1], train_data['target'])
+        window_processsor.fit(train_data[CORE_FEATURES + AUXILIARY_FEATURES])
         use_dueling = True
         use_hierarchical = True
         use_prioritized = True
@@ -462,18 +462,16 @@ class DQNTrainer:
             state = next_state
         
         info = info['trade_info']
-        # model_id, model_path = self.save_backtest_results_to_db(ModelType.DQN, ticker, info)
+        model_id, model_path = self.save_backtest_results_to_db(ModelType.DQN, ticker, info)
         
         # Plot backtest results
         backtest_plot = self.plot_backtest_results(info['portfolio_values'], 
                                                    info['price_history'], 
                                                    info['action_history'], 
                                                    ticker=ticker)
-        # backtest_plot.savefig(f"{RESULTS_DIR}/dqn/dqn_{model_id}_{ticker}_{train_date}_{info['return_rate']*100:.2f}_backtest_results.png")
-        backtest_plot.savefig(f"{RESULTS_DIR}/dqn/dqn_{ticker}_{train_date}_{info['return_rate']*100:.2f}_backtest_results.png")
+        backtest_plot.savefig(f"{RESULTS_DIR}/dqn/dqn_{model_id}_{ticker}_{train_date}_{info['return_rate']*100:.2f}_backtest_results.png")
             
         # Save model
-        model_path = f"{MODELS_DIR}/dqn/dqn_{ticker}_{info['return_rate']*100:.4f}_model.pth"
         agent.save(model_path)
         
         # Print final metrics

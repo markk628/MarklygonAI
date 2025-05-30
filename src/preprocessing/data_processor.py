@@ -1,9 +1,10 @@
 import os
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, QuantileTransformer, PowerTransformer
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectKBest, mutual_info_regression, f_regression
+from scipy import stats
 import joblib
 import torch
 from torch import nn
@@ -21,49 +22,274 @@ class FeatureProcessor:
     """
     Modular feature selection/extraction for stock trading data
     Compatible with rolling window scaling and DQN models
+    Enhanced with outlier handling and distribution normalization
     """
     def __init__(self, 
                  window_size=WINDOW_SIZE,
-                 scaler_type='standard',  # 'standard', 'minmax', or None
-                 selection_method='pca',  # 'pca', 'mutual_info', 'f_regression', 'autoencoder', 'combined', None
+                 scaler_type='standard',  # 'standard', 'minmax', 'quantile', 'power', or None
+                 selection_method=None,  # 'pca', 'mutual_info', 'f_regression', 'autoencoder', 'combined', None
                  n_components=22,         # Number of features to select
-                 correlation_threshold=0.85,  # Threshold for removing highly correlated features
+                 # Outlier handling parameters
+                 winsorize_limits=(0.01, 0.01),  # Lower and upper percentiles for winsorization
+                 outlier_method='winsorize',  # 'winsorize', 'clip', 'zscore', or None
+                 outlier_threshold=3.0,  # Z-score threshold for outlier detection
+                 # Distribution normalization parameters
+                 distribution_method='quantile',  # 'quantile', 'power', 'log', or None
+                 quantile_output='uniform',  # 'uniform' or 'normal' for QuantileTransformer
+                 power_method='yeo-johnson',  # 'yeo-johnson' or 'box-cox' for PowerTransformer
                  device=DEVICE):
         
         self.window_size = window_size
         self.scaler_type = scaler_type
         self.selection_method = selection_method
         self.n_components = n_components
-        self.correlation_threshold = correlation_threshold
         self.device = device
         
+        # Outlier handling parameters
+        self.winsorize_limits = winsorize_limits
+        self.outlier_method = outlier_method
+        self.outlier_threshold = outlier_threshold
+        
+        # Distribution normalization parameters
+        self.distribution_method = distribution_method
+        self.quantile_output = quantile_output
+        self.power_method = power_method
+        
         # Initialize scalers and selectors
-        if scaler_type == 'standard':
-            self.scaler = StandardScaler()
-        elif scaler_type == 'minmax':
-            self.scaler = MinMaxScaler()
-        else:
-            self.scaler = None
-            
+        self._initialize_scalers()
+        
         # Initialize feature selectors/extractors
         self.selector = None
         self.autoencoder = None
         self.selected_features = None
         self.feature_importance = None
         
-    def remove_highly_correlated(self, X):
-        """Remove highly correlated features"""
-        if isinstance(X, pd.DataFrame):
-            corr_matrix = X.corr().abs()
-            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
-            return X.drop(columns=to_drop), to_drop
+        # Store outlier bounds for consistent processing
+        self.outlier_bounds = {}
+        
+    def _initialize_scalers(self):
+        """Initialize scalers based on configuration"""
+        if self.scaler_type == 'standard':
+            self.scaler = StandardScaler()
+        elif self.scaler_type == 'minmax':
+            self.scaler = MinMaxScaler()
+        elif self.scaler_type == 'quantile':
+            self.scaler = QuantileTransformer(output_distribution=self.quantile_output, 
+                                            subsample=100000, random_state=42)
+        elif self.scaler_type == 'power':
+            self.scaler = PowerTransformer(method=self.power_method, standardize=True)
         else:
-            df = pd.DataFrame(X)
-            corr_matrix = df.corr().abs()
-            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
-            return df.drop(columns=to_drop).values, to_drop
+            self.scaler = None
+            
+        # Distribution transformer (separate from scaler)
+        if self.distribution_method == 'quantile':
+            self.distribution_transformer = QuantileTransformer(output_distribution=self.quantile_output,
+                                                              subsample=100000, random_state=42)
+        elif self.distribution_method == 'power':
+            self.distribution_transformer = PowerTransformer(method=self.power_method, standardize=False)
+        else:
+            self.distribution_transformer = None
+    
+    def _winsorize_data(self, X, feature_names=None):
+        """Apply winsorization to handle outliers"""
+        if isinstance(X, pd.DataFrame):
+            X_win = X.copy()
+            feature_names = X.columns if feature_names is None else feature_names
+            
+            for col in feature_names:
+                # Skip price and temporal features for winsorization (they have natural bounds)
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                lower_bound = X[col].quantile(self.winsorize_limits[0])
+                upper_bound = X[col].quantile(1 - self.winsorize_limits[1])
+                
+                # Store bounds for transform phase
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                
+                X_win[col] = X[col].clip(lower_bound, upper_bound)
+                
+            return X_win
+        else:
+            X_win = X.copy()
+            if feature_names is None:
+                feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+                
+            for i, col in enumerate(feature_names):
+                # Skip price and temporal features
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                lower_bound = np.percentile(X[:, i], self.winsorize_limits[0] * 100)
+                upper_bound = np.percentile(X[:, i], (1 - self.winsorize_limits[1]) * 100)
+                
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                X_win[:, i] = np.clip(X[:, i], lower_bound, upper_bound)
+                
+            return X_win
+    
+    def _clip_outliers(self, X, feature_names=None):
+        """Clip outliers based on IQR method"""
+        if isinstance(X, pd.DataFrame):
+            X_clipped = X.copy()
+            feature_names = X.columns if feature_names is None else feature_names
+            
+            for col in feature_names:
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                Q1 = X[col].quantile(0.25)
+                Q3 = X[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                X_clipped[col] = X[col].clip(lower_bound, upper_bound)
+                
+            return X_clipped
+        else:
+            X_clipped = X.copy()
+            if feature_names is None:
+                feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+                
+            for i, col in enumerate(feature_names):
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                Q1 = np.percentile(X[:, i], 25)
+                Q3 = np.percentile(X[:, i], 75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                X_clipped[:, i] = np.clip(X[:, i], lower_bound, upper_bound)
+                
+            return X_clipped
+    
+    def _zscore_outliers(self, X, feature_names=None):
+        """Remove outliers based on Z-score threshold"""
+        if isinstance(X, pd.DataFrame):
+            X_clean = X.copy()
+            feature_names = X.columns if feature_names is None else feature_names
+            
+            for col in feature_names:
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                z_scores = np.abs(stats.zscore(X[col], nan_policy='omit'))
+                mean_val = X[col].mean()
+                std_val = X[col].std()
+                lower_bound = mean_val - self.outlier_threshold * std_val
+                upper_bound = mean_val + self.outlier_threshold * std_val
+                
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                X_clean[col] = X[col].clip(lower_bound, upper_bound)
+                
+            return X_clean
+        else:
+            X_clean = X.copy()
+            if feature_names is None:
+                feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+                
+            for i, col in enumerate(feature_names):
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                z_scores = np.abs(stats.zscore(X[:, i], nan_policy='omit'))
+                mean_val = np.nanmean(X[:, i])
+                std_val = np.nanstd(X[:, i])
+                lower_bound = mean_val - self.outlier_threshold * std_val
+                upper_bound = mean_val + self.outlier_threshold * std_val
+                
+                self.outlier_bounds[col] = (lower_bound, upper_bound)
+                X_clean[:, i] = np.clip(X[:, i], lower_bound, upper_bound)
+                
+            return X_clean
+    
+    def _apply_log_transform(self, X, feature_names=None):
+        """Apply log transformation for positive skewed data"""
+        if isinstance(X, pd.DataFrame):
+            X_log = X.copy()
+            feature_names = X.columns if feature_names is None else feature_names
+            
+            for col in feature_names:
+                # Skip price features and features with non-positive values
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                # Check if all values are positive
+                if (X[col] > 0).all():
+                    # Check if data is positively skewed
+                    skewness = stats.skew(X[col])
+                    if skewness > 1:  # Moderate to high positive skew
+                        X_log[col] = np.log1p(X[col])  # log1p for numerical stability
+                        
+            return X_log
+        else:
+            X_log = X.copy()
+            if feature_names is None:
+                feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+                
+            for i, col in enumerate(feature_names):
+                if col in PRICE_FEATURES + TEMPORAL_FEATURES:
+                    continue
+                    
+                # Check if all values are positive
+                if np.all(X[:, i] > 0):
+                    # Check if data is positively skewed
+                    skewness = stats.skew(X[:, i])
+                    if skewness > 1:
+                        X_log[:, i] = np.log1p(X[:, i])
+                        
+            return X_log
+    
+    def handle_outliers(self, X, feature_names=None):
+        """Apply selected outlier handling method"""
+        if self.outlier_method == 'winsorize':
+            return self._winsorize_data(X, feature_names)
+        elif self.outlier_method == 'clip':
+            return self._clip_outliers(X, feature_names)
+        elif self.outlier_method == 'zscore':
+            return self._zscore_outliers(X, feature_names)
+        else:
+            return X
+    
+    def normalize_distribution(self, X, fit=True):
+        """Apply distribution normalization"""
+        if self.distribution_method == 'log':
+            return self._apply_log_transform(X)
+        elif self.distribution_transformer is not None:
+            if fit:
+                return self.distribution_transformer.fit_transform(X)
+            else:
+                return self.distribution_transformer.transform(X)
+        else:
+            return X
+    
+    def apply_outlier_bounds_transform(self, X, feature_names=None):
+        """Apply stored outlier bounds during transform phase"""
+        if not self.outlier_bounds:
+            return X
+            
+        if isinstance(X, pd.DataFrame):
+            X_bounded = X.copy()
+            for col in X.columns:
+                if col in self.outlier_bounds:
+                    lower_bound, upper_bound = self.outlier_bounds[col]
+                    X_bounded[col] = X[col].clip(lower_bound, upper_bound)
+            return X_bounded
+        else:
+            X_bounded = X.copy()
+            if feature_names is None:
+                feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+                
+            for i, col in enumerate(feature_names):
+                if col in self.outlier_bounds:
+                    lower_bound, upper_bound = self.outlier_bounds[col]
+                    X_bounded[:, i] = np.clip(X[:, i], lower_bound, upper_bound)
+            return X_bounded
         
     # TODO optimize autoencoder
     def _build_autoencoder(self, input_dim):
@@ -233,55 +459,71 @@ class FeatureProcessor:
             self.feature_names = X.columns.tolist()
         else:
             self.feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-        # Remove highly correlated features
-        X_filtered, dropped_cols = self.remove_highly_correlated(X)
-        print(f"Removed {len(dropped_cols)} highly correlated features")
-        
-        if isinstance(X, pd.DataFrame) and isinstance(X_filtered, pd.DataFrame):
-            self.filtered_feature_names = X_filtered.columns.tolist()
-        else:
-            self.filtered_feature_names = [feat for i, feat in enumerate(self.feature_names) 
-                                          if i not in dropped_cols]
-        
-        # Fit the scaler
-        if self.scaler is not None:
-            self.scaler.fit(X_filtered)
-            X_scaled = self.scaler.transform(X_filtered)
-        else:
-            X_scaled = X_filtered
             
-        # Feature selection/extraction
+        print(f"Starting feature processing with {len(self.feature_names)} features")
+        
+        # Step 1: Handle outliers
+        X_clean = self.handle_outliers(X, self.feature_names)
+        if self.outlier_method:
+            print(f"Applied {self.outlier_method} outlier handling")
+        
+        # Step 2: Apply distribution normalization (if different from scaling)
+        if self.distribution_method and self.distribution_method != self.scaler_type:
+            X_normalized = self.normalize_distribution(X_clean, fit=True)
+            print(f"Applied {self.distribution_method} distribution normalization")
+        else:
+            X_normalized = X_clean
+        
+        if isinstance(X, pd.DataFrame) and isinstance(X_normalized, pd.DataFrame):
+            self.filtered_feature_names = X_normalized.columns.tolist()
+        else:
+            self.filtered_feature_names = [feat for i, feat in enumerate(self.feature_names)]
+        
+        # Step 4: Fit the scaler
+        if self.scaler is not None:
+            self.scaler.fit(X_normalized)
+            X_scaled = self.scaler.transform(X_normalized)
+            print(f"Applied {self.scaler_type} scaling")
+        else:
+            X_scaled = X_normalized
+            
+        # Step 5: Feature selection/extraction
         if self.selection_method == 'pca':
             self.selector = PCA(n_components=min(self.n_components, X_scaled.shape[1]))
             self.selector.fit(X_scaled)
             self.feature_importance = self.selector.explained_variance_ratio_
+            print(f"Applied PCA with {self.selector.n_components_} components")
             
         elif self.selection_method == 'mutual_info':
             self.selector = SelectKBest(mutual_info_regression, k=self.n_components)
             self.selector.fit(X_scaled, y)
             self.feature_importance = self.selector.scores_
             self.selected_features = [self.filtered_feature_names[i] for i in self.selector.get_support(indices=True)]
+            print(f"Applied mutual information feature selection with {self.n_components} features")
             
         elif self.selection_method == 'f_regression':
             self.selector = SelectKBest(f_regression, k=self.n_components)
             self.selector.fit(X_scaled, y)
             self.feature_importance = self.selector.scores_
             self.selected_features = [self.filtered_feature_names[i] for i in self.selector.get_support(indices=True)]
+            print(f"Applied f-regression feature selection with {self.n_components} features")
             
         elif self.selection_method == 'autoencoder' and train_ae:
             self._train_autoencoder(X_scaled)
-            # No explicit feature importance for autoencoder
+            print(f"Trained autoencoder with {self.n_components} encoding dimensions")
             
         elif self.selection_method == 'combined':
             # Rank features by importance
-            feature_ranks = self.feature_ranking(X_filtered, y)
+            feature_ranks = self.feature_ranking(X_normalized, y)
             self.feature_importance = feature_ranks
             self.selected_features = feature_ranks.index[:self.n_components].tolist()
             
             # Create a selector based on the top features
             self.selector = SelectKBest(mutual_info_regression, k=self.n_components)
             self.selector.fit(X_scaled, y)
+            print(f"Applied combined feature ranking with {self.n_components} features")
             
+        print("Feature processing fit completed")
         return self
     
     def transform(self, X):
@@ -294,21 +536,29 @@ class FeatureProcessor:
         Returns:
             numpy.array: The selected/extracted features
         """
-        # Handle DataFrame or numpy array
-        if isinstance(X, pd.DataFrame):
-            X_filtered = X[self.filtered_feature_names]
+        # Step 1: Apply outlier bounds from training
+        X_clean = self.apply_outlier_bounds_transform(X, self.feature_names if hasattr(self, 'feature_names') else None)
+        
+        # Step 2: Apply distribution normalization (if fitted)
+        if self.distribution_method and self.distribution_method != self.scaler_type and self.distribution_transformer is not None:
+            X_normalized = self.normalize_distribution(X_clean, fit=False)
         else:
-            # This is more complex with numpy arrays - we need to select columns
-            # Would need additional logic to track column indices
-            X_filtered = X
+            X_normalized = X_clean
+        
+        # Step 3: Filter to selected features
+        if isinstance(X_normalized, pd.DataFrame):
+            X_filtered = X_normalized[self.filtered_feature_names]
+        else:
+            # For numpy arrays, assume same column order as training
+            X_filtered = X_normalized
 
-        # Apply scaling
+        # Step 4: Apply scaling
         if self.scaler is not None:
             X_scaled = self.scaler.transform(X_filtered)
         else:
             X_scaled = X_filtered
         
-        # Apply feature selection/extraction
+        # Step 5: Apply feature selection/extraction
         if self.selection_method == 'pca' and self.selector is not None:
             return self.selector.transform(X_scaled)
             
