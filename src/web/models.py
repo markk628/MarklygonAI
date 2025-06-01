@@ -1,13 +1,14 @@
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Integer, String, DateTime, Numeric, ForeignKey, func, Index, UniqueConstraint, Enum as SQLEnum
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from src.web.marklygon_web.extensions import app, db
+from src.web.extensions import app, db
 
 
 def add_to_dict_method(cls):
@@ -39,13 +40,13 @@ def add_to_dict_method(cls):
     return cls
 
 @add_to_dict_method
-class Profile(db.Model):
+class Profile(UserMixin, db.Model):
     __tablename__ = 'profiles'
     id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     username: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
-    first_name = mapped_column(String(30), nullable=False)
-    last_name = mapped_column(String(30), nullable=False)
-    _password = mapped_column("password", String(255), nullable=False)
+    _password: Mapped[str] = mapped_column("password", String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     portfolios: Mapped[List["Portfolio"]] = relationship(
         back_populates="owner",

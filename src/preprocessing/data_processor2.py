@@ -1,12 +1,11 @@
-import joblib
 import os
 import numpy as np
 import pandas as pd
-import torch
-from scipy.stats import kurtosis, skew, shapiro
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectKBest, mutual_info_regression, f_regression
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer
+import joblib
+import torch
 from torch import nn
 import warnings
 warnings.filterwarnings('ignore')
@@ -15,14 +14,6 @@ from src.config.config import (
     WINDOW_SIZE,
     DEVICE,
     PRICE_FEATURES,
-    VOLUME_FEATURES,
-    MOMENTUM_FEATURES,
-    TREND_FEATURES,
-    VOLATILLITY_FEATURES,
-    OCILLATOR_FEATURES,
-    LAGGED_FEATURES,
-    ROLLING_FEAATURES,
-    PRICE_RANGE_FEATURES,
     TEMPORAL_FEATURES
 )
 
@@ -59,13 +50,22 @@ class FeatureProcessor:
         self.autoencoder = None
         self.selected_features = None
         self.feature_importance = None
-    
-    def return_highly_correlated(self, X):
-        corr_matrix = X.corr().abs()
-        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-        to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) if column not in ['close']]
-        return to_drop
         
+    def remove_highly_correlated(self, X):
+        """Remove highly correlated features"""
+        if isinstance(X, pd.DataFrame):
+            corr_matrix = X.corr().abs()
+            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
+            return X.drop(columns=to_drop), to_drop
+        else:
+            df = pd.DataFrame(X)
+            corr_matrix = df.corr().abs()
+            upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+            to_drop = [column for column in upper.columns if any(upper[column] > self.correlation_threshold) and column not in (PRICE_FEATURES + TEMPORAL_FEATURES)]
+            return df.drop(columns=to_drop).values, to_drop
+        
+    # TODO optimize autoencoder
     def _build_autoencoder(self, input_dim):
         """Build a simple autoencoder for feature extraction"""
         class Autoencoder(nn.Module):
@@ -218,28 +218,37 @@ class FeatureProcessor:
             pca.fit(X)
             return pd.Series(pca.explained_variance_ratio_, 
                            index=feature_names)
-
-    
+                
     def fit(self, X, y=None, train_ae=False):
         """
         Fit the feature processor to the training data
         
-        Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The training features
-        y : pandas Series or numpy array, optional
-            The target variable (next price movement for DQN)
-        train_ae : bool, default=False
-            Whether to train the autoencoder (more computationally intensive)
+        Args:
+            X (pandas DataFrame or numpy.array): The training features
+            y (pandas Series or numpy.array, optional): The target variable (next price movement for DQN)
+            train_ae (bool): Whether to train the autoencoder (more computationally intensive)
         """
+        # Save original column names if dataframe
+        if isinstance(X, pd.DataFrame):
+            self.feature_names = X.columns.tolist()
+        else:
+            self.feature_names = [f"feature_{i}" for i in range(X.shape[1])]
+        # Remove highly correlated features
+        X_filtered, dropped_cols = self.remove_highly_correlated(X)
+        print(f"Removed {len(dropped_cols)} highly correlated features")
+        
+        if isinstance(X, pd.DataFrame) and isinstance(X_filtered, pd.DataFrame):
+            self.filtered_feature_names = X_filtered.columns.tolist()
+        else:
+            self.filtered_feature_names = [feat for i, feat in enumerate(self.feature_names) 
+                                          if i not in dropped_cols]
         
         # Fit the scaler
         if self.scaler is not None:
-            self.scaler.fit(X)
-            X_scaled = self.scaler.transform(X)
+            self.scaler.fit(X_filtered)
+            X_scaled = self.scaler.transform(X_filtered)
         else:
-            X_scaled = X
+            X_scaled = X_filtered
             
         # Feature selection/extraction
         if self.selection_method == 'pca':
@@ -265,7 +274,7 @@ class FeatureProcessor:
             
         elif self.selection_method == 'combined':
             # Rank features by importance
-            feature_ranks = self.feature_ranking(X, y)
+            feature_ranks = self.feature_ranking(X_filtered, y)
             self.feature_importance = feature_ranks
             self.selected_features = feature_ranks.index[:self.n_components].tolist()
             
@@ -279,15 +288,11 @@ class FeatureProcessor:
         """
         Transform features using the fitted processor
         
-        Parameters:
-        -----------
-        X : pandas DataFrame or numpy array
-            The features to transform
+        Args:
+            X (pandas.DataFrame or numpy.ndarray): The features to transform
         
         Returns:
-        --------
-        numpy array
-            The selected/extracted features
+            numpy.array: The selected/extracted features
         """
         # Handle DataFrame or numpy array
         if isinstance(X, pd.DataFrame):
@@ -370,16 +375,64 @@ class RollingWindowFeatureProcessor:
                  flatten_output=True):
         """
         Args:
-            window_size (int) : The size of the rolling window for observations
-            feature_processor (FeatureProcessor) : The feature processor to use on each window
-            flatten_output (bool) : Whether to flatten the output for use with fully connected networks
+            window_size (int): The size of the rolling window for observations
+            feature_processor (FeatureProcessor): The feature processor to use on each window
+            flatten_output (bool): Whether to flatten the output for use with fully connected networks
         """
         self.window_size = window_size
         self.feature_processor = FeatureProcessor(window_size=window_size) if feature_processor is None else feature_processor
         self.flatten_output = flatten_output
+        
+    def fit(self, X, y=None, train_ae=False):
+        """
+        Fit the feature processor to the full dataset
+        For time series, y would typically be the future price movement
+        """
+        if y is not None and len(y) == len(X):
+            self.feature_processor.fit(X, y, train_ae)
+        else:
+            # Create synthetic target as next close price movement
+            if isinstance(X, pd.DataFrame) and 'target' in X.columns:
+                target = X['close'].pct_change().shift(-1).iloc[:-1]
+                self.feature_processor.fit(X.iloc[:-1], target, train_ae)
+            else:
+                self.feature_processor.fit(X, None, train_ae)
+        return self
     
-    def fit_trainsform_single_window(self, window):
-        return self.feature_processor.fit_transform(window)
+    def transform_single_window(self, window):
+        """Transform a single window of data"""
+        return self.feature_processor.transform(window)
+    
+    def create_rolling_windows(self, X):
+        """Create rolling windows from sequential data"""
+        if len(X) < self.window_size:
+            raise ValueError(f"Input data length {len(X)} is less than window size {self.window_size}")
+            
+        windows = []
+        for i in range(len(X) - self.window_size + 1):
+            windows.append(X[i:i+self.window_size])
+        return windows
+    
+    def transform(self, X):
+        """
+        Transform features using rolling windows
+        
+        Args:
+            X (pandas.DataFrame or numpy.ndarray): The features to transform
+        
+        Returns:
+            numpy.ndarray: list of numpy arrays with processed features for each window
+        """
+        windows = self.create_rolling_windows(X)
+        processed_windows = []
+        
+        for window in windows:
+            processed = self.transform_single_window(window)
+            if self.flatten_output:
+                processed = processed.reshape(1, -1)
+            processed_windows.append(processed)
+            
+        return processed_windows
     
     def get_state(self, X):
         """
@@ -391,7 +444,7 @@ class RollingWindowFeatureProcessor:
         Returns:
             numpy.ndarray: The processed state for the DQN.
         """
-        processed = self.fit_trainsform_single_window(X)
+        processed = self.transform_single_window(X)
         if self.flatten_output:
             return processed.flatten()
         else:
@@ -408,3 +461,143 @@ class RollingWindowFeatureProcessor:
         processor = joblib.load(filepath)
         processor.feature_processor = FeatureProcessor.load(f"{filepath}_feature_processor")
         return processor
+    
+    
+import pandas as pd
+import numpy as np
+from scipy.stats import pearsonr
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def analyze_multicollinearity(df, features, threshold=0.85):
+    """
+    Analyze multicollinearity in features and suggest removals
+    
+    Args:
+        df: DataFrame with your stock data
+        features: List of feature column names
+        threshold: Correlation threshold above which features are considered redundant
+    """
+    
+    # Calculate correlation matrix
+    feature_data = df[features]
+    correlation_matrix = feature_data.corr().abs()
+    
+    # Find highly correlated pairs
+    high_corr_pairs = []
+    for i in range(len(correlation_matrix.columns)):
+        for j in range(i+1, len(correlation_matrix.columns)):
+            if correlation_matrix.iloc[i, j] > threshold:
+                high_corr_pairs.append({
+                    'feature1': correlation_matrix.columns[i],
+                    'feature2': correlation_matrix.columns[j],
+                    'correlation': correlation_matrix.iloc[i, j]
+                })
+    
+    # Sort by correlation strength
+    high_corr_pairs = sorted(high_corr_pairs, key=lambda x: x['correlation'], reverse=True)
+    
+    # Suggest features to remove
+    features_to_remove = set()
+    removal_reasons = {}
+    
+    for pair in high_corr_pairs:
+        f1, f2, corr = pair['feature1'], pair['feature2'], pair['correlation']
+        
+        if f1 not in features_to_remove and f2 not in features_to_remove:
+            # Decision logic for which feature to remove
+            feature_to_remove = decide_which_to_remove(f1, f2)
+            features_to_remove.add(feature_to_remove)
+            removal_reasons[feature_to_remove] = f"High correlation ({corr:.3f}) with {f1 if feature_to_remove == f2 else f2}"
+    
+    return {
+        'correlation_matrix': correlation_matrix,
+        'high_corr_pairs': high_corr_pairs,
+        'suggested_removals': features_to_remove,
+        'removal_reasons': removal_reasons
+    }
+
+def decide_which_to_remove(feature1, feature2):
+    """
+    Logic to decide which of two correlated features to remove
+    Priority: Core features > Unique indicators > Redundant indicators
+    """
+    
+    # Core OHLCV features - never remove
+    core_features = ['open', 'high', 'low', 'close', 'volume', 'transactions', 'vwap']
+    if feature1 in core_features:
+        return feature2
+    if feature2 in core_features:
+        return feature1
+    
+    # EMA preference order (keep more standard periods)
+    ema_priority = {'ema_21_1min': 1, 'ema_9_1min': 2, 'ema_50_1min': 3, 'ema_3_1min': 4}
+    if 'ema' in feature1 and 'ema' in feature2:
+        return feature1 if ema_priority.get(feature1, 5) > ema_priority.get(feature2, 5) else feature2
+    
+    # MACD components - keep main line and histogram, remove signal if needed
+    if 'macd' in feature1 and 'macd' in feature2:
+        if 'signal' in feature1:
+            return feature1
+        if 'signal' in feature2:
+            return feature2
+    
+    # StochRSI - keep K, remove D if needed
+    if 'stochrsi' in feature1 and 'stochrsi' in feature2:
+        return feature2 if '_d_' in feature2 else feature1
+    
+    # Default: remove the second feature (arbitrary)
+    return feature2
+
+def plot_correlation_heatmap(correlation_matrix, figsize=(12, 10)):
+    """Plot correlation heatmap"""
+    plt.figure(figsize=figsize)
+    mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
+    sns.heatmap(correlation_matrix, mask=mask, annot=False, cmap='coolwarm', center=0,
+                square=True, linewidths=0.5, cbar_kws={"shrink": .8})
+    plt.title('Feature Correlation Matrix')
+    plt.tight_layout()
+    plt.show()
+
+# Example usage:
+
+# Load your data
+if __name__=='__main__':
+    df = pd.read_csv('./data/feature_engineered/AAPL.csv')
+
+    # Your feature list
+    core_features = ['open', 'high', 'low', 'close', 'transactions', 'volume', 'vwap']
+    auxiliary_features = [
+        'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
+        'rsi_14_1min', 
+        'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min',
+        'roc_10_1min',
+        'obv_1min',
+        'ema_3_1min', 'ema_9_1min', 'ema_21_1min', 'ema_50_1min',
+        'plusdi_20_1min', 'minusdi_20_1min', 'adx_20_1min',
+        'bband_upper_20_1min', 'bband_lower_20_1min',
+        'atr_14_1min',
+        'mfi_14_1min',
+        'cci_20_1min',
+        'volume_rolling_std_15', 'log_return_rolling_std_15',
+        'close_diff_1', 'close_pct_change_1', 'log_return_1'
+    ]
+
+    all_features = core_features + auxiliary_features
+
+    # Analyze multicollinearity
+    results = analyze_multicollinearity(df, all_features, threshold=0.85)
+
+    # Print results
+    print("High Correlation Pairs (>0.85):")
+    for pair in results['high_corr_pairs']:
+        print(f"  {pair['feature1']} <-> {pair['feature2']}: {pair['correlation']:.3f}")
+
+    print(f"\nSuggested features to remove ({len(results['suggested_removals'])}):")
+    for feature in results['suggested_removals']:
+        print(f"  {feature}: {results['removal_reasons'][feature]}")
+
+    print(f"\nFinal feature count: {len(all_features) - len(results['suggested_removals'])}")
+
+    # Plot correlation heatmap
+    plot_correlation_heatmap(results['correlation_matrix'])

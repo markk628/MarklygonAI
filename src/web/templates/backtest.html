@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+
+{% block title %}백테스트 결과 - MarklygonAI{% endblock %}
+
+{% block content %}
+<div class="min-h-screen p-6 space-y-8 relative z-10">
+    <!-- Header -->
+    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold obsidian-text mb-2">백테스트 결과</h1>
+                <p class="text-gray-300">AI 모델의 다양한 자산에 대한 성과 분석</p>
+            </div>
+            <div class="w-20 h-20 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                <svg class="icon-2xl text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-400">총 결과</p>
+                    <p class="text-2xl font-bold obsidian-text" id="total-results">24</p>
+                </div>
+                <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-lg text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-400">평균 수익률</p>
+                    <p class="text-2xl font-bold text-green-400" id="avg-return">+18.7%</p>
+                </div>
+                <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-400">평균 샤프 비율</p>
+                    <p class="text-2xl font-bold text-blue-400" id="avg-sharpe">1.85</p>
+                </div>
+                <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-400">최대 낙폭</p>
+                    <p class="text-2xl font-bold text-red-400" id="max-drawdown">-8.3%</p>
+                </div>
+                <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-lg text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 13l-5 5m0 0l-5-5m5 5V6"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Chart -->
+    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold obsidian-text">모델별 성과 비교</h2>
+            <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+        </div>
+        <canvas id="performanceChart" width="400" height="200"></canvas>
+    </div>
+
+    <!-- Detailed Results Table -->
+    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold obsidian-text">상세 백테스트 결과</h2>
+            <div class="flex items-center space-x-4">
+                <select class="obsidian-input px-3 py-2 rounded-lg text-sm">
+                    <option>모든 모델</option>
+                    <option>Eddie</option>
+                    <option>Aurora</option>
+                    <option>Phoenix</option>
+                    <option>Titan</option>
+                    <option>Vega</option>
+                    <option>Orion</option>
+                </select>
+                <select class="obsidian-input px-3 py-2 rounded-lg text-sm">
+                    <option>모든 자산</option>
+                    <option>AAPL</option>
+                    <option>MSFT</option>
+                    <option>GOOGL</option>
+                    <option>AMZN</option>
+                    <option>TSLA</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="obsidian-table rounded-lg overflow-hidden">
+            <table class="w-full">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3 text-left">모델</th>
+                        <th class="px-4 py-3 text-left">자산</th>
+                        <th class="px-4 py-3 text-right">수익률</th>
+                        <th class="px-4 py-3 text-right">샤프 비율</th>
+                        <th class="px-4 py-3 text-right">최대 낙폭</th>
+                        <th class="px-4 py-3 text-right">승률</th>
+                        <th class="px-4 py-3 text-center">상태</th>
+                    </tr>
+                </thead>
+                <tbody id="backtest-results">
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-purple-400">E</span>
+                                </div>
+                                <span class="font-medium">Eddie</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">AAPL</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+24.5%</td>
+                        <td class="px-4 py-3 text-right">2.15</td>
+                        <td class="px-4 py-3 text-right text-red-400">-5.2%</td>
+                        <td class="px-4 py-3 text-right">68%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-blue-400">A</span>
+                                </div>
+                                <span class="font-medium">Aurora</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">MSFT</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+19.8%</td>
+                        <td class="px-4 py-3 text-right">1.87</td>
+                        <td class="px-4 py-3 text-right text-red-400">-7.1%</td>
+                        <td class="px-4 py-3 text-right">64%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-red-400">P</span>
+                                </div>
+                                <span class="font-medium">Phoenix</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">GOOGL</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+31.2%</td>
+                        <td class="px-4 py-3 text-right">2.43</td>
+                        <td class="px-4 py-3 text-right text-red-400">-4.8%</td>
+                        <td class="px-4 py-3 text-right">72%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-purple-900 text-purple-300">최우수</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-orange-400">T</span>
+                                </div>
+                                <span class="font-medium">Titan</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">AMZN</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+15.7%</td>
+                        <td class="px-4 py-3 text-right">1.52</td>
+                        <td class="px-4 py-3 text-right text-red-400">-9.3%</td>
+                        <td class="px-4 py-3 text-right">59%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-yellow-900 text-yellow-300">양호</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-green-400">V</span>
+                                </div>
+                                <span class="font-medium">Vega</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">TSLA</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+22.1%</td>
+                        <td class="px-4 py-3 text-right">1.98</td>
+                        <td class="px-4 py-3 text-right text-red-400">-6.7%</td>
+                        <td class="px-4 py-3 text-right">66%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center">
+                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                    <span class="text-xs font-bold text-cyan-400">O</span>
+                                </div>
+                                <span class="font-medium">Orion</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">NVDA</td>
+                        <td class="px-4 py-3 text-right text-green-400 font-bold">+28.9%</td>
+                        <td class="px-4 py-3 text-right">2.31</td>
+                        <td class="px-4 py-3 text-right text-red-400">-5.9%</td>
+                        <td class="px-4 py-3 text-right">70%</td>
+                        <td class="px-4 py-3 text-center">
+                            <span class="px-2 py-1 text-xs rounded-full bg-purple-900 text-purple-300">최우수</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Risk Metrics -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold obsidian-text">리스크 지표</h2>
+                <svg class="icon-lg text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                </svg>
+            </div>
+            <canvas id="riskChart" width="400" height="200"></canvas>
+        </div>
+
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold obsidian-text">수익률 분포</h2>
+                <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+            <canvas id="distributionChart" width="400" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+// Performance Comparison Chart
+const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+const performanceChart = new Chart(performanceCtx, {
+    type: 'bar',
+    data: {
+        labels: ['Eddie', 'Aurora', 'Phoenix', 'Titan', 'Vega', 'Orion'],
+        datasets: [{
+            label: '수익률 (%)',
+            data: [24.5, 19.8, 31.2, 15.7, 22.1, 28.9],
+            backgroundColor: [
+                'rgba(139, 92, 246, 0.8)',
+                'rgba(6, 182, 212, 0.8)',
+                'rgba(239, 68, 68, 0.8)',
+                'rgba(245, 158, 11, 0.8)',
+                'rgba(16, 185, 129, 0.8)',
+                'rgba(6, 182, 212, 0.8)'
+            ],
+            borderColor: [
+                '#8b5cf6',
+                '#06b6d4',
+                '#ef4444',
+                '#f59e0b',
+                '#10b981',
+                '#06b6d4'
+            ],
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                labels: {
+                    color: '#e0e0e0'
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    color: '#9ca3af'
+                },
+                grid: {
+                    color: '#1f2937'
+                }
+            },
+            y: {
+                ticks: {
+                    color: '#9ca3af',
+                    callback: function(value) {
+                        return value + '%';
+                    }
+                },
+                grid: {
+                    color: '#1f2937'
+                }
+            }
+        }
+    }
+});
+
+// Risk Chart
+const riskCtx = document.getElementById('riskChart').getContext('2d');
+const riskChart = new Chart(riskCtx, {
+    type: 'radar',
+    data: {
+        labels: ['수익률', '샤프비율', '변동성', '최대낙폭', '승률', '안정성'],
+        datasets: [{
+            label: 'Phoenix',
+            data: [95, 90, 85, 92, 88, 90],
+            borderColor: '#ef4444',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            borderWidth: 2
+        }, {
+            label: 'Eddie',
+            data: [80, 85, 90, 88, 82, 85],
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                labels: {
+                    color: '#e0e0e0'
+                }
+            }
+        },
+        scales: {
+            r: {
+                ticks: {
+                    color: '#9ca3af'
+                },
+                grid: {
+                    color: '#1f2937'
+                },
+                angleLines: {
+                    color: '#1f2937'
+                }
+            }
+        }
+    }
+});
+
+// Distribution Chart
+const distributionCtx = document.getElementById('distributionChart').getContext('2d');
+const distributionChart = new Chart(distributionCtx, {
+    type: 'line',
+    data: {
+        labels: ['-20%', '-10%', '0%', '10%', '20%', '30%', '40%'],
+        datasets: [{
+            label: '수익률 분포',
+            data: [2, 8, 15, 25, 30, 15, 5],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            borderWidth: 3,
+            fill: true,
+            tension: 0.4
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                labels: {
+                    color: '#e0e0e0'
+                }
+            }
+        },
+        scales: {
+            x: {
+                ticks: {
+                    color: '#9ca3af'
+                },
+                grid: {
+                    color: '#1f2937'
+                }
+            },
+            y: {
+                ticks: {
+                    color: '#9ca3af'
+                },
+                grid: {
+                    color: '#1f2937'
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

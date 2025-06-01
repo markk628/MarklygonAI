@@ -6,7 +6,7 @@ from src.config.config import PRODUCT_SECRET_KEY, DEV_SECRET_KEY, WEB_DATABASE_U
 # from src.web.marklygon_web.models import Profile, Portfolio, TradingSession, TradeHistory, MarklygonModel, BacktestHistory
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), 'templates'))
     
     if os.environ.get("FLASK_ENV") == "production":
         app.config['SECRET_KEY'] = PRODUCT_SECRET_KEY

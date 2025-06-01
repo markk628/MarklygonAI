@@ -24,7 +24,7 @@ from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
 from src.utils.utils import format_duration
-from src.web.marklygon_web.models import app, db, BacktestHistory, ModelType, MarklygonModel
+from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -380,7 +380,7 @@ class DQNTrainer:
         print("Let's get this bread")
         # parameters
         ticker = 'AAPL'
-        cutoff = pd.Timestamp('2025-04-29 08:00:00', tz='UTC')
+        cutoff = pd.Timestamp('2024-12-06 08:00:00', tz='UTC')
         
         # load and prepare data
         print(f'Preparing data starting from {cutoff}...')
@@ -426,12 +426,23 @@ class DQNTrainer:
         # initialize agent
         agent = DQNAgent(
             sizes=train_env.get_branch_sizes(),
-            epsilon_decay_rate=10,
-            target_update_frequency=200,
+            learning_rate=0.0005,  # Reduced learning rate for stability
+            discount_factor=0.99,  # Increased discount factor for longer-term rewards
+            epsilon_min=0.05,  # Increased minimum exploration
+            epsilon_decay_rate=5,
+            epsilon_decay_target=1000000,  # Increased decay target for longer training
+            batch_size=64,  # Reduced batch size
+            memory_size=100000,  # Increased memory size
+            update_frequency=4,  # More frequent updates
+            target_update_frequency=1000,  # Less frequent target updates for stability
             use_dueling=use_dueling,
             use_hierarchical=use_hierarchical,
             use_prioritized=use_prioritized,
-            use_vram=use_vram
+            use_vram=use_vram,
+            per_alpha=0.6,
+            per_beta=0.4,
+            per_beta_increment=0.0001,  # Slower beta increment
+            gradient_max_norm=1.0
         )
         
         print('Training start time:', datetime.today())
