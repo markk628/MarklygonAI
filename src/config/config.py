@@ -58,10 +58,10 @@ TARGET_UPDATE_INTERVAL = 1
 # DQN 모델 하이퍼파라미터
 
 
-REPLAY_BUFFER_SIZE = 750000
+REPLAY_BUFFER_SIZE = 450000
 
 # 학습 설정
-BATCH_SIZE = 2048
+BATCH_SIZE = 1024
 CUTOFF_TIMESTAMP = '2021-05-06 08:00:00'
 NUM_EPISODES = 50
 EVALUATE_INTERVAL = 5
@@ -77,42 +77,42 @@ MINUTES_PER_YEAR = TRADING_DAYS_PER_YEAR * MINUTES_PER_TRADING_DAY
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
-VOLUME_FEATURES = ['transactions', 'volume']
-MOMENTUM_FEATURES = ['stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
-                     'stochrsi_k_21_1min', 'stochrsi_d_21_1min', 
-                     'rsi_7_1min', 'rsi_14_1min', 'rsi_21_1min', 
-                     'macd_5_13_4_1min', 'macd_signal_5_13_4_1min', 'macd_hist_5_13_4_1min', 
-                     'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min', 
-                     'roc_5_1min', 'roc_10_1min', 'roc_20_1min', 
-                     'ultosc_5_15_30_1min', 'ultosc_7_21_42_1min', 'ultosc_10_30_60_1min', 'obv_1min']
-TREND_FEATURES = ['ema_3_1min', 'ema_5_1min', 'ema_9_1min', 'ema_21_1min', 'ema_50_1min', 
-                  'sma_5_1min', 'sma_10_1min', 'sma_20_1min', 'sma_50_1min', 
-                  'plusdi_10_1min', 'plusdi_20_1min', 'plusdi_30_1min', 
-                  'minusdi_10_1min', 'minusdi_20_1min', 'minusdi_30_1min', 
-                  'adx_10_1min', 'adx_20_1min', 'adx_30_1min']
-VOLATILLITY_FEATURES = ['bband_upper_10_1min', 'bband_middle_10_1min', 'bband_lower_10_1min', 
-                        'bband_upper_20_1min', 'bband_middle_20_1min', 'bband_lower_20_1min', 
-                        'bband_upper_50_1min', 'bband_middle_50_1min', 'bband_lower_50_1min', 
-                        'atr_14_1min', 'atr_21_1min', 
-                        'close_rolling_std_5', 'close_rolling_std_15', 'close_rolling_std_30',
-                        'volume_rolling_std_5', 'volume_rolling_std_15', 'volume_rolling_std_30', 
-                        'log_return_rolling_std_15', 'log_return_rolling_std_30']
-OCILLATOR_FEATURES = ['cci_10_1min', 'cci_20_1min', 'cci_30_1min', 
-                      'mfi_7_1min', 'mfi_14_1min', 'mfi_21_1min']
-LAGGED_FEATURES = ['open_lag_1', 'high_lag_1', 'low_lag_1', 'close_lag_1', 'volume_lag_1', 'vwap_lag_1', 
-                   'open_lag_5', 'high_lag_5', 'low_lag_5', 'close_lag_5', 'volume_lag_5', 'vwap_lag_5', 
-                   'open_lag_10', 'high_lag_10', 'low_lag_10', 'close_lag_10', 'volume_lag_10', 'vwap_lag_10']
-ROLLING_FEAATURES = ['close_rolling_mean_5', 'volume_rolling_mean_5', 
-                     'close_rolling_mean_15', 'volume_rolling_mean_15', 
-                     'close_rolling_mean_30', 'volume_rolling_mean_30']
-PRICE_RANGE_FEATURES = ['close_diff_1', 'close_pct_change_1', 'log_return_1', 'high_low_range', 'close_open_range', 'high_low_ratio', 'close_open_ratio']
-TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos', 
-                     'hour', 'hour_sin', 'hour_cos', 
-                     'day', 'day_sin', 'day_cos', 
-                     'month', 'month_sin', 'month_cos', 
-                     'quarter', 'quarter_sin', 'quarter_cos',
-                     'time_since_last_significant_change']
+# PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
+# VOLUME_FEATURES = ['transactions', 'volume']
+# MOMENTUM_FEATURES = ['stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
+#                      'stochrsi_k_21_1min', 'stochrsi_d_21_1min', 
+#                      'rsi_7_1min', 'rsi_14_1min', 'rsi_21_1min', 
+#                      'macd_5_13_4_1min', 'macd_signal_5_13_4_1min', 'macd_hist_5_13_4_1min', 
+#                      'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min', 
+#                      'roc_5_1min', 'roc_10_1min', 'roc_20_1min', 
+#                      'ultosc_5_15_30_1min', 'ultosc_7_21_42_1min', 'ultosc_10_30_60_1min', 'obv_1min']
+# TREND_FEATURES = ['ema_3_1min', 'ema_5_1min', 'ema_9_1min', 'ema_21_1min', 'ema_50_1min', 
+#                   'sma_5_1min', 'sma_10_1min', 'sma_20_1min', 'sma_50_1min', 
+#                   'plusdi_10_1min', 'plusdi_20_1min', 'plusdi_30_1min', 
+#                   'minusdi_10_1min', 'minusdi_20_1min', 'minusdi_30_1min', 
+#                   'adx_10_1min', 'adx_20_1min', 'adx_30_1min']
+# VOLATILLITY_FEATURES = ['bband_upper_10_1min', 'bband_middle_10_1min', 'bband_lower_10_1min', 
+#                         'bband_upper_20_1min', 'bband_middle_20_1min', 'bband_lower_20_1min', 
+#                         'bband_upper_50_1min', 'bband_middle_50_1min', 'bband_lower_50_1min', 
+#                         'atr_14_1min', 'atr_21_1min', 
+#                         'close_rolling_std_5', 'close_rolling_std_15', 'close_rolling_std_30',
+#                         'volume_rolling_std_5', 'volume_rolling_std_15', 'volume_rolling_std_30', 
+#                         'log_return_rolling_std_15', 'log_return_rolling_std_30']
+# OCILLATOR_FEATURES = ['cci_10_1min', 'cci_20_1min', 'cci_30_1min', 
+#                       'mfi_7_1min', 'mfi_14_1min', 'mfi_21_1min']
+# LAGGED_FEATURES = ['open_lag_1', 'high_lag_1', 'low_lag_1', 'close_lag_1', 'volume_lag_1', 'vwap_lag_1', 
+#                    'open_lag_5', 'high_lag_5', 'low_lag_5', 'close_lag_5', 'volume_lag_5', 'vwap_lag_5', 
+#                    'open_lag_10', 'high_lag_10', 'low_lag_10', 'close_lag_10', 'volume_lag_10', 'vwap_lag_10']
+# ROLLING_FEAATURES = ['close_rolling_mean_5', 'volume_rolling_mean_5', 
+#                      'close_rolling_mean_15', 'volume_rolling_mean_15', 
+#                      'close_rolling_mean_30', 'volume_rolling_mean_30']
+# PRICE_RANGE_FEATURES = ['close_diff_1', 'close_pct_change_1', 'log_return_1', 'high_low_range', 'close_open_range', 'high_low_ratio', 'close_open_ratio']
+# TEMPORAL_FEATURES = ['minute', 'minute_sin', 'minute_cos', 
+#                      'hour', 'hour_sin', 'hour_cos', 
+#                      'day', 'day_sin', 'day_cos', 
+#                      'month', 'month_sin', 'month_cos', 
+#                      'quarter', 'quarter_sin', 'quarter_cos',
+#                      'time_since_last_significant_change']
 
 CORE_FEATURES = ['open', 'high', 'low', 'close', 'transactions', 'volume', 'vwap']
 AUXILIARY_FEATURES = [
@@ -132,10 +132,28 @@ FILTERED_TEMPORAL_FEATURES = ['minute_sin', 'minute_cos',
                               'hour_sin', 'hour_cos', 
                               'day_sin', 'day_cos', 
                               'month_sin', 'month_cos', 
-                              'quarter_sin', 'quarter_cos',
-                              'time_since_last_significant_change']
-
+                              'quarter_sin', 'quarter_cos']
 STOCK_FEATURES = CORE_FEATURES + AUXILIARY_FEATURES + FILTERED_TEMPORAL_FEATURES
+
+# dqn v2
+PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
+VOLUME_FEATURES = ['volume', 'transactions']
+TECHNICAL_FEATURES = [
+    'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 'rsi_14_1min',
+    'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min',
+    'roc_10_1min', 'obv_1min', 'ema_3_1min', 'ema_9_1min', 'ema_21_1min',
+    'plusdi_20_1min', 'minusdi_20_1min', 'adx_20_1min',
+    'bband_upper_20_1min', 'bband_lower_20_1min',
+    'atr_14_1min', 'cci_20_1min', 'mfi_14_1min'
+]
+VOLATILLITY_FEATURES = ['volume_rolling_std_15', 'log_return_rolling_std_15']
+RETURNS_FEATURES = ['close_diff_1', 'log_return_1']
+TEMPORAL_FEATURES = ['minute_sin', 'minute_cos', 
+                     'hour_sin', 'hour_cos',
+                     'day_sin', 'day_cos',
+                     'month_sin', 'month_cos',
+                     'quarter_sin', 'quarter_cos']
+
 
 WEB_DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_WEB}'
 
