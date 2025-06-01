@@ -189,25 +189,68 @@ class DQNAgent:
         """
         Train the agent by sampling from replay buffer
         """
-        def train_agent(use_autocast: bool):
-            self._current_step += 1
-            
-            # sample from memory
-            if self.use_prioritized:
-                batch, indices, is_weights = self.memory.sample(self.batch_size)
-                if batch is None:  # not enough samples
-                    return
-                    
-                states, actions, rewards, next_states, dones = batch
-            else:
-                minibatch = random.sample(self.memory, self.batch_size)
-                batch = list(zip(*minibatch))
-                states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
-                actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
-                rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
-                next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
-                dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+        # skip if not enough samples
+        if len(self.memory) < self.batch_size:
+            return
+                
+        self.training_steps += 1
+        
+        # only update every update_frequency steps
+        if self.training_steps % self.update_frequency != 0:
+            return
 
+        self._current_step += 1
+        
+        # sample from memory
+        if self.use_prioritized:
+            batch, indices, is_weights = self.memory.sample(self.batch_size)
+            if batch is None:  # not enough samples
+                return
+                
+            states, actions, rewards, next_states, dones = batch
+        else:
+            minibatch = random.sample(self.memory, self.batch_size)
+            batch = list(zip(*minibatch))
+            states = torch.tensor(batch[0], dtype=torch.float32, device=self.device)
+            actions = torch.tensor(batch[1], dtype=torch.int64, device=self.device).unsqueeze(1)
+            rewards = torch.tensor(batch[2], dtype=torch.float32, device=self.device).unsqueeze(1)
+            next_states = torch.tensor(batch[3], dtype=torch.float32, device=self.device)
+            dones = torch.tensor(batch[4], dtype=torch.float32, device=self.device).unsqueeze(1)
+
+        # Determine if we can use autocast
+        use_autocast = torch.cuda.is_bf16_supported() and self.device_capability >= 7
+        
+        # Training context
+        if use_autocast:
+            with autocast():
+                # get current q-values
+                q_values = self.main_network(states).gather(1, actions)
+
+                # double DQN: get actions from main network
+                with torch.no_grad():
+                    next_actions = self.main_network(next_states).max(1, keepdim=True)[1]
+                    # get q-values for those actions from target network
+                    next_q_values = self.target_network(next_states).gather(1, next_actions)
+                    # calculate target q-values
+                    target_q_values = rewards + (self.discount_factor * next_q_values * (1 - dones))
+
+                # calculate loss
+                if self.use_prioritized:
+                    # TD errors for updating priorities
+                    td_errors = torch.abs(q_values - target_q_values).detach()
+                    # weighted MSE loss
+                    loss = (is_weights.unsqueeze(1) * F.mse_loss(q_values, target_q_values, reduction='none')).mean()
+                else:
+                    # SmoothL1Loss
+                    loss = self.loss_fn(q_values, target_q_values)
+
+            # optimize with scaler
+            self.optimizer.zero_grad()
+            self.scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
             # get current q-values
             q_values = self.main_network(states).gather(1, actions)
 
@@ -223,66 +266,36 @@ class DQNAgent:
             if self.use_prioritized:
                 # TD errors for updating priorities
                 td_errors = torch.abs(q_values - target_q_values).detach()
-                # wighted MSE loss
+                # weighted MSE loss
                 loss = (is_weights.unsqueeze(1) * F.mse_loss(q_values, target_q_values, reduction='none')).mean()
             else:
-                # SmoothL1Losss
+                # SmoothL1Loss
                 loss = self.loss_fn(q_values, target_q_values)
-                
-            # optimize
+
+            # standard optimization
             self.optimizer.zero_grad()
-            if use_autocast:
-                self.scaler.scale(loss).backward()
-                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
-                self.scaler.step(self.optimizer) # Unscale gradients and apply optimizer step
-                self.scaler.update() # Update the scaler for the next iteration
-            else:
-                loss.backward()
-                # gradient clipping to prevent exploding gradients
-                torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
-                self.optimizer.step()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.gradient_max_norm)
+            self.optimizer.step()
 
-            # update priorities in buffer
-            if self.use_prioritized:
-                self.memory.update_priorities(indices, td_errors.squeeze() + 1e-6)  # small constant for stability
+        # update priorities in buffer
+        if self.use_prioritized:
+            self.memory.update_priorities(indices, td_errors.squeeze() + 1e-6)  # small constant for stability
 
-            # update target network periodically
-            self.update_counter += 1
-            if self.update_counter % self.target_update_frequency == 0:
-                self.target_network.load_state_dict(self.main_network.state_dict())
-                
-            # track loss
-            self.loss_history.append(loss.item())
-
-            # decay epsilon
-            if self.epsilon > self.epsilon_min:
-                normalized_step = self._current_step / self.epsilon_decay_target
-                normalized_step = min(1.0, normalized_step) 
-                self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * np.exp(-self.epsilon_decay_rate * normalized_step)
-                self.epsilon = max(self.epsilon, self.epsilon_min)
+        # update target network periodically
+        self.update_counter += 1
+        if self.update_counter % self.target_update_frequency == 0:
+            self.target_network.load_state_dict(self.main_network.state_dict())
             
-        # skip if not enough samples
-        if len(self.memory) < self.batch_size:
-            return
-                
-        self.training_steps += 1
-        
-        # only update every update_frequency steps
-        if self.training_steps % self.update_frequency != 0:
-            return
+        # track loss
+        self.loss_history.append(loss.item())
 
-        # with torch.profiler.profile(
-        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1), # Adjust for your needs
-        #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/dqn_profile'),
-        #     record_shapes=True,
-        #     profile_memory=True,
-        #     with_stack=True
-        # ) as prof:
-        if torch.cuda.is_bf16_supported() and self.device_capability >= 7:
-            with autocast():
-                train_agent(True)
-        else:
-            train_agent(False)
+        # decay epsilon
+        if self.epsilon > self.epsilon_min:
+            normalized_step = self._current_step / self.epsilon_decay_target
+            normalized_step = min(1.0, normalized_step) 
+            self.epsilon = self.epsilon_min + (self.epsilon_start - self.epsilon_min) * np.exp(-self.epsilon_decay_rate * normalized_step)
+            self.epsilon = max(self.epsilon, self.epsilon_min)
         
     def load(self, file_path: str):
         """Load model weights from file"""
