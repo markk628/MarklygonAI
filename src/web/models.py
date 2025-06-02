@@ -133,9 +133,9 @@ class TradeHistory(db.Model):
     id: Mapped[int] = mapped_column()
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
     trade_type: Mapped[TradeType] = mapped_column(SQLEnum(TradeType), nullable=False, default=TradeType.HOLD)
-    amount: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
-    price: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
-    shares: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    price: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    shares: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
 
     portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
     portfolio: Mapped["Portfolio"] = relationship(back_populates="trade_history_entries")
@@ -195,7 +195,6 @@ class BacktestHistory(db.Model):
     return_rate: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     max_drawdown: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     sharpe_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    calmar_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     invalid_actions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    
+    preprocessor_path: Mapped[str] = mapped_column(String, nullable=True)
     model: Mapped["MarklygonModel"] = relationship(back_populates="backtests")

@@ -1,20 +1,15 @@
-"""
-Example training script for the Double Dueling DQN with PER
-"""
-
-import sys
-import os
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-
 import pandas as pd
 import numpy as np
-import torch
 import matplotlib.pyplot as plt
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
-from src.models.mark.dqn_v2.dqn import train_dqn, TradingConfig, DoubleDuelingDQN, TradingEnvironment
-from src.config.config import DATA_DIR, RESULTS_DIR, EVALUATE_INTERVAL
+from src.models.mark.dqn_v2.dqn import train_dqn, save_backtest_results_to_db
+from src.config.config import DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
 from src.utils.utils import create_directory
+from src.web.models import ModelType
+from src.web.extensions import app
+from src.web.models import BacktestHistory, db
 
 def plot_training_results(training_results: dict, ticker: str = "Stock", validation_frequency: int = 5):
     """
@@ -172,7 +167,7 @@ def main():
     data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
     
     # Create results directory if it doesn't exist
-    results_dir = RESULTS_DIR / 'dqn_v2'
+    results_dir = MODELS_DIR / 'dqn_v2'
     create_directory(results_dir)
     
     # Preprocessor save path
@@ -183,6 +178,7 @@ def main():
     print("="*50)
     
     cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
+    
     training_results = train_dqn(
         data_path=data_path,
         cutoff=cutoff,
@@ -193,6 +189,10 @@ def main():
         outlier_method='winsorize',  # Handle outliers
         preprocessor_save_path=str(preprocessor_path)
     )
+    
+    # Get start and end dates from training results
+    start_date = training_results['start_date']
+    end_date = training_results['end_date']
     
     # Generate timestamp for file naming
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -219,7 +219,7 @@ def main():
     print("FINAL TEST RESULTS SUMMARY")
     print("="*50)
     print(f"Ticker: {ticker}")
-    print(f"Initial Balance: ${10000:,.2f}")
+    print(f"Initial Balance: ${INITIAL_BALANCE:,.2f}")
     print(f"Final Value: ${test_results['final_value']:,.2f}")
     print(f"Total Return: {test_results['total_return']:.2%}")
     print(f"Sharpe Ratio: {test_results['sharpe_ratio']:.2f}")
@@ -231,13 +231,58 @@ def main():
     print(f"Invalid Actions: {test_results['invalid_actions']}")
     print("="*50)
     
-    # Print preprocessing info if available
-    if training_results.get('preprocessor') is not None:
-        print("\nPreprocessing Information:")
-        print(f"Preprocessor saved to: {preprocessor_path}")
-        print(f"Configuration: {training_results['preprocessor'].get_preprocessing_info()}")
+    # Save backtest results to database
+    print("\nSaving results to database...")
+    db_info = {
+        'backtest_date': datetime.now(timezone.utc),
+        'start_date': start_date,
+        'end_date': end_date,
+        'initial_balance': INITIAL_BALANCE,
+        'final_balance': test_results['final_value'],
+        'net_profit': test_results['final_value'] - INITIAL_BALANCE,
+        'total_trades': test_results['total_trades'],
+        'winning_trades': test_results['winning_trades'],
+        'losing_trades': test_results['losing_trades'],
+        'return_rate': test_results['total_return'],  # Already in decimal form
+        'max_drawdown': abs(test_results['max_drawdown']),  # Ensure positive
+        'sharpe_ratio': test_results['sharpe_ratio'],
+        'invalid_actions': test_results['invalid_actions'],
+    }
     
-    print(f"\nAll results saved to: {results_dir}")
+    # First save to database to get model ID and directory
+    model_id, model_path, model_dir = save_backtest_results_to_db(ModelType.DQN, ticker, db_info)
+    print(f"Model saved to database with ID: {model_id}")
+    print(f"Model directory: {model_dir}")
+    
+    # Save the trained model
+    print(f"\nSaving trained model to: {model_path}")
+    training_results['agent'].save(model_path)
+    
+    # Save the preprocessor in the same directory
+    if training_results.get('preprocessor') is not None:
+        preprocessor_model_path = str(Path(model_dir) / 'preprocessor.pkl')
+        print(f"\nSaving preprocessor to: {preprocessor_model_path}")
+        
+        # Copy the preprocessor from temporary location to model directory
+        import shutil
+        shutil.copy2(str(preprocessor_path), preprocessor_model_path)
+        
+        # Update the database with the preprocessor path
+        with app.app_context():
+            backtest = BacktestHistory.query.filter_by(model_id=model_id).first()
+            if backtest:
+                backtest.preprocessor_path = preprocessor_model_path
+                db.session.commit()
+                print(f"Updated database with preprocessor path")
+        
+        print(f"Preprocessing Configuration: {training_results['preprocessor'].get_preprocessing_info()}")
+    
+    # Clean up temporary preprocessor file if it exists
+    if preprocessor_path.exists():
+        preprocessor_path.unlink()
+        print(f"Cleaned up temporary preprocessor file")
+    
+    print(f"\nAll results saved to: {model_dir}")
     print("Training complete!")
 
 

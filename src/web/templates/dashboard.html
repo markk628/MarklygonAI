@@ -25,7 +25,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-400">총 포트폴리오</p>
-                    <p class="text-3xl font-bold obsidian-text" id="total-portfolio">$125,430.50</p>
+                    <p class="text-3xl font-bold obsidian-text" id="total-portfolio">-</p>
                 </div>
                 <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,16 +34,16 @@
                 </div>
             </div>
             <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-green-400" id="total-change">+$2,847.30</span>
-                <span class="text-sm text-gray-500 ml-2">(+2.32%)</span>
+                <span class="text-lg font-medium" id="total-change">-</span>
+                <span class="text-sm text-gray-500 ml-2" id="total-change-percent">-</span>
             </div>
         </div>
 
         <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-400">일일 수익</p>
-                    <p class="text-3xl font-bold text-green-400" id="daily-pnl">+$1,247.85</p>
+                    <p class="text-sm font-medium text-gray-400">총 수익률</p>
+                    <p class="text-3xl font-bold" id="total-return">-</p>
                 </div>
                 <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,16 +52,15 @@
                 </div>
             </div>
             <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-green-400">+1.01%</span>
-                <span class="text-sm text-gray-500 ml-2">오늘</span>
+                <span class="text-lg font-medium" id="return-label">평균 수익률</span>
             </div>
         </div>
 
         <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-400">활성 포지션</p>
-                    <p class="text-3xl font-bold obsidian-text" id="active-positions">8</p>
+                    <p class="text-sm font-medium text-gray-400">활성 모델</p>
+                    <p class="text-3xl font-bold obsidian-text" id="active-models">-</p>
                 </div>
                 <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -70,16 +69,15 @@
                 </div>
             </div>
             <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-yellow-400">6 매수</span>
-                <span class="text-sm text-gray-500 ml-2">2 매도</span>
+                <span class="text-lg font-medium text-yellow-400" id="models-label">AI 트레이딩 모델</span>
             </div>
         </div>
 
         <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-400">AI 모델 성과</p>
-                    <p class="text-3xl font-bold text-purple-400" id="ai-performance">87.3%</p>
+                    <p class="text-sm font-medium text-gray-400">승률</p>
+                    <p class="text-3xl font-bold text-purple-400" id="win-rate">-</p>
                 </div>
                 <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -88,8 +86,7 @@
                 </div>
             </div>
             <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-purple-400">평균 정확도</span>
-                <span class="text-sm text-gray-500 ml-2">6개 모델</span>
+                <span class="text-lg font-medium text-purple-400">평균 승률</span>
             </div>
         </div>
     </div>
@@ -102,72 +99,8 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
             </svg>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Eddie</h3>
-                    <span class="text-green-400 font-bold">+12.5%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 89%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 89.2%</p>
-            </div>
-
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Aurora</h3>
-                    <span class="text-green-400 font-bold">+8.7%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 85%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 85.1%</p>
-            </div>
-
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Phoenix</h3>
-                    <span class="text-green-400 font-bold">+15.3%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 92%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 92.4%</p>
-            </div>
-
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Titan</h3>
-                    <span class="text-green-400 font-bold">+6.9%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 78%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 78.6%</p>
-            </div>
-
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Vega</h3>
-                    <span class="text-green-400 font-bold">+11.2%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 87%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 87.3%</p>
-            </div>
-
-            <div class="obsidian-card card-hover p-4 rounded-lg border border-gray-700">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-lg font-semibold text-gray-200">Orion</h3>
-                    <span class="text-green-400 font-bold">+9.8%</span>
-                </div>
-                <div class="progress-bar h-2 mb-2">
-                    <div class="progress-fill" style="width: 83%"></div>
-                </div>
-                <p class="text-sm text-gray-400">정확도: 83.7%</p>
-            </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="models-grid">
+            <!-- Model cards will be dynamically added here -->
         </div>
     </div>
 
@@ -184,32 +117,32 @@
             <canvas id="portfolioChart" width="400" height="200"></canvas>
         </div>
 
-        <!-- Asset Allocation Chart -->
+        <!-- Ticker Distribution Chart -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">자산 배분</h2>
+                <h2 class="text-2xl font-bold obsidian-text">종목별 분포</h2>
                 <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path>
                 </svg>
             </div>
-            <canvas id="allocationChart" width="400" height="200"></canvas>
+            <canvas id="tickerChart" width="400" height="200"></canvas>
         </div>
     </div>
 
     <!-- Holdings and Activity -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Current Holdings -->
+        <!-- Current Holdings / Recent Trades -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">현재 보유 종목</h2>
+                <h2 class="text-2xl font-bold obsidian-text" id="holdings-title">현재 보유 종목</h2>
                 <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
                 </svg>
             </div>
             <div class="obsidian-table rounded-lg overflow-hidden">
                 <table class="w-full">
-                    <thead>
+                    <thead id="holdings-header">
                         <tr>
                             <th class="px-4 py-3 text-left">종목</th>
                             <th class="px-4 py-3 text-right">수량</th>
@@ -217,228 +150,771 @@
                             <th class="px-4 py-3 text-right">손익</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td class="px-4 py-3">
-                                <div class="flex items-center">
-                                    <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                        <span class="text-xs font-bold text-blue-400">AAPL</span>
-                                    </div>
-                                    <span class="font-medium">Apple Inc.</span>
-                                </div>
-                            </td>
-                            <td class="px-4 py-3 text-right">50</td>
-                            <td class="px-4 py-3 text-right">$175.23</td>
-                            <td class="px-4 py-3 text-right text-green-400">+$247.50</td>
-                        </tr>
-                        <tr>
-                            <td class="px-4 py-3">
-                                <div class="flex items-center">
-                                    <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                        <span class="text-xs font-bold text-green-400">MSFT</span>
-                                    </div>
-                                    <span class="font-medium">Microsoft Corp.</span>
-                                </div>
-                            </td>
-                            <td class="px-4 py-3 text-right">30</td>
-                            <td class="px-4 py-3 text-right">$412.89</td>
-                            <td class="px-4 py-3 text-right text-green-400">+$189.30</td>
-                        </tr>
-                        <tr>
-                            <td class="px-4 py-3">
-                                <div class="flex items-center">
-                                    <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                        <span class="text-xs font-bold text-purple-400">NVDA</span>
-                                    </div>
-                                    <span class="font-medium">NVIDIA Corp.</span>
-                                </div>
-                            </td>
-                            <td class="px-4 py-3 text-right">25</td>
-                            <td class="px-4 py-3 text-right">$875.42</td>
-                            <td class="px-4 py-3 text-right text-green-400">+$1,247.85</td>
-                        </tr>
+                    <tbody id="holdings-data">
+                        <!-- Holdings or backtest results will be dynamically added here -->
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <!-- Recent Activity -->
+        <!-- Account Summary / Model Summary -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">최근 거래 활동</h2>
+                <h2 class="text-2xl font-bold obsidian-text" id="summary-title">계좌 요약</h2>
                 <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
                 </svg>
             </div>
-            <div class="space-y-4">
-                <div class="flex items-center justify-between p-4 obsidian-card rounded-lg border border-gray-700">
-                    <div class="flex items-center">
-                        <div class="w-10 h-10 obsidian-card rounded-full flex items-center justify-center mr-3">
-                            <svg class="icon-md text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="font-medium text-gray-200">TSLA 매수</p>
-                            <p class="text-sm text-gray-400">10분 전</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <p class="font-medium text-gray-200">15주</p>
-                        <p class="text-sm text-green-400">$245.67</p>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-between p-4 obsidian-card rounded-lg border border-gray-700">
-                    <div class="flex items-center">
-                        <div class="w-10 h-10 obsidian-card rounded-full flex items-center justify-center mr-3">
-                            <svg class="icon-md text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="font-medium text-gray-200">GOOGL 매도</p>
-                            <p class="text-sm text-gray-400">1시간 전</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <p class="font-medium text-gray-200">8주</p>
-                        <p class="text-sm text-red-400">$142.35</p>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-between p-4 obsidian-card rounded-lg border border-gray-700">
-                    <div class="flex items-center">
-                        <div class="w-10 h-10 obsidian-card rounded-full flex items-center justify-center mr-3">
-                            <svg class="icon-md text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                            </svg>
-                        </div>
-                        <div>
-                            <p class="font-medium text-gray-200">AMZN 매수</p>
-                            <p class="text-sm text-gray-400">3시간 전</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <p class="font-medium text-gray-200">20주</p>
-                        <p class="text-sm text-green-400">$156.78</p>
-                    </div>
-                </div>
+            <div class="space-y-4" id="account-summary">
+                <!-- Account or model summary will be dynamically added here -->
             </div>
+        </div>
+    </div>
+
+    <!-- Recent Orders Section (Alpaca Only) -->
+    <div class="obsidian-card rounded-lg p-6 border border-gray-800 hidden" id="recent-orders-section">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-2xl font-bold obsidian-text">최근 주문 내역</h2>
+            <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+        </div>
+        <div class="obsidian-table rounded-lg overflow-hidden">
+            <table class="w-full">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3 text-left">종목</th>
+                        <th class="px-4 py-3 text-left">타입</th>
+                        <th class="px-4 py-3 text-right">수량</th>
+                        <th class="px-4 py-3 text-right">가격</th>
+                        <th class="px-4 py-3 text-center">상태</th>
+                        <th class="px-4 py-3 text-center">시간</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-orders">
+                    <!-- Recent orders will be dynamically added here -->
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
 <script>
-// Portfolio Performance Chart
-const portfolioCtx = document.getElementById('portfolioChart').getContext('2d');
-const portfolioChart = new Chart(portfolioCtx, {
-    type: 'line',
-    data: {
-        labels: ['1월', '2월', '3월', '4월', '5월', '6월'],
-        datasets: [{
-            label: '포트폴리오 가치',
-            data: [100000, 105000, 102000, 115000, 120000, 125430],
-            borderColor: '#8b5cf6',
-            backgroundColor: 'rgba(139, 92, 246, 0.1)',
-            borderWidth: 3,
-            fill: true,
-            tension: 0.4
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                labels: {
-                    color: '#e0e0e0'
-                }
+// Load portfolio data when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadPortfolioData();
+    loadBacktestResults();
+    // Update data every 30 seconds
+    setInterval(loadPortfolioData, 30000);
+});
+
+async function loadPortfolioData() {
+    try {
+        // Fetch both backtest data and Alpaca portfolio data
+        const [backtestResponse, alpacaResponse] = await Promise.all([
+            fetch('/api/portfolio'),
+            fetch('/api/alpaca/portfolio')
+        ]);
+        
+        const backtestData = await backtestResponse.json();
+        const alpacaData = await alpacaResponse.json();
+        
+        // Debug logging
+        console.log('Backtest Data:', backtestData);
+        console.log('Alpaca Data:', alpacaData);
+        
+        // Default to backtest data
+        let totalPortfolio = backtestData.portfolio_summary.total_value;
+        let dailyChange = backtestData.portfolio_summary.daily_change;
+        let dailyChangeAmount = backtestData.portfolio_summary.daily_change_amount;
+        let totalReturn = backtestData.portfolio_summary.total_return;
+        let winRate = backtestData.portfolio_summary.win_rate;
+        let usingAlpacaData = false;
+        
+        // Check if we have valid Alpaca data
+        if (alpacaData && !alpacaData.error && alpacaData.account) {
+            console.log('Using Alpaca data');
+            usingAlpacaData = true;
+            
+            // Use real Alpaca portfolio value
+            totalPortfolio = parseFloat(alpacaData.account.portfolio_value);
+            
+            // Calculate daily change from Alpaca data
+            const lastEquity = parseFloat(alpacaData.account.last_equity);
+            const currentEquity = parseFloat(alpacaData.account.equity);
+            
+            // If market is closed or no trading has occurred, there should be no change
+            if (lastEquity && currentEquity) {
+                dailyChangeAmount = currentEquity - lastEquity;
+                dailyChange = (dailyChangeAmount / lastEquity) * 100;
+            } else {
+                // No change if we don't have proper comparison data
+                dailyChangeAmount = 0;
+                dailyChange = 0;
             }
-        },
-        scales: {
-            x: {
-                ticks: {
-                    color: '#9ca3af'
-                },
-                grid: {
-                    color: '#1f2937'
-                }
-            },
-            y: {
-                ticks: {
-                    color: '#9ca3af',
-                    callback: function(value) {
-                        return '$' + value.toLocaleString();
-                    }
-                },
-                grid: {
-                    color: '#1f2937'
+            
+            // Calculate total return based on initial balance
+            const initialBalance = 100000; // This should be fetched from user settings
+            totalReturn = ((currentEquity - initialBalance) / initialBalance) * 100;
+        } else {
+            console.log('Alpaca data not available, using backtest data');
+            if (alpacaData && alpacaData.error) {
+                console.error('Alpaca API error:', alpacaData.error);
+            }
+        }
+        
+        // Update key metrics with proper formatting
+        const portfolioElement = document.getElementById('total-portfolio');
+        if (portfolioElement) {
+            portfolioElement.textContent = `$${totalPortfolio.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            })}`;
+        }
+        
+        // Update total return
+        const returnElement = document.getElementById('total-return');
+        if (returnElement) {
+            returnElement.textContent = `${totalReturn >= 0 ? '+' : ''}${totalReturn.toFixed(2)}%`;
+            returnElement.className = `text-3xl font-bold ${totalReturn >= 0 ? 'text-green-400' : 'text-red-400'}`;
+        }
+        
+        // Update win rate - use backtest data for this as Alpaca doesn't provide win rate
+        const winRateElement = document.getElementById('win-rate');
+        if (winRateElement) {
+            winRateElement.textContent = `${winRate.toFixed(1)}%`;
+        }
+        
+        // Update active models/positions
+        let activePositions = backtestData.portfolio_summary.active_positions;
+        if (usingAlpacaData && alpacaData.positions) {
+            activePositions = alpacaData.positions.length;
+        }
+        const activeModelsElement = document.getElementById('active-models');
+        if (activeModelsElement) {
+            activeModelsElement.textContent = activePositions;
+        }
+        
+        // Daily change - only show if we have real changes
+        const changeElement = document.getElementById('total-change');
+        const changePercentElement = document.getElementById('total-change-percent');
+        
+        if (changeElement && changePercentElement) {
+            // If using Alpaca data and no real change, show $0.00 (0.00%)
+            if (usingAlpacaData && Math.abs(dailyChangeAmount) < 0.01) {
+                changeElement.textContent = '$0.00';
+                changeElement.className = 'text-lg font-medium text-gray-400';
+                changePercentElement.textContent = '(0.00%)';
+            } else {
+                changeElement.textContent = `${dailyChangeAmount >= 0 ? '+' : ''}$${Math.abs(dailyChangeAmount).toFixed(2)}`;
+                changeElement.className = `text-lg font-medium ${dailyChangeAmount >= 0 ? 'text-green-400' : 'text-red-400'}`;
+                changePercentElement.textContent = `(${dailyChange >= 0 ? '+' : ''}${dailyChange.toFixed(2)}%)`;
+            }
+        }
+        
+        // Update model performance grid with Alpaca positions if available
+        const modelsGrid = document.getElementById('models-grid');
+        if (modelsGrid) {
+            modelsGrid.innerHTML = '';
+            
+            // Show Alpaca positions if available
+            if (usingAlpacaData && alpacaData.positions && alpacaData.positions.length > 0) {
+                // Add a summary card for Alpaca account
+                const accountCard = createAlpacaAccountCard(alpacaData.account);
+                modelsGrid.appendChild(accountCard);
+                
+                // Add position cards
+                alpacaData.positions.forEach(position => {
+                    const modelCard = createAlpacaPositionCard(position);
+                    modelsGrid.appendChild(modelCard);
+                });
+            } else {
+                // Show backtest model performance
+                if (backtestData.model_performance) {
+                    backtestData.model_performance.forEach(model => {
+                        const modelCard = createModelCard(model);
+                        modelsGrid.appendChild(modelCard);
+                    });
                 }
             }
         }
-    }
-});
-
-// Asset Allocation Chart
-const allocationCtx = document.getElementById('allocationChart').getContext('2d');
-const allocationChart = new Chart(allocationCtx, {
-    type: 'doughnut',
-    data: {
-        labels: ['기술주', '금융주', '헬스케어', '에너지', '기타'],
-        datasets: [{
-            data: [45, 20, 15, 10, 10],
-            backgroundColor: [
-                '#8b5cf6',
-                '#06b6d4',
-                '#10b981',
-                '#f59e0b',
-                '#ef4444'
-            ],
-            borderColor: '#000000',
-            borderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                position: 'bottom',
-                labels: {
-                    color: '#e0e0e0',
-                    padding: 20
-                }
-            }
+        
+        // Update charts
+        if (usingAlpacaData && alpacaData.positions && alpacaData.positions.length > 0) {
+            updatePortfolioChartWithAlpaca(alpacaData.positions);
+            updateTickerChartWithAlpaca(alpacaData.positions);
+        } else if (backtestData.model_performance) {
+            updatePortfolioChart(backtestData.model_performance);
+            updateTickerChart(backtestData.model_performance);
         }
-    }
-});
-
-// Real-time data updates
-function updateData() {
-    // Simulate real-time data updates
-    const totalPortfolio = document.getElementById('total-portfolio');
-    const dailyPnl = document.getElementById('daily-pnl');
-    const totalChange = document.getElementById('total-change');
-    
-    // Add small random variations
-    const baseValue = 125430.50;
-    const variation = (Math.random() - 0.5) * 1000;
-    const newValue = baseValue + variation;
-    
-    totalPortfolio.textContent = '$' + newValue.toLocaleString('en-US', {minimumFractionDigits: 2});
-    
-    const dailyChange = variation * 0.5;
-    const dailyPercent = (dailyChange / baseValue * 100).toFixed(2);
-    
-    if (dailyChange >= 0) {
-        dailyPnl.textContent = '+$' + Math.abs(dailyChange).toLocaleString('en-US', {minimumFractionDigits: 2});
-        dailyPnl.className = 'text-3xl font-bold text-green-400';
-    } else {
-        dailyPnl.textContent = '-$' + Math.abs(dailyChange).toLocaleString('en-US', {minimumFractionDigits: 2});
-        dailyPnl.className = 'text-3xl font-bold text-red-400';
+        
+    } catch (error) {
+        console.error('Error loading portfolio data:', error);
     }
 }
 
-// Update data every 30 seconds
-setInterval(updateData, 30000);
+async function loadBacktestResults() {
+    try {
+        // First check if we have Alpaca data
+        const alpacaResponse = await fetch('/api/alpaca/portfolio');
+        const alpacaData = await alpacaResponse.json();
+        
+        if (!alpacaData.error && alpacaData.positions && alpacaData.positions.length > 0) {
+            // We have Alpaca data - show real portfolio positions
+            document.getElementById('holdings-title').textContent = '현재 보유 종목';
+            
+            // Update holdings header for Alpaca data
+            const header = document.getElementById('holdings-header');
+            header.innerHTML = `
+                <tr>
+                    <th class="px-4 py-3 text-left">종목</th>
+                    <th class="px-4 py-3 text-right">수량</th>
+                    <th class="px-4 py-3 text-right">현재가</th>
+                    <th class="px-4 py-3 text-right">손익</th>
+                </tr>
+            `;
+            
+            // Update holdings table with Alpaca positions
+            const tbody = document.getElementById('holdings-data');
+            tbody.innerHTML = '';
+            
+            alpacaData.positions.forEach(position => {
+                const plPercent = position.unrealized_plpc * 100;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-4 py-3">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                <span class="text-xs font-bold text-blue-400">${position.symbol.substring(0, 2)}</span>
+                            </div>
+                            <span class="font-medium">${position.symbol}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-right">${position.qty}</td>
+                    <td class="px-4 py-3 text-right">$${position.current_price.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="${position.unrealized_pl >= 0 ? 'text-green-400' : 'text-red-400'} font-bold">
+                            $${position.unrealized_pl.toFixed(2)}
+                            <span class="text-xs">(${plPercent >= 0 ? '+' : ''}${plPercent.toFixed(2)}%)</span>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // Update account summary
+            updateAccountSummary(alpacaData);
+            
+            // Show recent orders section if we have orders
+            if (alpacaData.recent_orders && alpacaData.recent_orders.length > 0) {
+                updateRecentOrders(alpacaData.recent_orders);
+                document.getElementById('recent-orders-section').classList.remove('hidden');
+            }
+            
+        } else {
+            // No Alpaca data - show backtest results
+            document.getElementById('holdings-title').textContent = '최근 백테스트 결과';
+            document.getElementById('summary-title').textContent = '모델 요약';
+            
+            // Update holdings header for backtest data
+            const header = document.getElementById('holdings-header');
+            header.innerHTML = `
+                <tr>
+                    <th class="px-4 py-3 text-left">모델</th>
+                    <th class="px-4 py-3 text-right">수익률</th>
+                    <th class="px-4 py-3 text-right">샤프</th>
+                    <th class="px-4 py-3 text-right">승률</th>
+                </tr>
+            `;
+            
+            // Fetch backtest results
+            const response = await fetch('/api/backtest-results');
+            const data = await response.json();
+            
+            // Update recent backtests table
+            const tbody = document.getElementById('holdings-data');
+            tbody.innerHTML = '';
+            
+            // Show only the 5 most recent results
+            data.backtest_results.slice(0, 5).forEach(result => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="px-4 py-3">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                                <span class="text-xs font-bold text-blue-400">${result.ticker}</span>
+                            </div>
+                            <span class="font-medium">${result.model_name}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-right ${result.return_rate >= 0 ? 'text-green-400' : 'text-red-400'} font-bold">
+                        ${result.return_rate >= 0 ? '+' : ''}${result.return_rate.toFixed(2)}%
+                    </td>
+                    <td class="px-4 py-3 text-right">${result.sharpe_ratio.toFixed(2)}</td>
+                    <td class="px-4 py-3 text-right">${result.win_rate.toFixed(1)}%</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // Update model summary
+            updateModelSummary(data.backtest_results);
+            
+            // Hide recent orders section
+            document.getElementById('recent-orders-section').classList.add('hidden');
+        }
+        
+    } catch (error) {
+        console.error('Error loading data:', error);
+    }
+}
+
+function createModelCard(model) {
+    const card = document.createElement('div');
+    card.className = 'obsidian-card card-hover p-4 rounded-lg border border-gray-700';
+    
+    const isPositive = model.total_return >= 0;
+    const returnClass = isPositive ? 'text-green-400' : 'text-red-400';
+    
+    card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-gray-200">${model.model_name}</h3>
+            <span class="${returnClass} font-bold">${isPositive ? '+' : ''}${model.total_return.toFixed(2)}%</span>
+        </div>
+        <div class="space-y-2">
+            <p class="text-sm text-gray-400">가치: $${model.current_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            <p class="text-sm text-gray-400">비중: ${model.allocation_percentage.toFixed(1)}%</p>
+        </div>
+    `;
+    
+    return card;
+}
+
+function createAlpacaAccountCard(account) {
+    const card = document.createElement('div');
+    card.className = 'obsidian-card card-hover p-4 rounded-lg border border-gray-700';
+    
+    const dailyPL = account.equity - account.last_equity;
+    const dailyPLPercent = (dailyPL / account.last_equity) * 100;
+    const isPositive = dailyPL >= 0;
+    const plClass = isPositive ? 'text-green-400' : 'text-red-400';
+    
+    card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-gray-200">Alpaca 계좌</h3>
+            <span class="${plClass} font-bold">${isPositive ? '+' : ''}${dailyPLPercent.toFixed(2)}%</span>
+        </div>
+        <div class="space-y-2">
+            <p class="text-sm text-gray-400">총 자산: $${account.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            <p class="text-sm text-gray-400">현금: $${account.cash.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            <p class="${plClass} text-sm">일일 손익: $${dailyPL.toFixed(2)}</p>
+        </div>
+    `;
+    
+    return card;
+}
+
+function createAlpacaPositionCard(position) {
+    const card = document.createElement('div');
+    card.className = 'obsidian-card card-hover p-4 rounded-lg border border-gray-700';
+    
+    const isPositive = position.unrealized_plpc >= 0;
+    const returnClass = isPositive ? 'text-green-400' : 'text-red-400';
+    
+    card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-gray-200">${position.symbol}</h3>
+            <span class="${returnClass} font-bold">${isPositive ? '+' : ''}${(position.unrealized_plpc * 100).toFixed(2)}%</span>
+        </div>
+        <div class="space-y-2">
+            <p class="text-sm text-gray-400">가치: $${position.market_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            <p class="text-sm text-gray-400">수량: ${position.qty} 주</p>
+            <p class="text-sm text-gray-400">평균가: $${position.avg_entry_price.toFixed(2)}</p>
+            <p class="${returnClass} text-sm">손익: $${position.unrealized_pl.toFixed(2)}</p>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Portfolio Performance Chart
+let portfolioChart = null;
+function updatePortfolioChart(modelPerformance) {
+    const ctx = document.getElementById('portfolioChart').getContext('2d');
+    
+    // Extract data for chart
+    const labels = modelPerformance.map(m => m.model_name);
+    const values = modelPerformance.map(m => m.current_value);
+    
+    if (portfolioChart) {
+        portfolioChart.destroy();
+    }
+    
+    portfolioChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '포트폴리오 가치',
+                data: values,
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#e0e0e0'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#9ca3af'
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#9ca3af',
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Ticker Distribution Chart
+let tickerChart = null;
+function updateTickerChart(modelPerformance) {
+    const ctx = document.getElementById('tickerChart').getContext('2d');
+    
+    // Group by ticker
+    const tickerGroups = {};
+    modelPerformance.forEach(model => {
+        const ticker = model.model_name.split(' - ')[1];
+        if (ticker) {
+            if (!tickerGroups[ticker]) {
+                tickerGroups[ticker] = 0;
+            }
+            tickerGroups[ticker] += model.allocation_percentage;
+        }
+    });
+    
+    const labels = Object.keys(tickerGroups);
+    const data = Object.values(tickerGroups);
+    
+    if (tickerChart) {
+        tickerChart.destroy();
+    }
+    
+    tickerChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    '#8b5cf6',
+                    '#06b6d4',
+                    '#10b981',
+                    '#f59e0b',
+                    '#ef4444',
+                    '#ec4899',
+                    '#14b8a6',
+                    '#6366f1'
+                ],
+                borderColor: '#000000',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#e0e0e0',
+                        padding: 20
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Update portfolio chart with Alpaca data
+function updatePortfolioChartWithAlpaca(positions) {
+    const ctx = document.getElementById('portfolioChart').getContext('2d');
+    
+    // Extract data for chart
+    const labels = positions.map(p => p.symbol);
+    const values = positions.map(p => p.market_value);
+    
+    if (portfolioChart) {
+        portfolioChart.destroy();
+    }
+    
+    portfolioChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '포지션 가치',
+                data: values,
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#e0e0e0'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#9ca3af'
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#9ca3af',
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Update ticker chart with Alpaca data
+function updateTickerChartWithAlpaca(positions) {
+    const ctx = document.getElementById('tickerChart').getContext('2d');
+    
+    // Calculate total portfolio value
+    const totalValue = positions.reduce((sum, p) => sum + p.market_value, 0);
+    
+    // Calculate percentage for each position
+    const labels = positions.map(p => p.symbol);
+    const data = positions.map(p => (p.market_value / totalValue) * 100);
+    
+    if (tickerChart) {
+        tickerChart.destroy();
+    }
+    
+    tickerChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: [
+                    '#8b5cf6',
+                    '#06b6d4',
+                    '#10b981',
+                    '#f59e0b',
+                    '#ef4444',
+                    '#ec4899',
+                    '#14b8a6',
+                    '#6366f1'
+                ],
+                borderColor: '#000000',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#e0e0e0',
+                        padding: 20
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Add new helper functions
+function updateAccountSummary(alpacaData) {
+    const account = alpacaData.account;
+    const summary = document.getElementById('account-summary');
+    document.getElementById('summary-title').textContent = '계좌 요약';
+    
+    summary.innerHTML = `
+        <div class="grid grid-cols-2 gap-4">
+            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">현금 잔고</p>
+                <p class="text-xl font-bold text-gray-200">$${account.cash.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            </div>
+            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">매수 가능 금액</p>
+                <p class="text-xl font-bold text-gray-200">$${account.buying_power.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            </div>
+            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">포지션 가치</p>
+                <p class="text-xl font-bold text-gray-200">$${account.long_market_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            </div>
+            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">총 자산</p>
+                <p class="text-xl font-bold text-gray-200">$${account.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
+            </div>
+        </div>
+        <div class="mt-4 p-4 obsidian-card rounded-lg border border-gray-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-400">일일 거래 횟수</p>
+                    <p class="text-lg font-medium text-gray-200">${account.daytrade_count} / 3</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm text-gray-400">패턴데이트레이더</p>
+                    <p class="text-lg font-medium ${account.pattern_day_trader ? 'text-yellow-400' : 'text-green-400'}">
+                        ${account.pattern_day_trader ? '활성' : '비활성'}
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function updateModelSummary(backtestResults) {
+    const summary = document.getElementById('account-summary');
+    summary.innerHTML = '';
+    
+    // Group results by model
+    const modelGroups = {};
+    backtestResults.forEach(result => {
+        if (!modelGroups[result.model_type]) {
+            modelGroups[result.model_type] = [];
+        }
+        modelGroups[result.model_type].push(result);
+    });
+    
+    // Create summary for each model type
+    Object.entries(modelGroups).forEach(([modelType, results]) => {
+        const avgReturn = results.reduce((sum, r) => sum + r.return_rate, 0) / results.length;
+        const avgSharpe = results.reduce((sum, r) => sum + r.sharpe_ratio, 0) / results.length;
+        
+        const summaryCard = document.createElement('div');
+        summaryCard.className = 'flex items-center justify-between p-4 obsidian-card rounded-lg border border-gray-700';
+        summaryCard.innerHTML = `
+            <div class="flex items-center">
+                <div class="w-10 h-10 obsidian-card rounded-full flex items-center justify-center mr-3">
+                    <span class="text-xs font-bold text-purple-400">${modelType}</span>
+                </div>
+                <div>
+                    <p class="font-medium text-gray-200">${modelType} Model</p>
+                    <p class="text-sm text-gray-400">${results.length} backtests</p>
+                </div>
+            </div>
+            <div class="text-right">
+                <p class="font-medium ${avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}">
+                    ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%
+                </p>
+                <p class="text-sm text-gray-400">Sharpe: ${avgSharpe.toFixed(2)}</p>
+            </div>
+        `;
+        summary.appendChild(summaryCard);
+    });
+}
+
+function updateRecentOrders(orders) {
+    const tbody = document.getElementById('recent-orders');
+    tbody.innerHTML = '';
+    
+    orders.slice(0, 5).forEach(order => {
+        const row = document.createElement('tr');
+        const statusClass = order.status === 'filled' ? 'text-green-400' : 
+                           order.status === 'canceled' ? 'text-red-400' : 
+                           order.status === 'pending_new' ? 'text-yellow-400' : 'text-gray-400';
+        
+        const sideClass = order.side === 'buy' ? 'text-green-400' : 'text-red-400';
+        
+        row.innerHTML = `
+            <td class="px-4 py-3 font-medium">${order.symbol}</td>
+            <td class="px-4 py-3">
+                <span class="${sideClass} font-medium">
+                    ${order.side === 'buy' ? '매수' : '매도'}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-right">${order.qty || order.filled_qty || 0}</td>
+            <td class="px-4 py-3 text-right">
+                ${order.filled_avg_price ? `$${order.filled_avg_price.toFixed(2)}` : '-'}
+            </td>
+            <td class="px-4 py-3 text-center">
+                <span class="${statusClass} text-sm font-medium">
+                    ${getOrderStatusKorean(order.status)}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-center text-sm text-gray-400">
+                ${formatOrderTime(order.filled_at || order.submitted_at)}
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function getOrderStatusKorean(status) {
+    const statusMap = {
+        'filled': '체결',
+        'canceled': '취소',
+        'pending_new': '대기',
+        'accepted': '접수',
+        'rejected': '거부',
+        'expired': '만료'
+    };
+    return statusMap[status] || status;
+}
+
+function formatOrderTime(timeString) {
+    if (!timeString) return '-';
+    const date = new Date(timeString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 60) {
+        return `${diffMins}분 전`;
+    } else if (diffHours < 24) {
+        return `${diffHours}시간 전`;
+    } else if (diffDays < 7) {
+        return `${diffDays}일 전`;
+    } else {
+        return date.toLocaleDateString('ko-KR');
+    }
+}
 </script>
 {% endblock %}

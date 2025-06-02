@@ -270,14 +270,15 @@ class FinancialDataPreprocessor:
         filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
         
+        # Create a clean state dictionary without problematic references
         state = {
-            'scaling_method': self.scaling_method,
-            'outlier_method': self.outlier_method,
-            'outlier_threshold': self.outlier_threshold,
-            'feature_groups': self.feature_groups,
+            'scaling_method': str(self.scaling_method),
+            'outlier_method': str(self.outlier_method),
+            'outlier_threshold': float(self.outlier_threshold),
+            'feature_groups': {k: list(v) for k, v in self.feature_groups.items()},
             'scalers': self.scalers,
             'outlier_bounds': self.outlier_bounds,
-            'is_fitted': self.is_fitted
+            'is_fitted': bool(self.is_fitted)
         }
         
         joblib.dump(state, filepath)
@@ -300,11 +301,11 @@ class FinancialDataPreprocessor:
         
         state = joblib.load(filepath)
         
-        # Create new instance
+        # Create new instance with explicit string conversion
         preprocessor = cls(
-            scaling_method=state['scaling_method'],
-            outlier_method=state['outlier_method'],
-            outlier_threshold=state['outlier_threshold'],
+            scaling_method=str(state['scaling_method']),
+            outlier_method=str(state['outlier_method']),
+            outlier_threshold=float(state['outlier_threshold']),
             feature_groups=state['feature_groups']
         )
         

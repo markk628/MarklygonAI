@@ -25,7 +25,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-400">총 결과</p>
-                    <p class="text-2xl font-bold obsidian-text" id="total-results">24</p>
+                    <p class="text-2xl font-bold obsidian-text" id="total-results">-</p>
                 </div>
                 <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -39,7 +39,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-400">평균 수익률</p>
-                    <p class="text-2xl font-bold text-green-400" id="avg-return">+18.7%</p>
+                    <p class="text-2xl font-bold" id="avg-return">-</p>
                 </div>
                 <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,7 +53,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm font-medium text-gray-400">평균 샤프 비율</p>
-                    <p class="text-2xl font-bold text-blue-400" id="avg-sharpe">1.85</p>
+                    <p class="text-2xl font-bold text-blue-400" id="avg-sharpe">-</p>
                 </div>
                 <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -66,8 +66,8 @@
         <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-400">최대 낙폭</p>
-                    <p class="text-2xl font-bold text-red-400" id="max-drawdown">-8.3%</p>
+                    <p class="text-sm font-medium text-gray-400">평균 최대 낙폭</p>
+                    <p class="text-2xl font-bold text-red-400" id="avg-drawdown">-</p>
                 </div>
                 <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
                     <svg class="icon-lg text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,22 +94,11 @@
         <div class="flex items-center justify-between mb-6">
             <h2 class="text-2xl font-bold obsidian-text">상세 백테스트 결과</h2>
             <div class="flex items-center space-x-4">
-                <select class="obsidian-input px-3 py-2 rounded-lg text-sm">
-                    <option>모든 모델</option>
-                    <option>Eddie</option>
-                    <option>Aurora</option>
-                    <option>Phoenix</option>
-                    <option>Titan</option>
-                    <option>Vega</option>
-                    <option>Orion</option>
+                <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="model-filter">
+                    <option value="">모든 모델</option>
                 </select>
-                <select class="obsidian-input px-3 py-2 rounded-lg text-sm">
-                    <option>모든 자산</option>
-                    <option>AAPL</option>
-                    <option>MSFT</option>
-                    <option>GOOGL</option>
-                    <option>AMZN</option>
-                    <option>TSLA</option>
+                <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="ticker-filter">
+                    <option value="">모든 자산</option>
                 </select>
             </div>
         </div>
@@ -124,118 +113,12 @@
                         <th class="px-4 py-3 text-right">샤프 비율</th>
                         <th class="px-4 py-3 text-right">최대 낙폭</th>
                         <th class="px-4 py-3 text-right">승률</th>
-                        <th class="px-4 py-3 text-center">상태</th>
+                        <th class="px-4 py-3 text-right">거래 수</th>
+                        <th class="px-4 py-3 text-center">날짜</th>
                     </tr>
                 </thead>
                 <tbody id="backtest-results">
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-purple-400">E</span>
-                                </div>
-                                <span class="font-medium">Eddie</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">AAPL</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+24.5%</td>
-                        <td class="px-4 py-3 text-right">2.15</td>
-                        <td class="px-4 py-3 text-right text-red-400">-5.2%</td>
-                        <td class="px-4 py-3 text-right">68%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-blue-400">A</span>
-                                </div>
-                                <span class="font-medium">Aurora</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">MSFT</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+19.8%</td>
-                        <td class="px-4 py-3 text-right">1.87</td>
-                        <td class="px-4 py-3 text-right text-red-400">-7.1%</td>
-                        <td class="px-4 py-3 text-right">64%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-red-400">P</span>
-                                </div>
-                                <span class="font-medium">Phoenix</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">GOOGL</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+31.2%</td>
-                        <td class="px-4 py-3 text-right">2.43</td>
-                        <td class="px-4 py-3 text-right text-red-400">-4.8%</td>
-                        <td class="px-4 py-3 text-right">72%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-purple-900 text-purple-300">최우수</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-orange-400">T</span>
-                                </div>
-                                <span class="font-medium">Titan</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">AMZN</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+15.7%</td>
-                        <td class="px-4 py-3 text-right">1.52</td>
-                        <td class="px-4 py-3 text-right text-red-400">-9.3%</td>
-                        <td class="px-4 py-3 text-right">59%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-yellow-900 text-yellow-300">양호</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-green-400">V</span>
-                                </div>
-                                <span class="font-medium">Vega</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">TSLA</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+22.1%</td>
-                        <td class="px-4 py-3 text-right">1.98</td>
-                        <td class="px-4 py-3 text-right text-red-400">-6.7%</td>
-                        <td class="px-4 py-3 text-right">66%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-green-900 text-green-300">우수</span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="px-4 py-3">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
-                                    <span class="text-xs font-bold text-cyan-400">O</span>
-                                </div>
-                                <span class="font-medium">Orion</span>
-                            </div>
-                        </td>
-                        <td class="px-4 py-3">NVDA</td>
-                        <td class="px-4 py-3 text-right text-green-400 font-bold">+28.9%</td>
-                        <td class="px-4 py-3 text-right">2.31</td>
-                        <td class="px-4 py-3 text-right text-red-400">-5.9%</td>
-                        <td class="px-4 py-3 text-right">70%</td>
-                        <td class="px-4 py-3 text-center">
-                            <span class="px-2 py-1 text-xs rounded-full bg-purple-900 text-purple-300">최우수</span>
-                        </td>
-                    </tr>
+                    <!-- Results will be dynamically added here -->
                 </tbody>
             </table>
         </div>
@@ -266,156 +149,374 @@
 </div>
 
 <script>
+let allBacktestResults = [];
+let performanceChart = null;
+let riskChart = null;
+let distributionChart = null;
+
+// Load data when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadBacktestData();
+    
+    // Add event listeners for filters
+    document.getElementById('model-filter').addEventListener('change', filterResults);
+    document.getElementById('ticker-filter').addEventListener('change', filterResults);
+});
+
+async function loadBacktestData() {
+    try {
+        const response = await fetch('/api/backtest-results');
+        const data = await response.json();
+        allBacktestResults = data.backtest_results;
+        
+        // Update summary cards
+        updateSummaryCards(allBacktestResults);
+        
+        // Populate filter options
+        populateFilters(allBacktestResults);
+        
+        // Display results
+        displayResults(allBacktestResults);
+        
+        // Update charts
+        updatePerformanceChart(allBacktestResults);
+        updateRiskChart(allBacktestResults);
+        updateDistributionChart(allBacktestResults);
+        
+    } catch (error) {
+        console.error('Error loading backtest data:', error);
+    }
+}
+
+function updateSummaryCards(results) {
+    // Total results
+    document.getElementById('total-results').textContent = results.length;
+    
+    // Average return
+    const avgReturn = results.reduce((sum, r) => sum + r.return_rate, 0) / results.length;
+    const avgReturnElement = document.getElementById('avg-return');
+    avgReturnElement.textContent = `${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%`;
+    avgReturnElement.className = `text-2xl font-bold ${avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}`;
+    
+    // Average Sharpe ratio
+    const avgSharpe = results.reduce((sum, r) => sum + r.sharpe_ratio, 0) / results.length;
+    document.getElementById('avg-sharpe').textContent = avgSharpe.toFixed(2);
+    
+    // Average max drawdown
+    const avgDrawdown = results.reduce((sum, r) => sum + r.max_drawdown, 0) / results.length;
+    document.getElementById('avg-drawdown').textContent = `${avgDrawdown.toFixed(2)}%`;
+}
+
+function populateFilters(results) {
+    // Get unique models and tickers
+    const models = [...new Set(results.map(r => r.model_type))];
+    const tickers = [...new Set(results.map(r => r.ticker))];
+    
+    // Populate model filter
+    const modelFilter = document.getElementById('model-filter');
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        modelFilter.appendChild(option);
+    });
+    
+    // Populate ticker filter
+    const tickerFilter = document.getElementById('ticker-filter');
+    tickers.forEach(ticker => {
+        const option = document.createElement('option');
+        option.value = ticker;
+        option.textContent = ticker;
+        tickerFilter.appendChild(option);
+    });
+}
+
+function filterResults() {
+    const modelFilter = document.getElementById('model-filter').value;
+    const tickerFilter = document.getElementById('ticker-filter').value;
+    
+    let filteredResults = allBacktestResults;
+    
+    if (modelFilter) {
+        filteredResults = filteredResults.filter(r => r.model_type === modelFilter);
+    }
+    
+    if (tickerFilter) {
+        filteredResults = filteredResults.filter(r => r.ticker === tickerFilter);
+    }
+    
+    displayResults(filteredResults);
+    updateSummaryCards(filteredResults);
+    updatePerformanceChart(filteredResults);
+    updateRiskChart(filteredResults);
+    updateDistributionChart(filteredResults);
+}
+
+function displayResults(results) {
+    const tbody = document.getElementById('backtest-results');
+    tbody.innerHTML = '';
+    
+    results.forEach(result => {
+        const row = document.createElement('tr');
+        
+        // Determine performance status
+        let statusClass = 'bg-yellow-900 text-yellow-300';
+        let statusText = '보통';
+        if (result.return_rate > 20) {
+            statusClass = 'bg-purple-900 text-purple-300';
+            statusText = '최우수';
+        } else if (result.return_rate > 10) {
+            statusClass = 'bg-green-900 text-green-300';
+            statusText = '우수';
+        } else if (result.return_rate < 0) {
+            statusClass = 'bg-red-900 text-red-300';
+            statusText = '부진';
+        }
+        
+        // Format date
+        const backtestDate = new Date(result.backtest_date);
+        const formattedDate = backtestDate.toLocaleDateString('ko-KR');
+        
+        row.innerHTML = `
+            <td class="px-4 py-3">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
+                        <span class="text-xs font-bold text-purple-400">${result.model_type[0]}</span>
+                    </div>
+                    <span class="font-medium">${result.model_name}</span>
+                </div>
+            </td>
+            <td class="px-4 py-3">${result.ticker}</td>
+            <td class="px-4 py-3 text-right ${result.return_rate >= 0 ? 'text-green-400' : 'text-red-400'} font-bold">
+                ${result.return_rate >= 0 ? '+' : ''}${result.return_rate.toFixed(2)}%
+            </td>
+            <td class="px-4 py-3 text-right">${result.sharpe_ratio.toFixed(2)}</td>
+            <td class="px-4 py-3 text-right text-red-400">${result.max_drawdown.toFixed(2)}%</td>
+            <td class="px-4 py-3 text-right">${result.win_rate.toFixed(1)}%</td>
+            <td class="px-4 py-3 text-right">${result.total_trades}</td>
+            <td class="px-4 py-3 text-center">
+                <span class="text-sm text-gray-400">${formattedDate}</span>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
 // Performance Comparison Chart
-const performanceCtx = document.getElementById('performanceChart').getContext('2d');
-const performanceChart = new Chart(performanceCtx, {
-    type: 'bar',
-    data: {
-        labels: ['Eddie', 'Aurora', 'Phoenix', 'Titan', 'Vega', 'Orion'],
-        datasets: [{
-            label: '수익률 (%)',
-            data: [24.5, 19.8, 31.2, 15.7, 22.1, 28.9],
-            backgroundColor: [
-                'rgba(139, 92, 246, 0.8)',
-                'rgba(6, 182, 212, 0.8)',
-                'rgba(239, 68, 68, 0.8)',
-                'rgba(245, 158, 11, 0.8)',
-                'rgba(16, 185, 129, 0.8)',
-                'rgba(6, 182, 212, 0.8)'
-            ],
-            borderColor: [
-                '#8b5cf6',
-                '#06b6d4',
-                '#ef4444',
-                '#f59e0b',
-                '#10b981',
-                '#06b6d4'
-            ],
-            borderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                labels: {
-                    color: '#e0e0e0'
-                }
-            }
+function updatePerformanceChart(results) {
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    
+    // Group by model and calculate average returns
+    const modelPerformance = {};
+    results.forEach(result => {
+        if (!modelPerformance[result.model_name]) {
+            modelPerformance[result.model_name] = [];
+        }
+        modelPerformance[result.model_name].push(result.return_rate);
+    });
+    
+    const labels = Object.keys(modelPerformance);
+    const data = labels.map(model => {
+        const returns = modelPerformance[model];
+        return returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    });
+    
+    if (performanceChart) {
+        performanceChart.destroy();
+    }
+    
+    performanceChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '평균 수익률 (%)',
+                data: data,
+                backgroundColor: data.map(value => value >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'),
+                borderColor: data.map(value => value >= 0 ? '#10b981' : '#ef4444'),
+                borderWidth: 2
+            }]
         },
-        scales: {
-            x: {
-                ticks: {
-                    color: '#9ca3af'
-                },
-                grid: {
-                    color: '#1f2937'
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#e0e0e0'
+                    }
                 }
             },
-            y: {
-                ticks: {
-                    color: '#9ca3af',
-                    callback: function(value) {
-                        return value + '%';
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#9ca3af'
+                    },
+                    grid: {
+                        color: '#1f2937'
                     }
                 },
-                grid: {
-                    color: '#1f2937'
+                y: {
+                    ticks: {
+                        color: '#9ca3af',
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
                 }
             }
         }
-    }
-});
+    });
+}
 
 // Risk Chart
-const riskCtx = document.getElementById('riskChart').getContext('2d');
-const riskChart = new Chart(riskCtx, {
-    type: 'radar',
-    data: {
-        labels: ['수익률', '샤프비율', '변동성', '최대낙폭', '승률', '안정성'],
-        datasets: [{
-            label: 'Phoenix',
-            data: [95, 90, 85, 92, 88, 90],
-            borderColor: '#ef4444',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            borderWidth: 2
-        }, {
-            label: 'Eddie',
-            data: [80, 85, 90, 88, 82, 85],
-            borderColor: '#8b5cf6',
-            backgroundColor: 'rgba(139, 92, 246, 0.1)',
-            borderWidth: 2
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                labels: {
-                    color: '#e0e0e0'
-                }
-            }
-        },
-        scales: {
-            r: {
-                ticks: {
-                    color: '#9ca3af'
-                },
-                grid: {
-                    color: '#1f2937'
-                },
-                angleLines: {
-                    color: '#1f2937'
-                }
-            }
+function updateRiskChart(results) {
+    const ctx = document.getElementById('riskChart').getContext('2d');
+    
+    // Get top 2 performing models for comparison
+    const modelGroups = {};
+    results.forEach(result => {
+        if (!modelGroups[result.model_type]) {
+            modelGroups[result.model_type] = {
+                returns: [],
+                sharpes: [],
+                drawdowns: [],
+                winRates: []
+            };
         }
+        modelGroups[result.model_type].returns.push(result.return_rate);
+        modelGroups[result.model_type].sharpes.push(result.sharpe_ratio);
+        modelGroups[result.model_type].drawdowns.push(Math.abs(result.max_drawdown));
+        modelGroups[result.model_type].winRates.push(result.win_rate);
+    });
+    
+    // Calculate averages and create datasets
+    const datasets = Object.entries(modelGroups).slice(0, 2).map(([model, data], index) => {
+        const avgReturn = data.returns.reduce((a, b) => a + b, 0) / data.returns.length;
+        const avgSharpe = data.sharpes.reduce((a, b) => a + b, 0) / data.sharpes.length;
+        const avgDrawdown = data.drawdowns.reduce((a, b) => a + b, 0) / data.drawdowns.length;
+        const avgWinRate = data.winRates.reduce((a, b) => a + b, 0) / data.winRates.length;
+        
+        // Normalize values to 0-100 scale
+        const normalizedReturn = Math.min(100, Math.max(0, avgReturn * 2));
+        const normalizedSharpe = Math.min(100, avgSharpe * 25);
+        const normalizedDrawdown = Math.min(100, 100 - avgDrawdown * 2);
+        const normalizedWinRate = avgWinRate;
+        
+        return {
+            label: model,
+            data: [normalizedReturn, normalizedSharpe, normalizedDrawdown, normalizedWinRate, 80, 85],
+            borderColor: index === 0 ? '#8b5cf6' : '#06b6d4',
+            backgroundColor: index === 0 ? 'rgba(139, 92, 246, 0.1)' : 'rgba(6, 182, 212, 0.1)',
+            borderWidth: 2
+        };
+    });
+    
+    if (riskChart) {
+        riskChart.destroy();
     }
-});
-
-// Distribution Chart
-const distributionCtx = document.getElementById('distributionChart').getContext('2d');
-const distributionChart = new Chart(distributionCtx, {
-    type: 'line',
-    data: {
-        labels: ['-20%', '-10%', '0%', '10%', '20%', '30%', '40%'],
-        datasets: [{
-            label: '수익률 분포',
-            data: [2, 8, 15, 25, 30, 15, 5],
-            borderColor: '#10b981',
-            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-            borderWidth: 3,
-            fill: true,
-            tension: 0.4
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                labels: {
-                    color: '#e0e0e0'
-                }
-            }
+    
+    riskChart = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: ['수익률', '샤프비율', '안정성', '승률', '일관성', '효율성'],
+            datasets: datasets
         },
-        scales: {
-            x: {
-                ticks: {
-                    color: '#9ca3af'
-                },
-                grid: {
-                    color: '#1f2937'
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#e0e0e0'
+                    }
                 }
             },
-            y: {
-                ticks: {
-                    color: '#9ca3af'
-                },
-                grid: {
-                    color: '#1f2937'
+            scales: {
+                r: {
+                    ticks: {
+                        color: '#9ca3af'
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    },
+                    angleLines: {
+                        color: '#1f2937'
+                    }
                 }
             }
         }
+    });
+}
+
+// Distribution Chart
+function updateDistributionChart(results) {
+    const ctx = document.getElementById('distributionChart').getContext('2d');
+    
+    // Create bins for return distribution
+    const bins = [-30, -20, -10, 0, 10, 20, 30, 40, 50];
+    const counts = new Array(bins.length - 1).fill(0);
+    
+    results.forEach(result => {
+        const returnRate = result.return_rate;
+        for (let i = 0; i < bins.length - 1; i++) {
+            if (returnRate >= bins[i] && returnRate < bins[i + 1]) {
+                counts[i]++;
+                break;
+            }
+        }
+    });
+    
+    const labels = bins.slice(0, -1).map((bin, i) => `${bin}% ~ ${bins[i + 1]}%`);
+    
+    if (distributionChart) {
+        distributionChart.destroy();
     }
-});
+    
+    distributionChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '백테스트 결과 수',
+                data: counts,
+                backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                borderColor: '#10b981',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    labels: {
+                        color: '#e0e0e0'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#9ca3af',
+                        maxRotation: 45,
+                        minRotation: 45
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#9ca3af'
+                    },
+                    grid: {
+                        color: '#1f2937'
+                    }
+                }
+            }
+        }
+    });
+}
 </script>
 {% endblock %}

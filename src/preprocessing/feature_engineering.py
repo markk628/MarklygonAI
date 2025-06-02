@@ -60,48 +60,20 @@ class FeatureEngineer:
 
         indicators = {
             'stochrsi_k_14_1min,stochrsi_d_14_1min': (ta.STOCHRSI, {'real': close, 'timeperiod': 14}),
-            'stochrsi_k_21_1min,stochrsi_d_21_1min': (ta.STOCHRSI, {'real': close, 'timeperiod': 21}),
-            'rsi_7_1min': (ta.RSI, {'real': close, 'timeperiod': 7}),
             'rsi_14_1min': (ta.RSI, {'real': close, 'timeperiod': 14}),
-            'rsi_21_1min': (ta.RSI, {'real': close, 'timeperiod': 21}),
-            'macd_5_13_4_1min,macd_signal_5_13_4_1min,macd_hist_5_13_4_1min': (ta.MACD, {'real': close, 'fastperiod': 5, 'slowperiod': 13, 'signalperiod': 4}),
             'macd_12_26_9_1min,macd_signal_12_26_9_1min,macd_hist_12_26_9_1min': (ta.MACD, {'real': close, 'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}),
-            'roc_5_1min': (ta.ROC, {'real': close, 'timeperiod': 5}),
             'roc_10_1min': (ta.ROC, {'real': close, 'timeperiod': 10}),
-            'roc_20_1min': (ta.ROC, {'real': close, 'timeperiod': 20}),
-            'ultosc_5_15_30_1min': (ta.ULTOSC, {'high': high, 'low': low, 'close': close, 'timeperiod1': 5, 'timeperiod2': 15, 'timeperiod3': 30}),
-            'ultosc_7_21_42_1min': (ta.ULTOSC, {'high': high, 'low': low, 'close': close, 'timeperiod1': 7, 'timeperiod2': 21, 'timeperiod3': 42}),
-            'ultosc_10_30_60_1min': (ta.ULTOSC, {'high': high, 'low': low, 'close': close, 'timeperiod1': 10, 'timeperiod2': 30, 'timeperiod3': 60}),
-            'plusdi_10_1min': (ta.PLUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 10}),
             'plusdi_20_1min': (ta.PLUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 20}),
-            'plusdi_30_1min': (ta.PLUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 30}),
-            'minusdi_10_1min': (ta.MINUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 10}),
             'minusdi_20_1min': (ta.MINUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 20}),
-            'minusdi_30_1min': (ta.MINUS_DI, {'high': high, 'low': low, 'close': close, 'timeperiod': 30}),
-            'adx_10_1min': (ta.ADX, {'high': high, 'low': low, 'close': close, 'timeperiod': 10}),
             'adx_20_1min': (ta.ADX, {'high': high, 'low': low, 'close': close, 'timeperiod': 20}),
-            'adx_30_1min': (ta.ADX, {'high': high, 'low': low, 'close': close, 'timeperiod': 30}),
-            'cci_10_1min': (ta.CCI, {'high': high, 'low': low, 'close': close, 'timeperiod': 10}),
             'cci_20_1min': (ta.CCI, {'high': high, 'low': low, 'close': close, 'timeperiod': 20}),
-            'cci_30_1min': (ta.CCI, {'high': high, 'low': low, 'close': close, 'timeperiod': 30}),
             'ema_3_1min': (ta.EMA, {'real': close, 'timeperiod': 3}),
-            'ema_5_1min': (ta.EMA, {'real': close, 'timeperiod': 5}),
             'ema_9_1min': (ta.EMA, {'real': close, 'timeperiod': 9}),
             'ema_21_1min': (ta.EMA, {'real': close, 'timeperiod': 21}),
-            'ema_50_1min': (ta.EMA, {'real': close, 'timeperiod': 50}),
-            'sma_5_1min': (ta.SMA, {'real': close, 'timeperiod': 5}),
-            'sma_10_1min': (ta.SMA, {'real': close, 'timeperiod': 10}),
-            'sma_20_1min': (ta.SMA, {'real': close, 'timeperiod': 20}),
-            'sma_50_1min': (ta.SMA, {'real': close, 'timeperiod': 50}),
             'obv_1min': (ta.OBV, {'close': close, 'volume': volume}),
-            'mfi_7_1min': (ta.MFI, {'high': high, 'low': low, 'close': close, 'volume': volume, 'timeperiod': 7}),
             'mfi_14_1min': (ta.MFI, {'high': high, 'low': low, 'close': close, 'volume': volume, 'timeperiod': 14}),
-            'mfi_21_1min': (ta.MFI, {'high': high, 'low': low, 'close': close, 'volume': volume, 'timeperiod': 21}),
-            'bband_upper_10_1min,bband_middle_10_1min,bband_lower_10_1min': (ta.BBANDS, {'real': close, 'timeperiod': 10}),
             'bband_upper_20_1min,bband_middle_20_1min,bband_lower_20_1min': (ta.BBANDS, {'real': close, 'timeperiod': 20}),
-            'bband_upper_50_1min,bband_middle_50_1min,bband_lower_50_1min': (ta.BBANDS, {'real': close, 'timeperiod': 50}),
-            'atr_14_1min': (ta.ATR, {'high': high, 'low': low, 'close': close, 'timeperiod': 14}),
-            'atr_21_1min': (ta.ATR, {'high': high, 'low': low, 'close': close, 'timeperiod': 21})
+            'atr_14_1min': (ta.ATR, {'high': high, 'low': low, 'close': close, 'timeperiod': 14})
         }
 
         print('adding technical indicators...')
@@ -125,21 +97,21 @@ class FeatureEngineer:
         """
         print('adding temporal patterns...')
         timestamp = df['timestamp']
-        df['minute'] = timestamp.dt.minute
-        df['minute_sin'] = np.sin(2 * np.pi * df['minute'] / 60)
-        df['minute_cos'] = np.cos(2 * np.pi * df['minute'] / 60)
-        df['hour'] = timestamp.dt.hour
-        df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
-        df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
-        df['day'] = timestamp.dt.dayofweek
-        df['day_sin'] = np.sin(2 * np.pi * df['day'] / 5)
-        df['day_cos'] = np.cos(2 * np.pi * df['day'] / 5)
-        df['month'] = timestamp.dt.month
-        df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
-        df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
-        df['quarter'] = timestamp.dt.quarter
-        df['quarter_sin'] = np.sin(2 * np.pi * df['quarter'] / 4)
-        df['quarter_cos'] = np.cos(2 * np.pi * df['quarter'] / 4)
+        minute = timestamp.dt.minute
+        df['minute_sin'] = np.sin(2 * np.pi * minute / 60)
+        df['minute_cos'] = np.cos(2 * np.pi * minute / 60)
+        hour = timestamp.dt.hour
+        df['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+        df['hour_cos'] = np.cos(2 * np.pi * hour / 24)
+        day = timestamp.dt.dayofweek
+        df['day_sin'] = np.sin(2 * np.pi * day / 5)
+        df['day_cos'] = np.cos(2 * np.pi * day / 5)
+        month = timestamp.dt.month
+        df['month_sin'] = np.sin(2 * np.pi * month / 12)
+        df['month_cos'] = np.cos(2 * np.pi * month / 12)
+        quarter = timestamp.dt.quarter
+        df['quarter_sin'] = np.sin(2 * np.pi * quarter / 4)
+        df['quarter_cos'] = np.cos(2 * np.pi * quarter / 4)
         return df
 
     def _add_last_significant_change(self, df: pd.DataFrame, threshold: float) -> pd.DataFrame:

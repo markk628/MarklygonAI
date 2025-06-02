@@ -5,15 +5,17 @@ import torch.optim as optim
 import numpy as np
 import pandas as pd
 from enum import Enum
-from typing import Tuple, Optional, Dict, List
+from typing import Tuple, Optional, Dict
 import random
 from dataclasses import dataclass
 import math
 from datetime import datetime
+from pathlib import Path
 
 from src.config.config import (
     DEVICE,
     DATA_DIR,
+    MODELS_DIR,
     WINDOW_SIZE,
     EVALUATE_INTERVAL,
     INITIAL_BALANCE,
@@ -24,7 +26,10 @@ from src.config.config import (
     NUM_EPISODES,
     TRAIN_RATIO,
     VALID_RATIO,
+    TRAIN_INTERVAL,
 )
+from src.utils.utils import create_directory
+from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
 
 @dataclass
@@ -58,7 +63,7 @@ class TradingConfig:
     num_hidden_layers: int = 3
     
     # Features
-    num_stock_features: int = 40
+    num_stock_features: int = 39
     num_portfolio_features: int = 8
     num_features: int = num_stock_features + num_portfolio_features 
     window_size: int = WINDOW_SIZE  # WINDOW_SIZE minutes of historical data
@@ -467,7 +472,6 @@ class TradingEnvironment:
             reward = -0.01
         else:
             if action == 1:  # Buy
-                # Calculate position size
                 position_value = self.balance * self.config.max_position_size
                 shares_to_buy = position_value / current_price
                 cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_pct)
@@ -476,11 +480,9 @@ class TradingEnvironment:
                 self.balance -= cost
                 self.entry_price = current_price
                 trade_executed = True
-                # Small reward for executing valid trade
                 reward = 0.001
                     
             elif action == 2:  # Sell
-                # Sell all shares
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_pct)
                 cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_pct)
                 profit = revenue - cost_basis
@@ -490,18 +492,13 @@ class TradingEnvironment:
                 trade_executed = True
                 self.total_trades += 1
                 
-                # Track trade performance
                 if profit > 0:
                     self.winning_trades += 1
                 else:
                     self.losing_trades += 1
                 
-                # Reward based on percentage return (avoid division by zero)
-                if cost_basis > 0 and np.isfinite(profit) and np.isfinite(cost_basis):
-                    percentage_return = profit / cost_basis
-                    reward = percentage_return * 10
-                else:
-                    reward = 0
+                percentage_return = profit / cost_basis
+                reward = percentage_return * 10
         
             # Additional reward shaping
             # Penalize having too many invalid actions
@@ -665,6 +662,13 @@ class DoubleDuelingDQN:
         episode_reward = 0
         episode_steps = 0
         
+        # Track update metrics across the episode
+        update_metrics = {
+            'loss': [],
+            'mean_q': [],
+            'mean_td_error': []
+        }
+        
         while True:
             # Select and execute action
             action = self.select_action(state)
@@ -678,8 +682,14 @@ class DoubleDuelingDQN:
             episode_steps += 1
             self.steps_done += 1
             
-            # Perform update
-            update_info = self.update()
+            # Perform update only every TRAIN_INTERVAL steps
+            if self.steps_done % TRAIN_INTERVAL == 0:
+                update_info = self.update()
+                # Track metrics if update occurred
+                if update_info:
+                    for key in ['loss', 'mean_q', 'mean_td_error']:
+                        if key in update_info:
+                            update_metrics[key].append(update_info[key])
             
             # Move to next state
             state = next_state
@@ -697,6 +707,12 @@ class DoubleDuelingDQN:
         
         win_rate = info['winning_trades'] / max(1, info['total_trades'])
         
+        # Average the update metrics over the episode
+        avg_update_metrics = {}
+        for key, values in update_metrics.items():
+            if values:
+                avg_update_metrics[key] = sum(values) / len(values)
+        
         return {
             'episode_reward': episode_reward,
             'episode_steps': episode_steps,
@@ -705,7 +721,7 @@ class DoubleDuelingDQN:
             'total_trades': info['total_trades'],
             'win_rate': win_rate,
             'invalid_actions': info['invalid_actions'],
-            **update_info
+            **avg_update_metrics
         }
     
     def save(self, path: str):
@@ -747,6 +763,53 @@ def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_ke
         
     return df[cols_to_keep], start_date, end_date
 
+def save_backtest_results_to_db(model_type: ModelType,
+                                ticker: str,
+                                info: dict[str, float],
+                                preprocessor_path: Optional[str] = None) -> tuple[int, str, str]:
+    backtest_date = info['backtest_date']
+    return_rate = info['return_rate'] * 100
+    
+    with app.app_context():
+        db.create_all()
+        model = MarklygonModel(
+            model=model_type,
+            ticker=ticker
+        )
+        db.session.add(model)
+        db.session.flush()
+        
+        model_id = model.id
+        # Create directory for this model - use absolute path
+        model_dir = str(MODELS_DIR / 'dqn_v2' / str(model_id))
+        create_directory(model_dir)
+        
+        # Set model path within the model's directory - use absolute path
+        model_path = str(Path(model_dir) / 'model.pth')
+        model.model_path = model_path
+
+        backtest = BacktestHistory(
+            model=model,
+            backtest_date=backtest_date,
+            start_date=info['start_date'],
+            end_date=info['end_date'],
+            initial_balance=info['initial_balance'],
+            final_balance=info['final_balance'],
+            net_profit=info['net_profit'],
+            total_trades=info['total_trades'],
+            winning_trades=info['winning_trades'],
+            losing_trades=info['losing_trades'],
+            return_rate=return_rate,
+            max_drawdown=info['max_drawdown'],
+            sharpe_ratio=info['sharpe_ratio'],
+            invalid_actions=info['invalid_actions'],
+            preprocessor_path=preprocessor_path
+        )
+
+        db.session.add(backtest)
+        db.session.commit()
+    return model_id, model_path, model_dir
+
 def train_dqn(data_path: str,
               cutoff: pd.Timestamp,
               num_episodes: int = NUM_EPISODES, 
@@ -764,6 +827,7 @@ def train_dqn(data_path: str,
     
     Args:
         data_path: Path to CSV file with stock data
+        cutoff: Timestamp to start data from
         num_episodes: Number of training episodes
         save_interval: Save model every N episodes
         validation_frequency: Run validation every N episodes
@@ -777,7 +841,7 @@ def train_dqn(data_path: str,
     """    
     # Load data
     print("Loading data...")
-    data, _, _ = load_stock_data(data_path, cutoff)
+    data, start_date, end_date = load_stock_data(data_path, cutoff)
     
     # Split data chronologically
     train_end = int(len(data) * train_ratio)
@@ -812,6 +876,11 @@ def train_dqn(data_path: str,
             preprocessor_path=preprocessor_save_path
         )
         print(f"Preprocessing complete. Preprocessor saved to: {preprocessor_save_path}")
+    else:
+        # If no preprocessing, use raw data
+        train_data_scaled = train_data
+        valid_data_scaled = valid_data
+        test_data_scaled = test_data
     
     # Initialize configuration
     config = TradingConfig()
@@ -951,8 +1020,9 @@ def train_dqn(data_path: str,
         test_reward += test_r
         test_state = test_next_state
         
-        # Track for plotting
-        test_action_history.append(test_action)
+        # Track for plotting - only append valid actions
+        if not test_info['invalid_action']:
+            test_action_history.append(test_action)
         current_value = test_info['balance'] + (test_info['position'] * test_info['current_price'])
         test_portfolio_values.append(current_value)
         test_price_history.append(test_info['current_price'])
@@ -980,10 +1050,6 @@ def train_dqn(data_path: str,
     print(f"  Win Rate: {test_info['winning_trades'] / max(1, test_info['total_trades']):.2%}")
     print(f"  Invalid Actions: {test_info['invalid_actions']}")
     
-    # Save final model
-    agent.save("dqn_final_model.pt")
-    print("\nModel saved as 'dqn_final_model.pt'")
-    
     # Return comprehensive results
     return {
         'agent': agent,
@@ -1009,7 +1075,9 @@ def train_dqn(data_path: str,
             'action_history': test_action_history,
             'portfolio_values': test_portfolio_values,
             'price_history': test_price_history
-        }
+        },
+        'start_date': start_date,
+        'end_date': end_date
     }
 
 
