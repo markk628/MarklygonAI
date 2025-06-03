@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Import both discrete and continuous SAC components
 from src.models.sugarmixcoffee.sac.sac import train_sac, save_backtest_results_to_db, SACConfig
+from src.models.sugarmixcoffee.sac.continuous_sac_agent import train_continuous_sac, ContinuousSACConfig
 from src.config.config import DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
 from src.utils.utils import create_directory
 from src.web.models import ModelType
@@ -12,18 +14,20 @@ from src.web.extensions import app
 from src.web.models import BacktestHistory, db
 
 
-def plot_sac_training_results(training_results: dict, ticker: str = "Stock", validation_frequency: int = 5):
+def plot_sac_training_results(training_results: dict, ticker: str = "Stock", validation_frequency: int = 5, is_continuous: bool = False):
     """
-    Visualize SAC training and performance metrics
+    Visualize SAC training and performance metrics (works for both discrete and continuous SAC)
     """
     plt.figure(figsize=(15, 12))
+    
+    sac_type = "Continuous SAC" if is_continuous else "Discrete SAC"
     
     # Plot training rewards
     plt.subplot(2, 3, 1)
     plt.plot(training_results['episode_rewards'], label='Training Reward', alpha=0.7)
     plt.xlabel('Episode')
     plt.ylabel('Cumulative Reward')
-    plt.title('SAC Learning Curve - Rewards')
+    plt.title(f'{sac_type} Learning Curve - Rewards')
     plt.legend()
     plt.grid(True, alpha=0.3)
     
@@ -79,59 +83,117 @@ def plot_sac_training_results(training_results: dict, ticker: str = "Stock", val
     plt.subplot(2, 3, 6)
     plt.axis('off')
     test_results = training_results['test_results']
-    summary_text = f"""SAC Test Results:
+    
+    # Add fees info for continuous SAC
+    fees_text = ""
+    if is_continuous and 'total_fees_paid' in test_results:
+        fees_text = f"\nTotal Fees: ${test_results['total_fees_paid']:.2f}"
+    
+    summary_text = f"""{sac_type} Test Results:
     
 Total Return: {test_results['total_return']:.2%}
 Sharpe Ratio: {test_results['sharpe_ratio']:.2f}
 Max Drawdown: {test_results['max_drawdown']:.2%}
 Win Rate: {test_results['win_rate']:.2%}
 Total Trades: {test_results['total_trades']}
-Invalid Actions: {test_results['invalid_actions']}
+Invalid Actions: {test_results['invalid_actions']}{fees_text}
 Final Value: ${test_results['final_value']:,.2f}"""
     
+    color = 'lightblue' if is_continuous else 'wheat'
     plt.text(0.1, 0.5, summary_text, fontsize=12, verticalalignment='center',
-             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+             bbox=dict(boxstyle='round', facecolor=color, alpha=0.5))
     
-    plt.suptitle(f'{ticker} SAC Training Results', fontsize=16)
+    plt.suptitle(f'{ticker} {sac_type} Training Results', fontsize=16)
     plt.tight_layout()
     
     return plt
 
 
-def plot_sac_backtest_results(test_results: dict, ticker: str = "Stock"):
+def plot_sac_backtest_results(test_results: dict, ticker: str = "Stock", is_continuous: bool = False):
     """
-    Visualize SAC backtesting results
+    Visualize SAC backtesting results (works for both discrete and continuous SAC)
     """
     portfolio_values = test_results['portfolio_values']
     price_history = test_results['price_history']
-    action_history = test_results['action_history']
     
-    plt.figure(figsize=(15, 10))
+    sac_type = "Continuous SAC" if is_continuous else "Discrete SAC"
     
-    # Plot stock price with buy/sell markers
-    plt.subplot(2, 1, 1)
-    plt.plot(price_history, label=f'{ticker} Price', linewidth=2, color='black', alpha=0.7)
+    # Determine how to handle actions based on SAC type
+    if is_continuous:
+        # For continuous SAC, we have action values and position history
+        action_history = test_results.get('action_history', [])
+        position_history = test_results.get('position_history', [])
+        
+        plt.figure(figsize=(15, 12))
+        
+        # Stock price
+        plt.subplot(2, 2, 1)
+        plt.plot(price_history, label=f'{ticker} Price', linewidth=2, color='black', alpha=0.7)
+        plt.xlabel('Trading Step')
+        plt.ylabel('Price ($)')
+        plt.title(f'{ticker} Price')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Continuous actions
+        plt.subplot(2, 2, 2)
+        if action_history:
+            plt.plot(action_history, label='Action Values', color='blue', alpha=0.7)
+            plt.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+            plt.axhline(y=0.5, color='green', linestyle=':', alpha=0.5, label='Strong Buy')
+            plt.axhline(y=-0.5, color='red', linestyle=':', alpha=0.5, label='Strong Sell')
+            plt.ylabel('Action Value')
+            plt.title('Continuous Actions (-1=Sell All, 0=Hold, +1=Buy Max)')
+            plt.ylim(-1.1, 1.1)
+            plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Position sizing
+        plt.subplot(2, 2, 3)
+        if position_history:
+            plt.plot([p * 100 for p in position_history], label='Position %', color='orange', linewidth=2)
+            plt.ylabel('Position (%)')
+            plt.title('Position Sizing Over Time')
+            plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Portfolio value vs buy-and-hold
+        plt.subplot(2, 2, 4)
+        
+    else:
+        # For discrete SAC, we have discrete action history
+        action_history = test_results.get('action_history', [])
+        
+        plt.figure(figsize=(15, 10))
+        
+        # Stock price with buy/sell markers
+        plt.subplot(2, 1, 1)
+        plt.plot(price_history, label=f'{ticker} Price', linewidth=2, color='black', alpha=0.7)
+        
+        # Mark buy and sell actions for discrete SAC
+        if action_history:
+            buy_indices = [i for i, a in enumerate(action_history) if a == 1]
+            sell_indices = [i for i, a in enumerate(action_history) if a == 2]
+            
+            if buy_indices:
+                plt.scatter(buy_indices, [price_history[i] for i in buy_indices], 
+                           color='green', marker='^', s=100, label='Buy', zorder=5)
+            if sell_indices:
+                plt.scatter(sell_indices, [price_history[i] for i in sell_indices], 
+                           color='red', marker='v', s=100, label='Sell', zorder=5)
+        
+        plt.xlabel('Trading Step')
+        plt.ylabel('Price ($)')
+        plt.title(f'{ticker} Price and {sac_type} Trading Actions')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Portfolio value vs buy-and-hold
+        plt.subplot(2, 1, 2)
     
-    # Mark buy and sell actions
-    buy_indices = [i for i, a in enumerate(action_history) if a == 1]
-    sell_indices = [i for i, a in enumerate(action_history) if a == 2]
-    
-    if buy_indices:
-        plt.scatter(buy_indices, [price_history[i] for i in buy_indices], 
-                   color='green', marker='^', s=100, label='Buy', zorder=5)
-    if sell_indices:
-        plt.scatter(sell_indices, [price_history[i] for i in sell_indices], 
-                   color='red', marker='v', s=100, label='Sell', zorder=5)
-    
-    plt.xlabel('Trading Step')
-    plt.ylabel('Price ($)')
-    plt.title(f'{ticker} Price and SAC Trading Actions')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # Plot portfolio value vs buy-and-hold
-    plt.subplot(2, 1, 2)
-    plt.plot(portfolio_values, label='SAC Strategy', linewidth=2, color='blue')
+    # Common portfolio comparison plot for both types
+    strategy_label = f'{sac_type} Strategy'
+    plt.plot(portfolio_values, label=strategy_label, linewidth=2, color='blue')
     
     # Calculate buy-and-hold strategy
     initial_balance = portfolio_values[0]
@@ -150,7 +212,7 @@ def plot_sac_backtest_results(test_results: dict, ticker: str = "Stock"):
     
     plt.xlabel('Trading Step')
     plt.ylabel('Portfolio Value ($)')
-    plt.title(f'Portfolio Value Comparison (SAC: {sac_return:.1f}%, B&H: {bh_return:.1f}%, Diff: {outperformance:+.1f}%)')
+    plt.title(f'Portfolio Value Comparison ({sac_type}: {sac_return:.1f}%, B&H: {bh_return:.1f}%, Diff: {outperformance:+.1f}%)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     
@@ -158,7 +220,7 @@ def plot_sac_backtest_results(test_results: dict, ticker: str = "Stock"):
     return plt
 
 
-def compare_strategies(sac_results: dict, dqn_results: dict = None, ticker: str = "Stock"):
+def compare_strategies(sac_results: dict, dqn_results: dict = None, ticker: str = "Stock", is_continuous: bool = False):
     """
     Compare SAC with other strategies if available
     """
@@ -167,9 +229,11 @@ def compare_strategies(sac_results: dict, dqn_results: dict = None, ticker: str 
     sac_portfolio = sac_results['portfolio_values']
     price_history = sac_results['price_history']
     
+    sac_label = "Continuous SAC" if is_continuous else "Discrete SAC"
+    
     # Plot portfolio values
     plt.subplot(2, 1, 1)
-    plt.plot(sac_portfolio, label='SAC Strategy', linewidth=2, color='blue')
+    plt.plot(sac_portfolio, label=f'{sac_label} Strategy', linewidth=2, color='blue')
     
     if dqn_results:
         dqn_portfolio = dqn_results.get('portfolio_values', [])
@@ -194,7 +258,7 @@ def compare_strategies(sac_results: dict, dqn_results: dict = None, ticker: str 
     sac_returns = np.diff(sac_portfolio) / sac_portfolio[:-1] * 100
     bh_returns = np.diff(buy_hold_values) / buy_hold_values[:-1] * 100
     
-    plt.plot(sac_returns, label='SAC Returns', alpha=0.7, color='blue')
+    plt.plot(sac_returns, label=f'{sac_label} Returns', alpha=0.7, color='blue')
     plt.plot(bh_returns, label='Buy & Hold Returns', alpha=0.7, color='gray')
     
     if dqn_results and 'portfolio_values' in dqn_results:
@@ -213,37 +277,71 @@ def compare_strategies(sac_results: dict, dqn_results: dict = None, ticker: str 
     return plt
 
 
-def main():
+def main(use_continuous_sac: bool = False):
+    """
+    Main training function with option to use continuous or discrete SAC
+    
+    Args:
+        use_continuous_sac: If True, use continuous SAC with position sizing.
+                           If False, use discrete SAC with binary actions.
+    """
     # Configuration
     ticker = 'NVDA'
     data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
     
-    # Create results directory
-    models_dir = MODELS_DIR / 'sac'
-    results_dir = RESULTS_DIR / 'sac'
+    # Create directories
+    sac_type_folder = 'continuous_sac' if use_continuous_sac else 'sac'
+    models_dir = MODELS_DIR / sac_type_folder
+    results_dir = RESULTS_DIR / sac_type_folder
     create_directory(models_dir)
     create_directory(results_dir)
     
     # Preprocessor save path
-    preprocessor_path = models_dir / f'preprocessor_sac_{ticker}.pkl'
+    preprocessor_prefix = 'continuous_sac' if use_continuous_sac else 'sac'
+    preprocessor_path = models_dir / f'preprocessor_{preprocessor_prefix}_{ticker}.pkl'
     
-    print(f"Starting SAC training for {ticker}...")
+    sac_type_name = "Continuous SAC" if use_continuous_sac else "Discrete SAC"
+    print(f"Starting {sac_type_name} training for {ticker}...")
     print("="*50)
     
-    cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
+    if use_continuous_sac:
+        print("🔥 Using Continuous SAC with Position Sizing")
+        print("   → Actions: [-1, 1] for granular position control")
+        print("   → Benefit: Sophisticated risk management and capital utilization")
+    else:
+        print("⚡ Using Discrete SAC with Binary Actions")
+        print("   → Actions: [Hold, Buy, Sell] for simple trading decisions")
+        print("   → Benefit: Straightforward and interpretable actions")
     
-    # Train SAC agent
-    training_results = train_sac(
-        data_path=data_path,
-        cutoff=cutoff,
-        num_episodes=100,  # SAC typically needs more episodes
-        save_interval=50,
-        early_stopping_patience=15,
-        use_preprocessing=True,
-        scaling_method='robust',
-        outlier_method='winsorize',
-        preprocessor_save_path=str(preprocessor_path)
-    )
+    print()
+    
+    cutoff = pd.Timestamp('2025-05-05 08:00:00', tz='UTC')
+    
+    # Train SAC agent (discrete or continuous)
+    if use_continuous_sac:
+        training_results = train_continuous_sac(
+            data_path=data_path,
+            cutoff=cutoff,
+            num_episodes=100,
+            save_interval=50,
+            early_stopping_patience=15,
+            use_preprocessing=True,
+            scaling_method='robust',
+            outlier_method='winsorize',
+            preprocessor_save_path=str(preprocessor_path)
+        )
+    else:
+        training_results = train_sac(
+            data_path=data_path,
+            cutoff=cutoff,
+            num_episodes=100,
+            save_interval=50,
+            early_stopping_patience=15,
+            use_preprocessing=True,
+            scaling_method='robust',
+            outlier_method='winsorize',
+            preprocessor_save_path=str(preprocessor_path)
+        )
     
     # Get dates
     start_date = training_results['start_date']
@@ -253,17 +351,20 @@ def main():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     # Plot and save training results
-    print("\nGenerating SAC training plots...")
-    training_plot = plot_sac_training_results(training_results, ticker=ticker, validation_frequency=EVALUATE_INTERVAL)
-    training_filename = results_dir / f'sac_{ticker}_{timestamp}_training.png'
+    print(f"\nGenerating {sac_type_name} training plots...")
+    training_plot = plot_sac_training_results(training_results, ticker=ticker, 
+                                            validation_frequency=EVALUATE_INTERVAL, 
+                                            is_continuous=use_continuous_sac)
+    training_filename = results_dir / f'{sac_type_folder}_{ticker}_{timestamp}_training.png'
     training_plot.savefig(training_filename, dpi=150, bbox_inches='tight')
     print(f"Training results saved to: {training_filename}")
     plt.close()
     
     # Plot and save backtest results
-    print("\nGenerating SAC backtest plots...")
-    backtest_plot = plot_sac_backtest_results(training_results['test_results'], ticker=ticker)
-    backtest_filename = results_dir / f'sac_{ticker}_{timestamp}_backtest.png'
+    print(f"\nGenerating {sac_type_name} backtest plots...")
+    backtest_plot = plot_sac_backtest_results(training_results['test_results'], ticker=ticker, 
+                                            is_continuous=use_continuous_sac)
+    backtest_filename = results_dir / f'{sac_type_folder}_{ticker}_{timestamp}_backtest.png'
     backtest_plot.savefig(backtest_filename, dpi=150, bbox_inches='tight')
     print(f"Backtest results saved to: {backtest_filename}")
     plt.close()
@@ -271,7 +372,7 @@ def main():
     # Print summary
     test_results = training_results['test_results']
     print("\n" + "="*50)
-    print("SAC TEST RESULTS SUMMARY")
+    print(f"{sac_type_name.upper()} TEST RESULTS SUMMARY")
     print("="*50)
     print(f"Ticker: {ticker}")
     print(f"Initial Balance: ${INITIAL_BALANCE:,.2f}")
@@ -284,10 +385,28 @@ def main():
     print(f"Losing Trades: {test_results['losing_trades']}")
     print(f"Win Rate: {test_results['win_rate']:.2%}")
     print(f"Invalid Actions: {test_results['invalid_actions']}")
+    
+    # Additional info for continuous SAC
+    if use_continuous_sac and 'total_fees_paid' in test_results:
+        print(f"Total Fees Paid: ${test_results['total_fees_paid']:.2f}")
+        fee_impact = test_results['total_fees_paid'] / INITIAL_BALANCE * 100
+        print(f"Fee Impact: {fee_impact:.2%} of initial capital")
+        
+        # Position sizing analysis
+        if 'action_history' in test_results and 'position_history' in test_results:
+            action_history = test_results['action_history']
+            position_history = test_results['position_history']
+            
+            if action_history and position_history:
+                print(f"\nPosition Sizing Analysis:")
+                print(f"  Action Range: {min(action_history):.3f} to {max(action_history):.3f}")
+                print(f"  Position Range: {min(position_history):.1%} to {max(position_history):.1%}")
+                print(f"  Average Position: {np.mean(position_history):.1%}")
+    
     print("="*50)
     
     # Save to database
-    print("\nSaving SAC results to database...")
+    print(f"\nSaving {sac_type_name} results to database...")
     db_info = {
         'backtest_date': datetime.now(timezone.utc),
         'start_date': start_date,
@@ -306,11 +425,11 @@ def main():
     
     # Save to database
     model_id, model_path, model_dir = save_backtest_results_to_db(ModelType.SAC, ticker, db_info)
-    print(f"SAC model saved to database with ID: {model_id}")
+    print(f"{sac_type_name} model saved to database with ID: {model_id}")
     print(f"Model directory: {model_dir}")
     
     # Save the trained model
-    print(f"\nSaving trained SAC model to: {model_path}")
+    print(f"\nSaving trained {sac_type_name} model to: {model_path}")
     training_results['agent'].save(model_path)
     
     # Save preprocessor
@@ -336,9 +455,38 @@ def main():
         preprocessor_path.unlink()
         print(f"Cleaned up temporary preprocessor file")
     
-    print(f"\nAll SAC results saved to: {model_dir}")
-    print("SAC training complete!")
+    print(f"\nAll {sac_type_name} results saved to: {model_dir}")
+    print(f"{sac_type_name} training complete!")
+    
+    return training_results
 
 
 if __name__ == "__main__":
-    main() 
+    import sys
+    
+    # Check command line arguments for SAC type
+    use_continuous = False
+    if len(sys.argv) > 1:
+        if sys.argv[1].lower() in ['continuous', 'cont', 'c', 'true']:
+            use_continuous = True
+        elif sys.argv[1].lower() in ['discrete', 'disc', 'd', 'false']:
+            use_continuous = False
+        else:
+            print("Usage: python trainer.py [continuous|discrete]")
+            print("  continuous: Use Continuous SAC with position sizing")
+            print("  discrete:   Use Discrete SAC with binary actions (default)")
+            sys.exit(1)
+    
+    print("SAC Trainer - Choose Your Action Space!")
+    print("="*45)
+    
+    if use_continuous:
+        print("🎯 Selected: Continuous SAC")
+        print("   Perfect for: Sophisticated position management")
+    else:
+        print("⚡ Selected: Discrete SAC")
+        print("   Perfect for: Simple and interpretable trading")
+    
+    print()
+    
+    main(use_continuous_sac=use_continuous) 
