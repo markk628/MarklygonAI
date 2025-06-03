@@ -63,7 +63,7 @@ class TradingConfig:
     num_hidden_layers: int = 3
     
     # Features
-    num_stock_features: int = 39
+    num_stock_features: int = len(STOCK_FEATURES)
     num_portfolio_features: int = 8
     num_features: int = num_stock_features + num_portfolio_features 
     window_size: int = WINDOW_SIZE  # WINDOW_SIZE minutes of historical data
