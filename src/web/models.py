@@ -107,7 +107,6 @@ class TradingSession(db.Model):
     return_rate: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     max_drawdown: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     sharpe_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    calmar_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     invalid_actions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     trades: Mapped[List["TradeHistory"]] = relationship(

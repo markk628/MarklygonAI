@@ -163,15 +163,17 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock"):
 
 def main():
     # Configuration
-    ticker = 'TSLA'  # Change to your stock ticker
+    ticker = 'GS'  # Change to your stock ticker
     data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
     
     # Create results directory if it doesn't exist
-    results_dir = MODELS_DIR / 'dqn_v2'
+    models_dir = MODELS_DIR / 'dqn_v2'
+    results_dir = RESULTS_DIR / 'dqn_v2'
+    create_directory(models_dir)
     create_directory(results_dir)
     
     # Preprocessor save path
-    preprocessor_path = results_dir / f'preprocessor_{ticker}.pkl'
+    preprocessor_path = models_dir / f'preprocessor_{ticker}.pkl'
     
     # Train the agent with validation
     print(f"Starting DQN training for {ticker}...")

@@ -3,198 +3,200 @@
 {% block title %}대시보드 & 포트폴리오 - MarklygonAI{% endblock %}
 
 {% block content %}
-<div class="min-h-screen p-6 space-y-8 relative z-10">
-    <!-- Header -->
-    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-        <div class="flex items-center justify-between">
-            <div>
-                <h1 class="text-4xl font-bold obsidian-text mb-2">환영합니다, {{ current_user.username }}님!</h1>
-                <p class="text-gray-300">대시보드 & 포트폴리오 - AI 트레이딩 통합 관리</p>
-            </div>
-            <div class="w-20 h-20 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
-                <svg class="icon-2xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                </svg>
-            </div>
-        </div>
-    </div>
-
-    <!-- Key Metrics Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+<div class="min-h-screen relative z-10">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl py-6 space-y-8">
+        <!-- Header -->
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-400">총 포트폴리오</p>
-                    <p class="text-3xl font-bold obsidian-text" id="total-portfolio">-</p>
+                    <h1 class="text-4xl font-bold obsidian-text mb-2">환영합니다, {{ current_user.username }}님!</h1>
+                    <p class="text-gray-300">대시보드 & 포트폴리오 - AI 트레이딩 통합 관리</p>
                 </div>
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                <div class="w-20 h-20 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-2xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-400">총 포트폴리오</p>
+                        <p class="text-3xl font-bold obsidian-text" id="total-portfolio">-</p>
+                    </div>
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                        <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center mt-3">
+                    <span class="text-lg font-medium" id="total-change">-</span>
+                    <span class="text-sm text-gray-500 ml-2" id="total-change-percent">-</span>
+                </div>
+            </div>
+
+            <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-400">총 수익률</p>
+                        <p class="text-3xl font-bold" id="total-return">-</p>
+                    </div>
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                        <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center mt-3">
+                    <span class="text-lg font-medium" id="return-label">평균 수익률</span>
+                </div>
+            </div>
+
+            <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-400">활성 모델</p>
+                        <p class="text-3xl font-bold obsidian-text" id="active-models">-</p>
+                    </div>
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                        <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center mt-3">
+                    <span class="text-lg font-medium text-yellow-400" id="models-label">AI 트레이딩 모델</span>
+                </div>
+            </div>
+
+            <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-gray-400">승률</p>
+                        <p class="text-3xl font-bold text-purple-400" id="win-rate">-</p>
+                    </div>
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                        <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="flex items-center mt-3">
+                    <span class="text-lg font-medium text-purple-400">평균 승률</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Models Performance -->
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold obsidian-text">AI 모델 성과</h2>
+                <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="models-grid">
+                <!-- Model cards will be dynamically added here -->
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Portfolio Performance Chart -->
+            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold obsidian-text">포트폴리오 성과</h2>
                     <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+                <canvas id="portfolioChart" width="400" height="200"></canvas>
+            </div>
+
+            <!-- Ticker Distribution Chart -->
+            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold obsidian-text">종목별 분포</h2>
+                    <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path>
+                    </svg>
+                </div>
+                <canvas id="tickerChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Holdings and Activity -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Current Holdings / Recent Trades -->
+            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold obsidian-text" id="holdings-title">현재 보유 종목</h2>
+                    <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
                     </svg>
                 </div>
+                <div class="obsidian-table rounded-lg overflow-hidden">
+                    <table class="w-full">
+                        <thead id="holdings-header">
+                            <tr>
+                                <th class="px-4 py-3 text-left">종목</th>
+                                <th class="px-4 py-3 text-right">수량</th>
+                                <th class="px-4 py-3 text-right">현재가</th>
+                                <th class="px-4 py-3 text-right">손익</th>
+                            </tr>
+                        </thead>
+                        <tbody id="holdings-data">
+                            <!-- Holdings or backtest results will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            <div class="flex items-center mt-3">
-                <span class="text-lg font-medium" id="total-change">-</span>
-                <span class="text-sm text-gray-500 ml-2" id="total-change-percent">-</span>
-            </div>
-        </div>
 
-        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-medium text-gray-400">총 수익률</p>
-                    <p class="text-3xl font-bold" id="total-return">-</p>
-                </div>
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
-                    <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                    </svg>
-                </div>
-            </div>
-            <div class="flex items-center mt-3">
-                <span class="text-lg font-medium" id="return-label">평균 수익률</span>
-            </div>
-        </div>
-
-        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-medium text-gray-400">활성 모델</p>
-                    <p class="text-3xl font-bold obsidian-text" id="active-models">-</p>
-                </div>
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
-                    <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
-                    </svg>
-                </div>
-            </div>
-            <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-yellow-400" id="models-label">AI 트레이딩 모델</span>
-            </div>
-        </div>
-
-        <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-medium text-gray-400">승률</p>
-                    <p class="text-3xl font-bold text-purple-400" id="win-rate">-</p>
-                </div>
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+            <!-- Account Summary / Model Summary -->
+            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold obsidian-text" id="summary-title">계좌 요약</h2>
                     <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
                     </svg>
                 </div>
+                <div class="space-y-4" id="account-summary">
+                    <!-- Account or model summary will be dynamically added here -->
+                </div>
             </div>
-            <div class="flex items-center mt-3">
-                <span class="text-lg font-medium text-purple-400">평균 승률</span>
-            </div>
         </div>
-    </div>
 
-    <!-- AI Models Performance -->
-    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-2xl font-bold obsidian-text">AI 모델 성과</h2>
-            <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-            </svg>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="models-grid">
-            <!-- Model cards will be dynamically added here -->
-        </div>
-    </div>
-
-    <!-- Charts Section -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Portfolio Performance Chart -->
-        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+        <!-- Recent Orders Section (Alpaca Only) -->
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800 hidden" id="recent-orders-section">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">포트폴리오 성과</h2>
+                <h2 class="text-2xl font-bold obsidian-text">최근 주문 내역</h2>
                 <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                </svg>
-            </div>
-            <canvas id="portfolioChart" width="400" height="200"></canvas>
-        </div>
-
-        <!-- Ticker Distribution Chart -->
-        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">종목별 분포</h2>
-                <svg class="icon-lg text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path>
-                </svg>
-            </div>
-            <canvas id="tickerChart" width="400" height="200"></canvas>
-        </div>
-    </div>
-
-    <!-- Holdings and Activity -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Current Holdings / Recent Trades -->
-        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text" id="holdings-title">현재 보유 종목</h2>
-                <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                 </svg>
             </div>
             <div class="obsidian-table rounded-lg overflow-hidden">
                 <table class="w-full">
-                    <thead id="holdings-header">
+                    <thead>
                         <tr>
                             <th class="px-4 py-3 text-left">종목</th>
+                            <th class="px-4 py-3 text-left">타입</th>
                             <th class="px-4 py-3 text-right">수량</th>
-                            <th class="px-4 py-3 text-right">현재가</th>
-                            <th class="px-4 py-3 text-right">손익</th>
+                            <th class="px-4 py-3 text-right">가격</th>
+                            <th class="px-4 py-3 text-center">상태</th>
+                            <th class="px-4 py-3 text-center">시간</th>
                         </tr>
                     </thead>
-                    <tbody id="holdings-data">
-                        <!-- Holdings or backtest results will be dynamically added here -->
+                    <tbody id="recent-orders">
+                        <!-- Recent orders will be dynamically added here -->
                     </tbody>
                 </table>
             </div>
-        </div>
-
-        <!-- Account Summary / Model Summary -->
-        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text" id="summary-title">계좌 요약</h2>
-                <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                </svg>
-            </div>
-            <div class="space-y-4" id="account-summary">
-                <!-- Account or model summary will be dynamically added here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Orders Section (Alpaca Only) -->
-    <div class="obsidian-card rounded-lg p-6 border border-gray-800 hidden" id="recent-orders-section">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-2xl font-bold obsidian-text">최근 주문 내역</h2>
-            <svg class="icon-lg text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-            </svg>
-        </div>
-        <div class="obsidian-table rounded-lg overflow-hidden">
-            <table class="w-full">
-                <thead>
-                    <tr>
-                        <th class="px-4 py-3 text-left">종목</th>
-                        <th class="px-4 py-3 text-left">타입</th>
-                        <th class="px-4 py-3 text-right">수량</th>
-                        <th class="px-4 py-3 text-right">가격</th>
-                        <th class="px-4 py-3 text-center">상태</th>
-                        <th class="px-4 py-3 text-center">시간</th>
-                    </tr>
-                </thead>
-                <tbody id="recent-orders">
-                    <!-- Recent orders will be dynamically added here -->
-                </tbody>
-            </table>
         </div>
     </div>
 </div>
@@ -917,4 +919,6 @@ function formatOrderTime(timeString) {
     }
 }
 </script>
+    </div>
+</div>
 {% endblock %}

@@ -117,7 +117,6 @@ class DQNTrainer:
                 return_rate=return_rate,
                 max_drawdown=info['max_drawdown'],
                 sharpe_ratio=info['sharpe_ratio'],
-                calmar_ratio=info['calmar_ratio'],
                 invalid_actions=info['invalid_actions'],
             )
 
@@ -495,7 +494,6 @@ class DQNTrainer:
         print(f"Return Rate: {info['return_rate']:.4f} ({info['return_rate']*100:.4f}%)")
         print(f"Max Drawdown: {info['max_drawdown']:.4f} ({info['max_drawdown']*100:.2f}%)")
         print(f"Sharpe Ratio: {info['sharpe_ratio']:.4f}")
-        print(f"Calmar Ratio: {info['calmar_ratio']:.4f}")
         print(f"Invalid Actions: {info['invalid_actions']}")
         print(f"winning Trades: {info['winning_trades']}")
         print(f"losing Trades: {info['losing_trades']}")

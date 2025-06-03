@@ -7,6 +7,11 @@ from sqlalchemy import desc
 import json
 import random
 import os
+import signal
+import sys
+import atexit
+import threading
+from sqlalchemy import func
 
 from src.web.models import *
 from src.config.config import DATABASE_WEB
@@ -25,10 +30,41 @@ login_manager.login_view = 'login'
 def load_user(user_id):
     return Profile.query.get(int(user_id))
 
+@app.context_processor
+def inject_global_stats():
+    """Make statistics available to all templates"""
+    # Get model count
+    model_count = MarklygonModel.query.count()
+    
+    # Get unique ticker count
+    unique_tickers = db.session.query(MarklygonModel.ticker).distinct().count()
+    
+    # Calculate average return rate using SQL aggregation
+    avg_return_rate_result = db.session.query(func.avg(BacktestHistory.return_rate)).scalar()
+    avg_return_rate = float(avg_return_rate_result) if avg_return_rate_result else 0.0
+    
+    return dict(
+        global_model_count=model_count,
+        global_unique_tickers=unique_tickers,
+        global_avg_return_rate=avg_return_rate
+    )
+
 # Routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Get statistics from database
+    model_count = MarklygonModel.query.count()
+    
+    # Calculate average return rate from all backtests
+    backtests = BacktestHistory.query.all()
+    if backtests:
+        avg_return_rate = sum(bt.return_rate for bt in backtests) / len(backtests)
+    else:
+        avg_return_rate = 0.0
+    
+    return render_template('index.html', 
+                         model_count=model_count,
+                         avg_return_rate=avg_return_rate)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -161,6 +197,54 @@ def trading():
 
 # Global dictionary to track active trading bots
 active_trading_bots = {}
+
+def cleanup_trading_bots():
+    """Gracefully stop all active trading bots"""
+    if not active_trading_bots:
+        return
+        
+    print("\n🛑 Shutting down active trading bots...")
+    
+    # Import time here to avoid issues
+    import time
+    
+    for model_id, bot_info in list(active_trading_bots.items()):
+        try:
+            print(f"  Stopping bot for model {model_id}...")
+            bot = bot_info['bot']
+            thread = bot_info['thread']
+            
+            # Try to stop the bot gracefully
+            try:
+                bot.is_running = False  # Signal the bot to stop
+                bot.stop()  # Call stop method
+            except Exception as e:
+                print(f"  Warning: Error calling stop method: {e}")
+            
+            # Give the thread a moment to finish
+            thread.join(timeout=2.0)  # Wait up to 2 seconds
+            
+            if thread.is_alive():
+                print(f"  ⚠️  Bot for model {model_id} did not stop cleanly")
+            else:
+                print(f"  ✓ Bot for model {model_id} stopped successfully")
+                
+        except Exception as e:
+            print(f"  ✗ Error stopping bot for model {model_id}: {e}")
+    
+    active_trading_bots.clear()
+    print("Trading bot cleanup completed.\n")
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    print(f"\n📌 Received signal {signum}")
+    cleanup_trading_bots()
+    sys.exit(0)
+
+# Register cleanup handlers
+signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
+atexit.register(cleanup_trading_bots)  # Normal exit
 
 # API Routes
 @app.route('/api/models')
@@ -349,6 +433,61 @@ def api_user_profile():
     elif request.method == 'POST':
         return jsonify({'status': 'success', 'message': 'Profile updated successfully'})
 
+@app.route('/api/user/statistics')
+@login_required
+def api_user_statistics():
+    """Get user statistics from all trading sessions"""
+    from sqlalchemy import func
+    
+    # Query all trading sessions
+    sessions = TradingSession.query.all()
+    
+    if not sessions:
+        # Return default values if no sessions
+        return jsonify({
+            'total_trades': 0,
+            'win_rate': 0.0,
+            'total_profit': 0.0,
+            'activity_days': 0
+        })
+    
+    # Calculate total trades
+    total_trades = sum(session.total_trades for session in sessions)
+    
+    # Calculate average win rate
+    # Only count sessions with trades
+    sessions_with_trades = [s for s in sessions if s.total_trades > 0]
+    if sessions_with_trades:
+        total_winning_trades = sum(s.winning_trades for s in sessions_with_trades)
+        total_trades_for_rate = sum(s.total_trades for s in sessions_with_trades)
+        avg_win_rate = (total_winning_trades / total_trades_for_rate * 100) if total_trades_for_rate > 0 else 0
+    else:
+        avg_win_rate = 0.0
+    
+    # Calculate total profit
+    total_profit = sum(session.net_profit for session in sessions)
+    
+    # Calculate activity days (sum of session durations)
+    total_activity_seconds = 0
+    for session in sessions:
+        if session.end_time:
+            duration = (session.end_time - session.start_time).total_seconds()
+            total_activity_seconds += duration
+        else:
+            # If session is still active, calculate duration until now
+            duration = (datetime.now(timezone.utc) - session.start_time).total_seconds()
+            total_activity_seconds += duration
+    
+    # Convert seconds to days
+    activity_days = total_activity_seconds / (24 * 3600)
+    
+    return jsonify({
+        'total_trades': total_trades,
+        'win_rate': round(avg_win_rate, 1),
+        'total_profit': float(total_profit),
+        'activity_days': round(activity_days, 1)
+    })
+
 @app.route('/api/models-with-backtests')
 @login_required
 def api_models_with_backtests():
@@ -383,7 +522,6 @@ def api_models_with_backtests():
 @login_required
 def api_start_trading():
     """Start paper trading with a selected model"""
-    import threading
     import traceback
     
     try:
@@ -407,7 +545,7 @@ def api_start_trading():
         # Create and start trading bot
         bot = PaperTradingBot(model_id, initial_balance, max_position_size)
         
-        # Run bot in a separate thread
+        # Run bot in a separate thread (daemon thread)
         thread = threading.Thread(target=bot.start, daemon=True)
         thread.start()
         

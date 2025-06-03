@@ -3,71 +3,73 @@
 {% block title %}거래 - MarklygonAI{% endblock %}
 
 {% block content %}
-<div class="min-h-screen p-6 space-y-8 relative z-10">
-    <!-- Header -->
-    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-        <div class="flex items-center justify-between">
-            <div>
-                <h1 class="text-3xl font-bold obsidian-text mb-2">Paper Trading</h1>
-                <p class="text-gray-300">백테스트 완료된 모델로 실시간 페이퍼 트레이딩 시작</p>
-            </div>
-            <div class="w-20 h-20 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
-                <svg class="icon-2xl text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                </svg>
+<div class="min-h-screen relative z-10">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl py-6 space-y-8">
+        <!-- Header -->
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold obsidian-text mb-2">Paper Trading</h1>
+                    <p class="text-gray-300">백테스트 완료된 모델로 실시간 페이퍼 트레이딩 시작</p>
+                </div>
+                <div class="w-20 h-20 obsidian-card rounded-full flex items-center justify-center border border-gray-700">
+                    <svg class="icon-2xl text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                    </svg>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Active Trading Sessions -->
-    <div id="active-sessions-container" class="hidden">
+        <!-- Active Trading Sessions -->
+        <div id="active-sessions-container" class="hidden">
+            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-bold obsidian-text">활성 트레이딩 세션</h2>
+                    <svg class="icon-lg text-yellow-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                </div>
+                <div id="active-sessions" class="space-y-4">
+                    <!-- Active sessions will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Models -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">활성 트레이딩 세션</h2>
-                <svg class="icon-lg text-yellow-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                </svg>
+                <h2 class="text-2xl font-bold obsidian-text">사용 가능한 모델</h2>
+                <div class="flex items-center space-x-4">
+                    <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="model-filter">
+                        <option value="">모든 모델</option>
+                        <option value="DQN">DQN</option>
+                        <option value="SAC">SAC</option>
+                    </select>
+                    <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="ticker-filter">
+                        <option value="">모든 자산</option>
+                    </select>
+                </div>
             </div>
-            <div id="active-sessions" class="space-y-4">
-                <!-- Active sessions will be added here dynamically -->
+            
+            <div class="obsidian-table rounded-lg overflow-hidden">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-3 text-left">모델 정보</th>
+                            <th class="px-4 py-3 text-left">자산</th>
+                            <th class="px-4 py-3 text-right">백테스트 수익률</th>
+                            <th class="px-4 py-3 text-right">샤프 비율</th>
+                            <th class="px-4 py-3 text-right">최대 낙폭</th>
+                            <th class="px-4 py-3 text-right">승률</th>
+                            <th class="px-4 py-3 text-center">상태</th>
+                            <th class="px-4 py-3 text-center">액션</th>
+                        </tr>
+                    </thead>
+                    <tbody id="model-list">
+                        <!-- Model rows will be dynamically added here -->
+                    </tbody>
+                </table>
             </div>
-        </div>
-    </div>
-
-    <!-- Available Models -->
-    <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-        <div class="flex items-center justify-between mb-6">
-            <h2 class="text-2xl font-bold obsidian-text">사용 가능한 모델</h2>
-            <div class="flex items-center space-x-4">
-                <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="model-filter">
-                    <option value="">모든 모델</option>
-                    <option value="DQN">DQN</option>
-                    <option value="SAC">SAC</option>
-                </select>
-                <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="ticker-filter">
-                    <option value="">모든 자산</option>
-                </select>
-            </div>
-        </div>
-        
-        <div class="obsidian-table rounded-lg overflow-hidden">
-            <table class="w-full">
-                <thead>
-                    <tr>
-                        <th class="px-4 py-3 text-left">모델 정보</th>
-                        <th class="px-4 py-3 text-left">자산</th>
-                        <th class="px-4 py-3 text-right">백테스트 수익률</th>
-                        <th class="px-4 py-3 text-right">샤프 비율</th>
-                        <th class="px-4 py-3 text-right">최대 낙폭</th>
-                        <th class="px-4 py-3 text-right">승률</th>
-                        <th class="px-4 py-3 text-center">상태</th>
-                        <th class="px-4 py-3 text-center">액션</th>
-                    </tr>
-                </thead>
-                <tbody id="model-list">
-                    <!-- Model rows will be dynamically added here -->
-                </tbody>
-            </table>
         </div>
     </div>
 </div>
