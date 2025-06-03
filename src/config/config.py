@@ -114,7 +114,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #                      'quarter', 'quarter_sin', 'quarter_cos',
 #                      'time_since_last_significant_change']
 
-CORE_FEATURES = ['open', 'high', 'low', 'close', 'transactions', 'volume', 'vwap']
+CORE_FEATURES = ['open', 'high', 'low', 'close', 'volume', 'vwap']
 AUXILIARY_FEATURES = [
     'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 
     'rsi_14_1min', 
@@ -137,7 +137,7 @@ STOCK_FEATURES = CORE_FEATURES + AUXILIARY_FEATURES + FILTERED_TEMPORAL_FEATURES
 
 # dqn v2
 PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
-VOLUME_FEATURES = ['volume', 'transactions']
+VOLUME_FEATURES = ['volume']
 TECHNICAL_FEATURES = [
     'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 'rsi_14_1min',
     'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min',
