@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MarklygonAI - Deep Learning Trading Platform{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Heroicons (SVG Icons) -->
+    <script src="https://unpkg.com/heroicons@2.0.18/24/outline/index.js"></script>
+    
+    <!-- Custom CSS -->
+    <style>
+        /* Obsidian Black Theme */
+        body {
+            background: #000000;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(120, 119, 198, 0.05) 0%, transparent 50%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+        
+        /* Parallax Background */
+        .parallax-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 25% 25%, rgba(30, 30, 60, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(60, 30, 60, 0.3) 0%, transparent 50%),
+                linear-gradient(45deg, #000000 0%, #0a0a0a 50%, #000000 100%);
+            z-index: -2;
+            animation: parallaxFloat 20s ease-in-out infinite;
+        }
+        
+        .parallax-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 60% 40%, rgba(100, 50, 150, 0.05) 0%, transparent 70%),
+                radial-gradient(circle at 40% 60%, rgba(50, 100, 150, 0.05) 0%, transparent 70%);
+            z-index: -1;
+            animation: parallaxFloat 15s ease-in-out infinite reverse;
+        }
+        
+        @keyframes parallaxFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            33% { transform: translateY(-10px) rotate(1deg); }
+            66% { transform: translateY(5px) rotate(-1deg); }
+        }
+        
+        .obsidian-bg {
+            background: linear-gradient(135deg, #000000 0%, #0a0a0a 25%, #000000 50%, #0a0a0a 75%, #000000 100%);
+            background-size: 400% 400%;
+            animation: obsidianShine 8s ease-in-out infinite;
+        }
+        
+        @keyframes obsidianShine {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        
+        .obsidian-card {
+            background: linear-gradient(145deg, #0a0a0a, #000000);
+            border: 1px solid #1a1a1a;
+            box-shadow: 
+                inset 0 1px 0 rgba(255, 255, 255, 0.03),
+                0 8px 16px rgba(0, 0, 0, 0.8),
+                0 0 30px rgba(100, 50, 150, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .obsidian-button {
+            background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+            border: 1px solid #2a2a2a;
+            color: #e0e0e0;
+            transition: all 0.4s ease;
+            box-shadow: 
+                inset 0 1px 0 rgba(255, 255, 255, 0.05),
+                0 4px 8px rgba(0, 0, 0, 0.6);
+        }
+        
+        .obsidian-button:hover {
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+            box-shadow: 
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                0 4px 12px rgba(0, 0, 0, 0.8),
+                0 0 25px rgba(100, 50, 150, 0.15);
+            transform: translateY(-2px);
+        }
+        
+        .obsidian-input {
+            background: linear-gradient(145deg, #0a0a0a, #000000);
+            border: 1px solid #1a1a1a;
+            color: #e0e0e0;
+            transition: all 0.4s ease;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+        }
+        
+        .obsidian-input:focus {
+            outline: none;
+            border-color: #2a2a2a;
+            box-shadow: 
+                inset 0 2px 4px rgba(0, 0, 0, 0.8),
+                0 0 15px rgba(100, 50, 150, 0.3);
+        }
+        
+        .obsidian-text {
+            background: linear-gradient(45deg, #f0f0f0, #d0d0d0, #f0f0f0);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: obsidianTextShine 4s ease-in-out infinite;
+        }
+        
+        @keyframes obsidianTextShine {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        
+        .card-hover {
+            transition: all 0.4s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 
+                inset 0 1px 0 rgba(255, 255, 255, 0.08),
+                0 12px 24px rgba(0, 0, 0, 0.9),
+                0 0 40px rgba(100, 50, 150, 0.2);
+        }
+        
+        .nav-link {
+            transition: all 0.4s ease;
+            color: #e0e0e0;
+        }
+        
+        .nav-link:hover {
+            background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+            border-radius: 0.5rem;
+            color: #ffffff;
+            box-shadow: 
+                inset 0 1px 0 rgba(255, 255, 255, 0.05),
+                0 0 15px rgba(100, 50, 150, 0.3);
+        }
+        
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(145deg, #2a2a2a, #1a1a1a);
+        }
+        
+        /* SVG Icon Sizes */
+        .icon-xs { width: 12px; height: 12px; }
+        .icon-sm { width: 16px; height: 16px; }
+        .icon-md { width: 20px; height: 20px; }
+        .icon-lg { width: 24px; height: 24px; }
+        .icon-xl { width: 32px; height: 32px; }
+        .icon-2xl { width: 40px; height: 40px; }
+        .icon-3xl { width: 48px; height: 48px; }
+        
+        /* Chart and Statistics Colors for Obsidian Theme */
+        .chart-primary { color: #8b5cf6; }
+        .chart-secondary { color: #06b6d4; }
+        .chart-success { color: #10b981; }
+        .chart-warning { color: #f59e0b; }
+        .chart-danger { color: #ef4444; }
+        .chart-info { color: #3b82f6; }
+        
+        /* Progress Bar Obsidian Style */
+        .progress-bar {
+            background: linear-gradient(145deg, #0a0a0a, #000000);
+            border: 1px solid #1a1a1a;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(90deg, #8b5cf6, #06b6d4);
+            height: 100%;
+            transition: width 0.5s ease;
+            border-radius: 0.25rem;
+        }
+        
+        /* Table Obsidian Style */
+        .obsidian-table {
+            background: linear-gradient(145deg, #0a0a0a, #000000);
+            border: 1px solid #1a1a1a;
+            border-radius: 0.5rem;
+        }
+        
+        .obsidian-table th {
+            background: linear-gradient(145deg, #1a1a1a, #0a0a0a);
+            border-bottom: 1px solid #2a2a2a;
+            color: #e0e0e0;
+            font-weight: 600;
+        }
+        
+        .obsidian-table td {
+            border-bottom: 1px solid #1a1a1a;
+            color: #d0d0d0;
+        }
+        
+        .obsidian-table tr:hover {
+            background: linear-gradient(145deg, #1a1a1a, #0f0f0f);
+        }
+        
+        /* Flash Messages Obsidian Style */
+        .alert {
+            animation: slideInDown 0.5s ease-out;
+        }
+        
+        @keyframes slideInDown {
+            from {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Auth Pages Background Fix */
+        .auth-page {
+            background: #000000;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(120, 119, 198, 0.08) 0%, transparent 50%);
+            min-height: 100vh;
+        }
+        }
+        
+        .metallic-input:focus {
+            border-color: #606060;
+            box-shadow: 
+                inset 0 2px 4px rgba(0, 0, 0, 0.3),
+                0 0 10px rgba(255, 255, 255, 0.1);
+            outline: none;
+        }
+    </style>
+</head>
+<body class="obsidian-bg min-h-screen">
+    <!-- Parallax Background Layers -->
+    <div class="parallax-bg"></div>
+    <div class="parallax-layer"></div>
+    
+    <!-- Navigation -->
+    <nav class="obsidian-card shadow-2xl border-b border-gray-800 relative z-10">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="{{ url_for('index') }}" class="flex items-center">
+                        <span class="text-2xl font-bold metallic-text">MarklygonAI</span>
+                    </a>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    {% if current_user.is_authenticated %}
+                        <a href="{{ url_for('dashboard') }}" class="nav-link px-3 py-2">대시보드 & 포트폴리오</a>
+                        <a href="{{ url_for('backtest') }}" class="nav-link px-3 py-2">백테스트</a>
+                        <a href="{{ url_for('mypage') }}" class="nav-link px-3 py-2">마이페이지</a>
+                        <a href="{{ url_for('logout') }}" class="metallic-button px-4 py-2 rounded-lg">로그아웃</a>
+                    {% else %}
+                        <a href="{{ url_for('login') }}" class="metallic-button px-4 py-2 rounded-lg">로그인</a>
+                        <a href="{{ url_for('register') }}" class="metallic-button px-4 py-2 rounded-lg">회원가입</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="max-w-7xl mx-auto px-4 py-4 relative z-20">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} mb-4 p-4 rounded-lg obsidian-card border {% if category == 'error' %}border-red-800 bg-gradient-to-r from-red-900/20 to-red-800/20 text-red-300{% elif category == 'success' %}border-green-800 bg-gradient-to-r from-green-900/20 to-green-800/20 text-green-300{% else %}border-blue-800 bg-gradient-to-r from-blue-900/20 to-blue-800/20 text-blue-300{% endif %} shadow-lg backdrop-blur-sm">
+                        <div class="flex items-center">
+                            {% if category == 'error' %}
+                                <svg class="w-5 h-5 mr-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                </svg>
+                            {% elif category == 'success' %}
+                                <svg class="w-5 h-5 mr-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            {% else %}
+                                <svg class="w-5 h-5 mr-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            {% endif %}
+                            <span class="font-medium">{{ message }}</span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="obsidian-card border-t border-gray-800 py-8 mt-16 relative z-10">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="text-center">
+                <div class="flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8 text-purple-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    <p class="text-lg font-semibold obsidian-text">MarklygonAI</p>
+                </div>
+                <p class="text-gray-300">Deep Learning Algorithmic Trading Platform</p>
+                <div class="flex items-center justify-center mt-4 space-x-6">
+                    <div class="flex items-center text-sm text-gray-400">
+                        <svg class="w-4 h-4 mr-1 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                        6 AI Models
+                    </div>
+                    <div class="flex items-center text-sm text-gray-400">
+                        <svg class="w-4 h-4 mr-1 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                        40 Symbols
+                    </div>
+                    <div class="flex items-center text-sm text-gray-400">
+                        <svg class="w-4 h-4 mr-1 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                        87.3% Accuracy
+                    </div>
+                </div>
+                <p class="text-gray-500 text-sm mt-4">&copy; 2025 MarklygonAI. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Custom JavaScript -->
+    <script>
+        // Flash message auto-hide
+        setTimeout(function() {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(function(alert) {
+                alert.style.transition = 'opacity 0.5s';
+                alert.style.opacity = '0';
+                setTimeout(function() {
+                    alert.remove();
+                }, 500);
+            });
+        }, 5000);
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>
