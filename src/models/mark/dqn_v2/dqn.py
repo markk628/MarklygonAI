@@ -20,6 +20,7 @@ from src.config.config import (
     EVALUATE_INTERVAL,
     INITIAL_BALANCE,
     TRANSACTION_FEE_PERCENT,
+    MAX_POSITION_SIZE,
     BATCH_SIZE,
     REPLAY_BUFFER_SIZE,
     UPDATE_TARGET_EVERY,
@@ -37,55 +38,283 @@ from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
 @dataclass
 class TradingConfig:
-    """Configuration for the trading environment and DQN"""
-    # Environment settings
+    """Configuration for the DQN agent"""
+    # Environment parameters
     initial_balance: float = INITIAL_BALANCE
-    transaction_fee_pct: float = TRANSACTION_FEE_PERCENT
-    max_position_size: float = 0.7
-    
-    # DQN settings
-    learning_rate: float = 0.0001
-    weight_decay: float = 0.00001  # L2 regularization for AdamW
-    gamma: float = 0.99
-    epsilon_start: float = 1.0
-    epsilon_end: float = 0.01
-    epsilon_decay: int = 1250000
-    
-    # PER settings
-    per_alpha: float = 0.6  # Priority exponent
-    per_beta_start: float = 0.4  # Importance sampling exponent
-    per_beta_end: float = 1.0
-    per_beta_decay: int = 100000
-    per_epsilon: float = 0.001
-    
-    # Training settings
-    batch_size: int = BATCH_SIZE
-    buffer_size: int = REPLAY_BUFFER_SIZE
-    update_target_every: int = UPDATE_TARGET_EVERY
-    hidden_size: int = 512
-    num_hidden_layers: int = 3
-    
-    # Features
-    num_stock_features: int = len(STOCK_FEATURES)
+    transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
+    window_size: int = WINDOW_SIZE
+    num_stock_features: int = len(STOCK_FEATURES)  # Use actual length from config
     num_portfolio_features: int = 8
-    num_features: int = num_stock_features + num_portfolio_features 
-    window_size: int = WINDOW_SIZE  # WINDOW_SIZE minutes of historical data
+    num_features: int = len(STOCK_FEATURES) + 8  # Stock features + portfolio features
+    num_actions: int = 3  # Hold, Buy, Sell
+    max_position_size: float = MAX_POSITION_SIZE
     
-    # 0 = Hold, 1 = Buy, 2 = Sell
-    num_actions: int = 3
+    # Network architecture selection
+    architecture_type: str = "improved"  # "original", "improved", "hybrid"
+    
+    # Network parameters
+    hidden_size: int = 512
+    learning_rate: float = 1e-4
+    
+    # Training parameters
+    batch_size: int = BATCH_SIZE
+    gamma: float = 0.99
+    tau: float = 0.005
+    update_frequency: int = TRAIN_INTERVAL
+    target_update_frequency: int = UPDATE_TARGET_EVERY
+    
+    # Experience replay
+    buffer_size: int = REPLAY_BUFFER_SIZE
+    
+    # Exploration
+    epsilon_start: float = 1.0
+    epsilon_end: float = 0.05
+    epsilon_decay: float = 350000
+    
+    # Prioritized replay
+    use_prioritized_replay: bool = True
+    alpha: float = 0.6
+    beta_start: float = 0.4
+    beta_end: float = 1.0
+    per_epsilon: float = 0.001  # Add missing PER epsilon
+    
+    # Double and Dueling DQN
+    use_double_dqn: bool = True
+    use_dueling_dqn: bool = True
+    
+    # Enhanced architecture options (for improved/hybrid)
+    use_attention: bool = True
+    use_residual_connections: bool = True
+    transformer_layers: int = 2
+    cnn_scales: list = None  # [3, 5, 7] if None
+    
+    def __post_init__(self):
+        if self.cnn_scales is None:
+            self.cnn_scales = [3, 5, 7]
 
 
-class DuelingNetwork(nn.Module):
-    """Dueling DQN architecture with separate value and advantage streams
+class FinancialTransformerBlock(nn.Module):
+    """Transformer block optimized for financial time series"""
     
-    Architecture:
-    1. Stock Data Branch (1D CNN)
-    2. Portfolio Branch (Fully Connected)
-    3. Combined (Value and Advantage Streams)
-    """
+    def __init__(self, d_model: int, nhead: int, dropout: float = 0.1):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        
+        # Feed forward network with financial-aware design
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_model * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 4, d_model)
+        )
+    
+    def forward(self, x):
+        # Self-attention with residual connection
+        attn_out, _ = self.self_attn(x, x, x)
+        x = self.norm1(x + self.dropout(attn_out))
+        
+        # Feed forward with residual connection
+        ffn_out = self.ffn(x)
+        x = self.norm2(x + self.dropout(ffn_out))
+        
+        return x
+
+
+class ImprovedDuelingNetwork(nn.Module):
+    """Enhanced Dueling DQN with Transformer and financial-specific improvements"""
     
     def __init__(self, config: TradingConfig):
-        super(DuelingNetwork, self).__init__()
+        super(ImprovedDuelingNetwork, self).__init__()
+        self.config = config
+        
+        # Feature embedding for stock data
+        self.feature_embedding = nn.Linear(config.num_stock_features, 128)
+        
+        # Positional encoding for time awareness
+        self.pos_encoding = nn.Parameter(torch.randn(config.window_size, 128) * 0.02)
+        
+        # Multi-scale CNN branch (parallel processing at different scales)
+        self.multiscale_cnn = nn.ModuleList([
+            self._create_cnn_branch(128, [3, 5, 7][i], f'scale_{i}') 
+            for i in range(3)
+        ])
+        
+        # Transformer blocks for temporal modeling
+        self.transformer_blocks = nn.ModuleList([
+            FinancialTransformerBlock(128, nhead=8, dropout=0.1)
+            for _ in range(2)
+        ])
+        
+        # Attention pooling instead of max/average pooling
+        self.attention_pool = nn.MultiheadAttention(128, 4, batch_first=True)
+        self.pool_query = nn.Parameter(torch.randn(1, 128))
+        
+        # Enhanced portfolio branch with risk awareness
+        self.portfolio_branch = nn.Sequential(
+            nn.Linear(config.num_portfolio_features, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),  # Better activation for financial data
+            nn.Dropout(0.1),
+            
+            nn.Linear(64, 128),
+            nn.LayerNorm(128),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            
+            nn.Linear(128, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+        )
+        
+        # Combined features: multiscale (128*3) + transformer (128) + portfolio (64) = 576
+        combined_size = 128 * 3 + 128 + 64
+        
+        # Shared layers with residual connections
+        self.shared_layers = nn.ModuleList([
+            nn.Linear(combined_size, config.hidden_size),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.Linear(config.hidden_size, config.hidden_size)
+        ])
+        
+        self.shared_norms = nn.ModuleList([
+            nn.LayerNorm(config.hidden_size) for _ in range(3)
+        ])
+        
+        # Value stream with improved architecture
+        self.value_stream = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size // 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(config.hidden_size // 2, config.hidden_size // 4),
+            nn.GELU(),
+            nn.Linear(config.hidden_size // 4, 1)
+        )
+        
+        # Advantage stream with improved architecture
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size // 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(config.hidden_size // 2, config.hidden_size // 4),
+            nn.GELU(),
+            nn.Linear(config.hidden_size // 4, config.num_actions)
+        )
+        
+        # Initialize weights
+        self._initialize_weights()
+    
+    def _create_cnn_branch(self, in_channels, kernel_size, name):
+        """Create a single-scale CNN branch"""
+        padding = kernel_size // 2
+        return nn.Sequential(
+            nn.Conv1d(in_channels, 64, kernel_size=kernel_size, padding=padding),
+            nn.GroupNorm(4, 64),  # Better than BatchNorm for financial data
+            nn.GELU(),
+            nn.Dropout(0.1),
+            
+            nn.Conv1d(64, 128, kernel_size=3, padding=1),
+            nn.GroupNorm(8, 128),
+            nn.GELU(),
+            nn.AdaptiveAvgPool1d(1)  # Global average pooling
+        )
+    
+    def _initialize_weights(self):
+        """Improved weight initialization for financial networks"""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                if module in [self.value_stream[-1], self.advantage_stream[-1]]:
+                    # Small initialization for output layers
+                    nn.init.uniform_(module.weight, -3e-4, 3e-4)
+                    nn.init.constant_(module.bias, 0)
+                else:
+                    # He initialization for hidden layers
+                    nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                    nn.init.constant_(module.bias, 0.01)
+            elif isinstance(module, nn.Conv1d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(module.bias, 0.01)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.size(0)
+        
+        # Split stock data and portfolio data
+        stock_data = x[:, :, :self.config.num_stock_features]
+        portfolio_data = x[:, 0, self.config.num_stock_features:]
+        
+        # ========== Stock Data Processing ==========
+        
+        # Feature embedding
+        embedded = self.feature_embedding(stock_data)  # (batch_size, window_size, 128)
+        
+        # Add positional encoding for time awareness
+        embedded = embedded + self.pos_encoding.unsqueeze(0)
+        
+        # Multi-scale CNN processing
+        multiscale_features = []
+        stock_data_cnn = embedded.transpose(1, 2)  # (batch_size, 128, window_size)
+        
+        for cnn_branch in self.multiscale_cnn:
+            features = cnn_branch(stock_data_cnn)  # (batch_size, 128, 1)
+            features = features.squeeze(-1)  # (batch_size, 128)
+            multiscale_features.append(features)
+        
+        # Transformer processing for temporal dependencies
+        transformer_out = embedded
+        for transformer_block in self.transformer_blocks:
+            transformer_out = transformer_block(transformer_out)
+        
+        # Attention pooling for transformer features
+        query = self.pool_query.expand(batch_size, -1, -1)  # (batch_size, 1, 128)
+        pooled_features, _ = self.attention_pool(query, transformer_out, transformer_out)
+        pooled_features = pooled_features.squeeze(1)  # (batch_size, 128)
+        
+        # ========== Portfolio Data Processing ==========
+        portfolio_features = self.portfolio_branch(portfolio_data)
+        
+        # ========== Feature Combination ==========
+        combined_features = torch.cat([
+            *multiscale_features,  # 3 x 128 = 384
+            pooled_features,       # 128
+            portfolio_features     # 64
+        ], dim=1)  # (batch_size, 576)
+        
+        # ========== Shared Processing with Residuals ==========
+        x = combined_features
+        for i, (linear, norm) in enumerate(zip(self.shared_layers, self.shared_norms)):
+            if i == 0:
+                # First layer (no residual)
+                x = F.gelu(norm(linear(x)))
+            else:
+                # Subsequent layers with residual connections
+                residual = x
+                x = linear(x)
+                if x.size() == residual.size():  # Only add residual if dimensions match
+                    x = x + residual
+                x = F.gelu(norm(x))
+        
+        # ========== Dueling Streams ==========
+        value = self.value_stream(x)
+        advantages = self.advantage_stream(x)
+        
+        # Dueling combination with improved numerical stability
+        q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
+        
+        return q_values
+
+
+# class DuelingNetwork(ImprovedDuelingNetwork):
+#     """Use improved architecture by default"""
+#     pass
+
+
+class DuelingNetworkOriginal(nn.Module):
+    """Original Dueling DQN architecture"""
+    
+    def __init__(self, config: TradingConfig):
+        super(DuelingNetworkOriginal, self).__init__()
         self.config = config
         
         # Stock data branch - 1D CNN for time series processing
@@ -156,24 +385,10 @@ class DuelingNetwork(nn.Module):
         self._initialize_weights()
     
     def _initialize_weights(self):
-        """Initialize network weights using He initialization for ReLU networks
-        
-        Weight initialization strategy:
-        - He/Kaiming initialization for ReLU layers (prevents dying ReLU problem)
-        - Small uniform initialization for output layers (stable Q-values)
-        - Small positive bias for hidden layers (helps dead neurons)
-        - Zero bias for output layers (unbiased initial predictions)
-        
-        This is crucial for DQN stability, especially in financial environments
-        where poor initialization can lead to:
-        - Overconfident initial predictions
-        - Unstable training dynamics
-        - Slow convergence
-        """
+        """Initialize network weights using He initialization for ReLU networks"""
         # Initialize stock data branch
         for layer in self.stock_data_branch:
             if isinstance(layer, nn.Conv1d) or isinstance(layer, nn.Linear):
-                # He initialization (Kaiming) - best for ReLU networks
                 nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(layer.bias, 0.01)
         
@@ -210,11 +425,7 @@ class DuelingNetwork(nn.Module):
                     nn.init.constant_(layer.bias, 0.01)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass combining value and advantage streams
-        
-        Args:
-            x: State tensor of shape (batch_size, window_size, self.config.num_features)
-        """        
+        """Forward pass combining value and advantage streams"""        
         # Split stock data and portfolio data
         stock_data = x[:, :, :self.config.num_stock_features]  # (batch_size, window_size, self.config.num_stock_features)
         portfolio_data = x[:, 0, self.config.num_stock_features:]  # (batch_size, self.config.num_portfolio_features)
@@ -242,6 +453,174 @@ class DuelingNetwork(nn.Module):
         q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
         
         return q_values
+
+
+class HybridCNNLSTMNetwork(nn.Module):
+    """Hybrid CNN-LSTM network combining convolutional and recurrent processing"""
+    
+    def __init__(self, config: TradingConfig):
+        super(HybridCNNLSTMNetwork, self).__init__()
+        self.config = config
+        
+        # Multi-scale CNN for local pattern extraction
+        self.cnn_branches = nn.ModuleList([
+            self._create_cnn_branch(config.num_stock_features, kernel_size)
+            for kernel_size in config.cnn_scales
+        ])
+        
+        # Combine CNN outputs
+        cnn_output_size = len(config.cnn_scales) * 64
+        self.cnn_combiner = nn.Sequential(
+            nn.Linear(cnn_output_size, 128),
+            nn.LayerNorm(128),
+            nn.GELU(),
+            nn.Dropout(0.1)
+        )
+        
+        # LSTM for temporal sequence modeling
+        self.lstm = nn.LSTM(
+            input_size=128,
+            hidden_size=128,
+            num_layers=2,
+            batch_first=True,
+            dropout=0.1,
+            bidirectional=True
+        )
+        
+        # Attention mechanism for LSTM outputs
+        self.lstm_attention = nn.MultiheadAttention(256, 8, batch_first=True)
+        
+        # Portfolio branch
+        self.portfolio_branch = nn.Sequential(
+            nn.Linear(config.num_portfolio_features, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 128),
+            nn.LayerNorm(128),
+            nn.GELU(),
+            nn.Linear(128, 64)
+        )
+        
+        # Combined processing
+        combined_size = 256 + 64  # LSTM output + portfolio
+        
+        self.shared_layers = nn.Sequential(
+            nn.Linear(combined_size, config.hidden_size),
+            nn.LayerNorm(config.hidden_size),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(config.hidden_size, config.hidden_size),
+            nn.LayerNorm(config.hidden_size),
+            nn.GELU()
+        )
+        
+        # Dueling streams
+        self.value_stream = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(config.hidden_size // 2, 1)
+        )
+        
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(config.hidden_size // 2, config.num_actions)
+        )
+        
+        self._initialize_weights()
+    
+    def _create_cnn_branch(self, in_channels, kernel_size):
+        """Create CNN branch for specific kernel size"""
+        padding = kernel_size // 2
+        return nn.Sequential(
+            nn.Conv1d(in_channels, 32, kernel_size=kernel_size, padding=padding),
+            nn.GroupNorm(4, 32),
+            nn.GELU(),
+            nn.Conv1d(32, 64, kernel_size=3, padding=1),
+            nn.GroupNorm(8, 64),
+            nn.GELU(),
+            nn.AdaptiveMaxPool1d(1)
+        )
+    
+    def _initialize_weights(self):
+        """Initialize weights"""
+        for module in self.modules():
+            if isinstance(module, (nn.Linear, nn.Conv1d)):
+                if hasattr(module, 'weight'):
+                    nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+                if hasattr(module, 'bias') and module.bias is not None:
+                    nn.init.constant_(module.bias, 0.01)
+            elif isinstance(module, nn.LSTM):
+                for name, param in module.named_parameters():
+                    if 'weight' in name:
+                        nn.init.orthogonal_(param)
+                    elif 'bias' in name:
+                        nn.init.constant_(param, 0)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, seq_len = x.size(0), x.size(1)
+        
+        # Split stock and portfolio data
+        stock_data = x[:, :, :self.config.num_stock_features]
+        portfolio_data = x[:, 0, self.config.num_stock_features:]
+        
+        # CNN processing for each timestep
+        cnn_outputs = []
+        for t in range(seq_len):
+            timestep_data = stock_data[:, t, :].unsqueeze(2)  # (batch, features, 1)
+            
+            # Multi-scale CNN
+            scale_features = []
+            for cnn_branch in self.cnn_branches:
+                features = cnn_branch(timestep_data.transpose(1, 2))  # (batch, 64, 1)
+                features = features.squeeze(-1)  # (batch, 64)
+                scale_features.append(features)
+            
+            # Combine scales
+            combined = torch.cat(scale_features, dim=1)  # (batch, 64 * num_scales)
+            combined = self.cnn_combiner(combined)  # (batch, 128)
+            cnn_outputs.append(combined)
+        
+        # Stack CNN outputs for LSTM
+        cnn_sequence = torch.stack(cnn_outputs, dim=1)  # (batch, seq_len, 128)
+        
+        # LSTM processing
+        lstm_out, _ = self.lstm(cnn_sequence)  # (batch, seq_len, 256)
+        
+        # Attention pooling
+        pooled_features, _ = self.lstm_attention(lstm_out, lstm_out, lstm_out)
+        pooled_features = pooled_features.mean(dim=1)  # (batch, 256)
+        
+        # Portfolio processing
+        portfolio_features = self.portfolio_branch(portfolio_data)  # (batch, 64)
+        
+        # Combine features
+        combined_features = torch.cat([pooled_features, portfolio_features], dim=1)
+        
+        # Shared processing
+        shared_features = self.shared_layers(combined_features)
+        
+        # Dueling streams
+        value = self.value_stream(shared_features)
+        advantages = self.advantage_stream(shared_features)
+        
+        # Dueling combination
+        q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
+        
+        return q_values
+
+
+def create_network(config: TradingConfig) -> nn.Module:
+    """Factory function to create network based on config"""
+    if config.architecture_type == "original":
+        return DuelingNetworkOriginal(config)
+    elif config.architecture_type == "improved":
+        return ImprovedDuelingNetwork(config)
+    elif config.architecture_type == "hybrid":
+        return HybridCNNLSTMNetwork(config)
+    else:
+        raise ValueError(f"Unknown architecture type: {config.architecture_type}")
 
 
 class PrioritizedReplayBufferGPU:
@@ -301,7 +680,7 @@ class PrioritizedReplayBufferGPU:
         priorities = torch.clamp(priorities, min=self.config.per_epsilon)
         
         # Calculate probabilities
-        probs = priorities ** self.config.per_alpha
+        probs = priorities ** self.config.alpha
         probs_sum = probs.sum()
         
         # Handle edge case where sum is 0 or very small or contains NaN/inf
@@ -522,7 +901,7 @@ class TradingEnvironment:
             else:
                 position_value = self.balance * self.config.max_position_size
                 shares_to_buy = position_value / current_price
-                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_pct)
+                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
                 
                 return cost > self.balance
         elif action == 2:
@@ -543,7 +922,7 @@ class TradingEnvironment:
             if action == 1:  # Buy
                 position_value = self.balance * self.config.max_position_size
                 shares_to_buy = position_value / current_price
-                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_pct)
+                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
                 
                 self.position = shares_to_buy
                 self.balance -= cost
@@ -552,8 +931,8 @@ class TradingEnvironment:
                 reward = 0.001
                     
             elif action == 2:  # Sell
-                revenue = self.position * current_price * (1 - self.config.transaction_fee_pct)
-                cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_pct)
+                revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
+                cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
                 profit = revenue - cost_basis
                 
                 self.balance += revenue
@@ -598,11 +977,11 @@ class TradingEnvironment:
         # Force close any open positions at end of day (realistic intraday trading)
         if done and self.position > 0:
             # Close position at current price
-            revenue = self.position * current_price * (1 - self.config.transaction_fee_pct)
+            revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
             self.balance += revenue
             
             # Calculate final trade result
-            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_pct)
+            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
             profit = revenue - cost_basis
             
             self.position = 0
@@ -618,7 +997,9 @@ class TradingEnvironment:
         # Get next state (or final state if done)
         if done:
             # Return current state as next state when episode is done
+            self.current_step -= 1
             next_state = self._get_state()
+            self.current_step += 1
         else:
             next_state = self._get_state()
         
@@ -641,21 +1022,27 @@ class TradingEnvironment:
 
 
 class DoubleDuelingDQN:
-    """Double Dueling DQN Agent with PER"""
+    """Double Dueling DQN Agent with PER and configurable architectures"""
     
     def __init__(self, config: TradingConfig, device: torch.device=DEVICE):
         self.config = config
         self.device = device
         print(f"Using device: {device}")
+        print(f"Using architecture: {config.architecture_type}")
         
-        # Networks
-        self.q_network = DuelingNetwork(config).to(device)
-        self.target_network = DuelingNetwork(config).to(device)
+        # Networks using factory function
+        self.q_network = create_network(config).to(device)
+        self.target_network = create_network(config).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
+        
+        # Print network size for debugging
+        total_params = sum(p.numel() for p in self.q_network.parameters())
+        trainable_params = sum(p.numel() for p in self.q_network.parameters() if p.requires_grad)
+        print(f"Network parameters: {total_params:,} total, {trainable_params:,} trainable")
         
         self.optimizer = optim.AdamW(self.q_network.parameters(), 
                                     lr=config.learning_rate, 
-                                    weight_decay=config.weight_decay)
+                                    weight_decay=1e-5)  # Fixed weight_decay
         
         # Learning rate scheduler - reduces LR when validation reward plateaus
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -696,19 +1083,22 @@ class DoubleDuelingDQN:
         
         try:
             # Calculate current beta for importance sampling
-            beta = self.config.per_beta_start + (self.config.per_beta_end - self.config.per_beta_start) * min(1.0, self.steps_done / self.config.per_beta_decay)
+            beta = self.config.beta_start + (self.config.beta_end - self.config.beta_start) * min(1.0, self.steps_done / 100000)  # Fixed beta decay steps
             
             # Sample batch
-            states, actions, rewards, next_states, dones, indices, weights = \
-                self.memory.sample(self.config.batch_size, beta)
+            states, actions, rewards, next_states, dones, indices, weights = self.memory.sample(self.config.batch_size, beta)
             
             # Compute current Q values
             current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
             
             # Double DQN: use online network to select actions, target network to evaluate
             with torch.no_grad():
-                next_actions = self.q_network(next_states).max(1)[1]
-                next_q_values = self.target_network(next_states).gather(1, next_actions.unsqueeze(1))
+                if self.config.use_double_dqn:
+                    next_actions = self.q_network(next_states).max(1)[1]
+                    next_q_values = self.target_network(next_states).gather(1, next_actions.unsqueeze(1))
+                else:
+                    next_q_values = self.target_network(next_states).max(1)[0].unsqueeze(1)
+                    
                 target_q_values = rewards.unsqueeze(1) + (self.config.gamma * next_q_values * ~dones.unsqueeze(1))
             
             # Compute TD errors for priority updates
@@ -732,10 +1122,15 @@ class DoubleDuelingDQN:
             torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
             self.optimizer.step()
             
-            # Update target network
-            self.update_count += 1
-            if self.update_count % self.config.update_target_every == 0:
-                self.target_network.load_state_dict(self.q_network.state_dict())
+            # Soft update of target network using tau
+            if self.config.tau > 0:
+                for target_param, local_param in zip(self.target_network.parameters(), self.q_network.parameters()):
+                    target_param.data.copy_(self.config.tau * local_param.data + (1.0 - self.config.tau) * target_param.data)
+            else:
+                # Hard update every target_update_frequency steps
+                self.update_count += 1
+                if self.update_count % self.config.target_update_frequency == 0:
+                    self.target_network.load_state_dict(self.q_network.state_dict())
             
             return {
                 'loss': loss.item(),
@@ -780,8 +1175,8 @@ class DoubleDuelingDQN:
             episode_steps += 1
             self.steps_done += 1
             
-            # Perform update only every TRAIN_INTERVAL steps
-            if self.steps_done % TRAIN_INTERVAL == 0:
+            # Perform update every update_frequency steps
+            if self.steps_done % self.config.update_frequency == 0:
                 update_info = self.update()
                 # Track metrics if update occurred
                 if update_info:
@@ -960,7 +1355,8 @@ def train_dqn(data_path: str,
               use_preprocessing: bool = True,
               scaling_method: str = 'robust',
               outlier_method: str = 'winsorize',
-              preprocessor_save_path: Optional[str] = None):
+              preprocessor_save_path: Optional[str] = None,
+              architecture_type: str = "improved"):
     """
     Main training function with validation and early stopping
     
@@ -977,6 +1373,7 @@ def train_dqn(data_path: str,
         scaling_method: Method for scaling features ('robust', 'standard', 'minmax', 'none')
         outlier_method: Method for handling outliers ('winsorize', 'clip', 'none')
         preprocessor_save_path: Path to save the fitted preprocessor
+        architecture_type: Architecture type for the DQN ('original', 'improved', 'hybrid')
     """    
     # Load data
     print("Loading data...")
@@ -1022,7 +1419,7 @@ def train_dqn(data_path: str,
         test_data_scaled = test_data
     
     # Initialize configuration
-    config = TradingConfig()
+    config = TradingConfig(architecture_type=architecture_type)
     
     # Create environments
     train_env = TradingEnvironment(train_data, train_data_scaled, config, mode=TradingMode.TRAIN)
@@ -1060,8 +1457,7 @@ def train_dqn(data_path: str,
         episode_invalid_actions.append(metrics['invalid_actions'])
         
         # Print progress
-        current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
-                         math.exp(-1. * agent.steps_done / config.epsilon_decay)
+        current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-1. * agent.steps_done / config.epsilon_decay)
         
         print(f"\nEpisode {episode+1}/{num_episodes}")
         print(f"  Reward: {metrics['episode_reward']:.4f}")
@@ -1070,7 +1466,7 @@ def train_dqn(data_path: str,
         print(f"  Trades: {metrics['total_trades']}, Win Rate: {metrics.get('win_rate', 0):.2%}")
         print(f"  Invalid Actions: {metrics['invalid_actions']}")
         print(f"  Steps: {metrics['episode_steps']}")
-        print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > EPSILON_EARLY_STOPPING_THRESHOLD else 'Exploiting'})")
+        print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
         
         # Validation
         if (episode + 1) % validation_frequency == 0:
@@ -1125,8 +1521,7 @@ def train_dqn(data_path: str,
                 patience_counter += 1
             
             # Epsilon-aware early stopping
-            current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
-                             math.exp(-1. * agent.steps_done / config.epsilon_decay)
+            current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-1. * agent.steps_done / config.epsilon_decay)
             
             if patience_counter >= early_stopping_patience and current_epsilon <= EPSILON_EARLY_STOPPING_THRESHOLD:
                 print(f"\nEpsilon-aware early stopping triggered at episode {episode+1}")
@@ -1248,8 +1643,186 @@ def train_dqn(data_path: str,
 
 
 if __name__ == "__main__":
-    train_dqn(f"{DATA_DIR}/feature_engineered/TSLA.csv", 
-              num_episodes=50,
-              use_preprocessing=True,
-              scaling_method='robust',
-              outlier_method='winsorize')
+    # Example of how to use different architectures
+    def test_architectures():
+        """Test different DQN architectures for financial time series"""
+        from src.config.config import DATA_DIR
+        
+        print("="*80)
+        print("DQN ARCHITECTURE COMPARISON FOR FINANCIAL TIME SERIES")
+        print("="*80)
+        
+        # Test configurations
+        architectures = [
+            {
+                "name": "Original CNN",
+                "config": TradingConfig(
+                    architecture_type="original",
+                    hidden_size=512,
+                    learning_rate=1e-4
+                )
+            },
+            {
+                "name": "Improved Transformer + Multi-scale CNN",
+                "config": TradingConfig(
+                    architecture_type="improved",
+                    hidden_size=512,
+                    learning_rate=1e-4,
+                    transformer_layers=2,
+                    use_attention=True,
+                    cnn_scales=[3, 5, 7]
+                )
+            },
+            {
+                "name": "Hybrid CNN + LSTM",
+                "config": TradingConfig(
+                    architecture_type="hybrid",
+                    hidden_size=512,
+                    learning_rate=8e-5,  # Slightly lower for LSTM stability
+                    cnn_scales=[3, 5, 7]
+                )
+            }
+        ]
+        
+        for arch in architectures:
+            print(f"\n{'='*60}")
+            print(f"TESTING: {arch['name']}")
+            print(f"{'='*60}")
+            
+            config = arch['config']
+            print(f"Configuration:")
+            print(f"  Architecture: {config.architecture_type}")
+            print(f"  Hidden Size: {config.hidden_size}")
+            print(f"  Learning Rate: {config.learning_rate}")
+            print(f"  Batch Size: {config.batch_size}")
+            print(f"  Buffer Size: {config.buffer_size:,}")
+            
+            # Create network to show architecture details
+            try:
+                network = create_network(config)
+                total_params = sum(p.numel() for p in network.parameters())
+                trainable_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
+                
+                print(f"\nNetwork Details:")
+                print(f"  Total Parameters: {total_params:,}")
+                print(f"  Trainable Parameters: {trainable_params:,}")
+                print(f"  Memory Estimate: ~{total_params * 4 / 1024 / 1024:.1f} MB")
+                
+                # Show model structure
+                print(f"\nArchitecture Summary:")
+                if config.architecture_type == "original":
+                    print("  • Standard 1D CNN with BatchNorm")
+                    print("  • ReLU activations")
+                    print("  • Max pooling")
+                    print("  • Simple dueling streams")
+                    
+                elif config.architecture_type == "improved":
+                    print("  • Multi-scale CNN (3, 5, 7 kernel sizes)")
+                    print("  • Transformer blocks with self-attention")
+                    print("  • GELU activations (better for financial data)")
+                    print("  • GroupNorm instead of BatchNorm")
+                    print("  • Positional encoding for time awareness")
+                    print("  • Attention pooling")
+                    print("  • Residual connections in shared layers")
+                    
+                elif config.architecture_type == "hybrid":
+                    print("  • Multi-scale CNN for local patterns")
+                    print("  • Bidirectional LSTM for temporal dependencies")
+                    print("  • Attention mechanism for LSTM outputs")
+                    print("  • GELU activations")
+                    print("  • GroupNorm for stability")
+                
+                print(f"\nBest Use Cases:")
+                if config.architecture_type == "original":
+                    print("  ✓ Baseline model")
+                    print("  ✓ Quick prototyping") 
+                    print("  ✓ Limited computational resources")
+                    print("  ✓ Simple pattern recognition")
+                    
+                elif config.architecture_type == "improved":
+                    print("  ✓ Complex temporal relationships")
+                    print("  ✓ Long-range dependencies")
+                    print("  ✓ Multi-timeframe analysis")
+                    print("  ✓ When you have sufficient data")
+                    print("  ✓ Production deployment with good hardware")
+                    
+                elif config.architecture_type == "hybrid":
+                    print("  ✓ Best of both worlds (CNN + RNN)")
+                    print("  ✓ Sequential pattern recognition")
+                    print("  ✓ Trend following strategies")
+                    print("  ✓ Medium computational requirements")
+                
+                print(f"\nExpected Performance Characteristics:")
+                if config.architecture_type == "original":
+                    print("  • Training Speed: Fast")
+                    print("  • Memory Usage: Low")
+                    print("  • Pattern Recognition: Basic")
+                    print("  • Overfitting Risk: Medium")
+                    
+                elif config.architecture_type == "improved":
+                    print("  • Training Speed: Moderate")
+                    print("  • Memory Usage: High")
+                    print("  • Pattern Recognition: Advanced")
+                    print("  • Overfitting Risk: Low (with proper regularization)")
+                    
+                elif config.architecture_type == "hybrid":
+                    print("  • Training Speed: Moderate")
+                    print("  • Memory Usage: Medium-High")
+                    print("  • Pattern Recognition: Good")
+                    print("  • Overfitting Risk: Medium")
+                
+                del network  # Free memory
+                
+            except Exception as e:
+                print(f"  Error creating network: {e}")
+        
+        print(f"\n{'='*80}")
+        print("TRAINING RECOMMENDATIONS")
+        print(f"{'='*80}")
+        print("For minute-level financial data (regular trading hours):")
+        print("\n1. START with 'improved' architecture for best performance")
+        print("   - Has attention mechanisms for temporal dependencies")
+        print("   - Multi-scale feature extraction")
+        print("   - Better activations for financial data")
+        
+        print("\n2. USE 'hybrid' if you want CNN+LSTM combination")
+        print("   - Good balance of performance and efficiency")
+        print("   - Excellent for trend-following strategies")
+        
+        print("\n3. FALLBACK to 'original' for:")
+        print("   - Limited computational resources")
+        print("   - Quick experiments")
+        print("   - Baseline comparisons")
+        
+        print("\n4. HYPERPARAMETER TIPS:")
+        print("   - Learning Rate: 1e-4 to 5e-5 for financial data")
+        print("   - Batch Size: 32-128 (larger for more stable gradients)")
+        print("   - Buffer Size: 500K+ for good experience diversity")
+        print("   - Window Size: 20 minutes works well for intraday")
+        print("   - Use preprocessing (robust scaling + winsorizing)")
+        
+        print("\n5. TRAINING BEST PRACTICES:")
+        print("   - Use early stopping with patience")
+        print("   - Monitor both training and validation metrics")
+        print("   - Save model checkpoints regularly")
+        print("   - Start with shorter episodes, increase gradually")
+        print("   - Use prioritized experience replay")
+        
+        print(f"\n{'='*80}")
+        print("Ready to train! Use:")
+        print("config = TradingConfig(architecture_type='improved')")
+        print("agent = DoubleDuelingDQN(config)")
+        print(f"{'='*80}")
+    
+    # Run the demonstration
+    test_architectures()
+    
+    # Uncomment to actually train a model:
+    # train_dqn(
+    #     data_path=f"{DATA_DIR}/feature_engineered/TSLA.csv",
+    #     cutoff=pd.Timestamp('2020-01-01', tz='UTC'),
+    #     num_episodes=100,
+    #     use_preprocessing=True,
+    #     scaling_method='robust',
+    #     outlier_method='winsorize'
+    # )
