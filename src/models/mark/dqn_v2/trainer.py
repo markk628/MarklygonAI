@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.models.mark.dqn_v2.dqn import train_dqn, save_backtest_results_to_db
-from src.config.config import DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
+from src.config.config import CUTOFF_TIMESTAMP, DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
 from src.utils.utils import create_directory
 from src.web.models import ModelType
 from src.web.extensions import app
@@ -163,7 +163,7 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock"):
 
 def main():
     # Configuration
-    ticker = 'GS'  # Change to your stock ticker
+    ticker = 'TSLA'  # Change to your stock ticker
     data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
     
     # Create results directory if it doesn't exist
@@ -179,7 +179,7 @@ def main():
     print(f"Starting DQN training for {ticker}...")
     print("="*50)
     
-    cutoff = pd.Timestamp('2024-05-06 08:00:00', tz='UTC')
+    cutoff = pd.Timestamp(CUTOFF_TIMESTAMP, tz='UTC')
     
     training_results = train_dqn(
         data_path=data_path,

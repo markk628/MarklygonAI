@@ -22,11 +22,14 @@ from src.config.config import (
     TRANSACTION_FEE_PERCENT,
     BATCH_SIZE,
     REPLAY_BUFFER_SIZE,
+    UPDATE_TARGET_EVERY,
+    EPSILON_EARLY_STOPPING_THRESHOLD,
     STOCK_FEATURES,
     NUM_EPISODES,
     TRAIN_RATIO,
     VALID_RATIO,
     TRAIN_INTERVAL,
+    MINUTES_PER_TRADING_DAY,
 )
 from src.utils.utils import create_directory
 from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
@@ -46,7 +49,7 @@ class TradingConfig:
     gamma: float = 0.99
     epsilon_start: float = 1.0
     epsilon_end: float = 0.01
-    epsilon_decay: int = 650000
+    epsilon_decay: int = 1750000
     
     # PER settings
     per_alpha: float = 0.6  # Priority exponent
@@ -58,7 +61,7 @@ class TradingConfig:
     # Training settings
     batch_size: int = BATCH_SIZE
     buffer_size: int = REPLAY_BUFFER_SIZE
-    update_target_every: int = 1000
+    update_target_every: int = UPDATE_TARGET_EVERY
     hidden_size: int = 512
     num_hidden_layers: int = 3
     
@@ -259,7 +262,7 @@ class PrioritizedReplayBufferGPU:
         self.dones = torch.zeros(capacity, dtype=torch.bool, device=device)
         
         # Priority management - initialize with small positive values
-        self.priorities = torch.ones(capacity, dtype=torch.float32, device=device) * 0.01  # Start with 0.01 instead of per_epsilon
+        self.priorities = torch.ones(capacity, dtype=torch.float32, device=device) * 0.01
         self.max_priority = 1.0
         
     def push(self, 
@@ -355,18 +358,34 @@ class TradingEnvironment:
                  scaled_data: pd.DataFrame, 
                  config: TradingConfig, 
                  mode: TradingMode = TradingMode.TRAIN, 
-                 device: torch.device=DEVICE):
+                 device: torch.device=DEVICE,
+                 minutes_per_day: int = None):
         self.data = data
         self.scaled_data = scaled_data
         self.config = config
         self.mode = mode
-        self.total_steps = len(data)
         self.device = device
+        
+        # Set minutes per day based on parameter or use regular market hours as default
+        if minutes_per_day is None:
+            self.minutes_per_day = MINUTES_PER_TRADING_DAY
+        else:
+            self.minutes_per_day = minutes_per_day
+        
+        # Calculate daily episode boundaries
+        self.total_days = len(data) // self.minutes_per_day
+        self.episode_length = self.minutes_per_day
+        self.current_day = 0
+        
+        print(f"TradingEnvironment initialized:")
+        print(f"  Minutes per day: {self.minutes_per_day}")
+        print(f"  Total trading days: {self.total_days}")
+        print(f"  Data coverage: {self.total_days * self.minutes_per_day} / {len(data)} minutes")
         
         self.reset()
         
-    def reset(self, start_idx: Optional[int] = None) -> torch.Tensor:
-        """Reset environment to initial state"""
+    def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
+        """Reset environment to initial state for a new trading day"""
         self.balance = self.config.initial_balance
         self.position = 0
         self.total_trades = 0
@@ -374,27 +393,56 @@ class TradingEnvironment:
         self.losing_trades = 0
         self.invalid_actions = 0
         
-        if start_idx is not None:
-            self.current_step = start_idx
+        # Select which day to trade
+        if day_idx is not None:
+            self.current_day = day_idx
         elif self.mode == TradingMode.TRAIN:
-            # Random start point for training
-            max_start = max(self.config.window_size, len(self.data) - self.config.window_size - 100)
-            if max_start > self.config.window_size:
-                self.current_step = np.random.randint(self.config.window_size, max_start)
-            else:
-                self.current_step = self.config.window_size
+            # Random day for training to ensure good exploration
+            self.current_day = np.random.randint(0, max(1, self.total_days - 1))
         else:
-            self.current_step = self.config.window_size
-        self.total_steps = len(self.data) - self.current_step
+            # Sequential days for validation/testing
+            self.current_day = getattr(self, 'last_day', 0)
+            self.last_day = (self.current_day + 1) % self.total_days
+        
+        # Set episode boundaries
+        self.episode_start = self.current_day * self.minutes_per_day
+        self.episode_end = min(self.episode_start + self.episode_length, len(self.data))
+        
+        # Ensure there is enough data for the window
+        if self.episode_start < self.config.window_size:
+            self.episode_start = self.config.window_size
             
+        self.current_step = self.episode_start
+        self.episode_steps_remaining = self.episode_end - self.episode_start
+        
         return self._get_state()
     
     def _get_state(self) -> torch.Tensor:
         """Get current state"""
         # Get historical data
-        start_idx = self.current_step - self.config.window_size + 1
+        start_idx = max(0, self.current_step - self.config.window_size + 1)
         end_idx = self.current_step + 1
-        stock_data = self.scaled_data.iloc[start_idx:end_idx].values
+        
+        # If not enough historical data, pad with the earliest available data
+        if start_idx < self.episode_start - self.config.window_size + 1:
+            # Pad with the first available data point in the episode
+            padding_needed = (self.episode_start - self.config.window_size + 1) - start_idx
+            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
+            if padding_needed > 0:
+                first_row = stock_data[0:1]  # Get first row
+                padding = np.repeat(first_row, padding_needed, axis=0)
+                stock_data = np.vstack([padding, stock_data])
+        else:
+            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
+        
+        # Ensure there is exactly window_size rows
+        if len(stock_data) < self.config.window_size:
+            padding_needed = self.config.window_size - len(stock_data)
+            first_row = stock_data[0:1] if len(stock_data) > 0 else self.scaled_data.iloc[0:1].values
+            padding = np.repeat(first_row, padding_needed, axis=0)
+            stock_data = np.vstack([padding, stock_data])
+        elif len(stock_data) > self.config.window_size:
+            stock_data = stock_data[-self.config.window_size:]
         
         current_price = self.data.iloc[self.current_step]['close']
         portfolio_value = self.balance + (self.position * current_price)
@@ -409,9 +457,9 @@ class TradingEnvironment:
         position_ratio = self.position * current_price / portfolio_value if portfolio_value > 0 else 0
         
         # Normalize other metrics
-        normalized_trades = self.total_trades / (self.total_steps / 2)
+        normalized_trades = self.total_trades / (self.episode_length / 2)
         win_rate = self.winning_trades / max(1, self.total_trades)
-        normalized_invalid_actions = self.invalid_actions / self.total_steps
+        normalized_invalid_actions = self.invalid_actions / self.episode_length
         
         # Ensure all values are finite
         portfolio_features = [
@@ -432,7 +480,7 @@ class TradingEnvironment:
         portfolio_state = torch.tensor(np.array(portfolio_features), dtype=torch.float32, device=self.device)
         
         # Convert stock data to tensor
-        stock_data_state = torch.tensor(stock_data, dtype=torch.float32, device=self.device)
+        stock_data_state = torch.tensor(stock_data.astype(np.float32), dtype=torch.float32, device=self.device)
         
         # Repeat portfolio state for each timestep and concatenate
         # This is needed for compatibility with the current state representation
@@ -502,8 +550,8 @@ class TradingEnvironment:
         
             # Additional reward shaping
             # Penalize having too many invalid actions
-            if self.invalid_actions > 100:
-                reward -= 0.001 * (self.invalid_actions / 100)
+            if self.invalid_actions > 50:
+                reward -= 0.001 * (self.invalid_actions / 50)
             
             # Reward maintaining portfolio value
             current_portfolio_value = self.balance + (self.position * current_price)
@@ -519,12 +567,39 @@ class TradingEnvironment:
         
         # Move to next step
         self.current_step += 1
+        self.episode_steps_remaining -= 1
         
-        # Check if episode is done
-        done = self.current_step >= len(self.data) - 2 or self.balance <= 0
+        # Check if episode is done (end of trading day or out of balance)
+        done = (self.current_step >= self.episode_end or 
+                self.episode_steps_remaining <= 0 or 
+                self.balance <= 0)
         
-        # Get next state
-        next_state = self._get_state()
+        # Force close any open positions at end of day (realistic intraday trading)
+        if done and self.position > 0:
+            # Close position at current price
+            revenue = self.position * current_price * (1 - self.config.transaction_fee_pct)
+            self.balance += revenue
+            
+            # Calculate final trade result
+            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_pct)
+            profit = revenue - cost_basis
+            
+            self.position = 0
+            self.total_trades += 1
+            
+            if profit > 0:
+                self.winning_trades += 1
+                reward += (profit / cost_basis) * 5  # Reward for profitable day-end close
+            else:
+                self.losing_trades += 1
+                reward += (profit / cost_basis) * 2  # Smaller penalty for unprofitable close
+        
+        # Get next state (or final state if done)
+        if done:
+            # Return current state as next state when episode is done
+            next_state = self._get_state()
+        else:
+            next_state = self._get_state()
         
         # Additional info
         info = {
@@ -536,7 +611,9 @@ class TradingEnvironment:
             'invalid_actions': self.invalid_actions,
             'total_trades': self.total_trades,
             'winning_trades': self.winning_trades,
-            'losing_trades': self.losing_trades
+            'losing_trades': self.losing_trades,
+            'current_day': self.current_day,
+            'episode_steps_remaining': self.episode_steps_remaining
         }
         
         return next_state, reward, done, info
@@ -921,6 +998,9 @@ def train_dqn(data_path: str,
         episode_invalid_actions.append(metrics['invalid_actions'])
         
         # Print progress
+        current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
+                         math.exp(-1. * agent.steps_done / config.epsilon_decay)
+        
         print(f"\nEpisode {episode+1}/{num_episodes}")
         print(f"  Reward: {metrics['episode_reward']:.4f}")
         print(f"  Return: {metrics['total_return']:.2%}")
@@ -928,7 +1008,7 @@ def train_dqn(data_path: str,
         print(f"  Trades: {metrics['total_trades']}, Win Rate: {metrics.get('win_rate', 0):.2%}")
         print(f"  Invalid Actions: {metrics['invalid_actions']}")
         print(f"  Steps: {metrics['episode_steps']}")
-        print(f"  Epsilon: {agent.config.epsilon_end + (agent.config.epsilon_start - agent.config.epsilon_end) * math.exp(-1. * agent.steps_done / agent.config.epsilon_decay):.4f}")
+        print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > EPSILON_EARLY_STOPPING_THRESHOLD else 'Exploiting'})")
         
         # Validation
         if (episode + 1) % validation_frequency == 0:
@@ -981,9 +1061,14 @@ def train_dqn(data_path: str,
                 }
             else:
                 patience_counter += 1
-                
-            if patience_counter >= early_stopping_patience:
-                print(f"\nEarly stopping triggered at episode {episode+1}")
+            
+            # Epsilon-aware early stopping
+            current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
+                             math.exp(-1. * agent.steps_done / config.epsilon_decay)
+            
+            if patience_counter >= early_stopping_patience and current_epsilon <= EPSILON_EARLY_STOPPING_THRESHOLD:
+                print(f"\nEpsilon-aware early stopping triggered at episode {episode+1}")
+                print(f"Patience counter: {patience_counter}, Current epsilon: {current_epsilon:.3f}")
                 print(f"Best validation return: {best_validation_return:.2%}")
                 
                 # Restore best model
@@ -996,6 +1081,11 @@ def train_dqn(data_path: str,
                     agent.episodes_done = best_model_state['episodes_done']
                     agent.update_count = best_model_state['update_count']
                 break
+            elif patience_counter >= early_stopping_patience:
+                print(f"\nValidation plateaued but epsilon still high ({current_epsilon:.3f})")
+                print(f"Continuing training... (patience reset to {early_stopping_patience // 2})")
+                # Partially reset patience counter to give more chances
+                patience_counter = early_stopping_patience // 2
         
         # Save checkpoint
         if episode % save_interval == 0 and episode > 0:
