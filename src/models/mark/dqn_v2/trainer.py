@@ -245,8 +245,8 @@ def main():
         'total_trades': test_results['total_trades'],
         'winning_trades': test_results['winning_trades'],
         'losing_trades': test_results['losing_trades'],
-        'return_rate': test_results['total_return'],  # Already in decimal form
-        'max_drawdown': abs(test_results['max_drawdown']),  # Ensure positive
+        'return_rate': test_results['total_return'], 
+        'max_drawdown': test_results['max_drawdown'],
         'sharpe_ratio': test_results['sharpe_ratio'],
         'invalid_actions': test_results['invalid_actions'],
     }

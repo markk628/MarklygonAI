@@ -9,7 +9,7 @@ from typing import Tuple, Optional, Dict
 import random
 from dataclasses import dataclass
 import math
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 
 from src.config.config import (
@@ -49,7 +49,7 @@ class TradingConfig:
     gamma: float = 0.99
     epsilon_start: float = 1.0
     epsilon_end: float = 0.01
-    epsilon_decay: int = 1750000
+    epsilon_decay: int = 1250000
     
     # PER settings
     per_alpha: float = 0.6  # Priority exponent
@@ -95,7 +95,7 @@ class DuelingNetwork(nn.Module):
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
-            nn.Dropout(0.1),
+            nn.Dropout(0.1), # prevents overfitting and curse of dimensionality
             
             nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
@@ -367,20 +367,31 @@ class TradingEnvironment:
         self.device = device
         
         # Set minutes per day based on parameter or use regular market hours as default
-        if minutes_per_day is None:
-            self.minutes_per_day = MINUTES_PER_TRADING_DAY
-        else:
-            self.minutes_per_day = minutes_per_day
+        self.minutes_per_day = minutes_per_day if minutes_per_day is not None else MINUTES_PER_TRADING_DAY
         
         # Calculate daily episode boundaries
         self.total_days = len(data) // self.minutes_per_day
         self.episode_length = self.minutes_per_day
         self.current_day = 0
         
+        # Validate data structure
+        expected_total_minutes = self.total_days * self.minutes_per_day
+        actual_minutes = len(data)
+        unused_minutes = actual_minutes - expected_total_minutes
+        
+        if unused_minutes > 0:
+            print(f"Warning: {unused_minutes} minutes of data will be unused due to incomplete trading days")
+        
+        # Ensure we have enough data for at least one complete episode with window
+        min_required = self.minutes_per_day + config.window_size
+        if actual_minutes < min_required:
+            raise ValueError(f"Insufficient data: need at least {min_required} minutes, got {actual_minutes}")
+        
         print(f"TradingEnvironment initialized:")
         print(f"  Minutes per day: {self.minutes_per_day}")
         print(f"  Total trading days: {self.total_days}")
-        print(f"  Data coverage: {self.total_days * self.minutes_per_day} / {len(data)} minutes")
+        print(f"  Data coverage: {expected_total_minutes} / {actual_minutes} minutes")
+        print(f"  Data utilization: {expected_total_minutes/actual_minutes*100:.1f}%")
         
         self.reset()
         
@@ -398,22 +409,32 @@ class TradingEnvironment:
             self.current_day = day_idx
         elif self.mode == TradingMode.TRAIN:
             # Random day for training to ensure good exploration
-            self.current_day = np.random.randint(0, max(1, self.total_days - 1))
+            # Ensure we don't go beyond available complete days
+            max_day = max(0, self.total_days - 1)
+            self.current_day = np.random.randint(0, max_day + 1) if max_day >= 0 else 0
         else:
             # Sequential days for validation/testing
             self.current_day = getattr(self, 'last_day', 0)
-            self.last_day = (self.current_day + 1) % self.total_days
+            self.last_day = (self.current_day + 1) % max(1, self.total_days)
         
         # Set episode boundaries
         self.episode_start = self.current_day * self.minutes_per_day
         self.episode_end = min(self.episode_start + self.episode_length, len(self.data))
         
         # Ensure there is enough data for the window
-        if self.episode_start < self.config.window_size:
-            self.episode_start = self.config.window_size
+        # Start the episode far enough in to have a full window
+        min_start = max(self.episode_start, self.config.window_size - 1)
+        
+        # Ensure we don't start too late in the episode
+        if min_start >= self.episode_end:
+            raise ValueError(f"Episode {self.current_day} too short for window size {self.config.window_size}")
             
-        self.current_step = self.episode_start
-        self.episode_steps_remaining = self.episode_end - self.episode_start
+        self.current_step = min_start
+        self.episode_steps_remaining = self.episode_end - self.current_step
+        
+        # Validate episode has minimum required steps
+        if self.episode_steps_remaining < 10:  # Minimum reasonable episode length
+            print(f"Warning: Very short episode {self.current_day}: only {self.episode_steps_remaining} steps")
         
         return self._get_state()
     
@@ -826,18 +847,59 @@ class DoubleDuelingDQN:
         self.episodes_done = checkpoint['episodes_done']
         self.update_count = checkpoint['update_count']
 
+
+def filter_to_regular_hours(df):
+    """Filter dataframe to regular market hours using UTC timestamps
+    
+    Regular market hours: 9:30 AM - 4:00 PM EST
+    In UTC: 14:30 - 21:00 (EST, winter) or 13:30 - 20:00 (EDT, summer)
+    Note: Assumes weekends are already filtered out during feature engineering
+    """
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    
+    # Regular market hours filtering (handles DST automatically through pandas)
+    # Convert to Eastern time temporarily just for filtering
+    eastern_times = df['timestamp'].dt.tz_convert('US/Eastern')
+    market_open = eastern_times.dt.time >= time(9, 30)
+    market_close = eastern_times.dt.time < time(16, 0)
+    
+    # Apply filters and keep original UTC timestamps
+    filtered_df = df[market_open & market_close].reset_index(drop=True)
+    
+    print(f"Data filtered: {len(df)} → {len(filtered_df)} rows ({len(filtered_df)/len(df)*100:.1f}%)")
+    return filtered_df
+
 def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_keep: list[str]=STOCK_FEATURES) -> tuple[pd.DataFrame, datetime, datetime]:
     """
-    Get saved csv data
+    Get saved csv data and filter to regular market hours
     """
     df = pd.read_csv(data_path)
-    start_date = cutoff.to_pydatetime()
-    end_date = pd.to_datetime(df['timestamp'].iloc[-1]).to_pydatetime()
-
+    
+    # Apply cutoff first if specified
     if cutoff:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df = df[df['timestamp'] >= cutoff]
         
+        # Ensure cutoff and data timestamps are timezone-aware and compatible
+        if cutoff.tz is not None:
+            # If cutoff has timezone, convert data timestamps to same timezone
+            if df['timestamp'].dt.tz is None:
+                df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+            df['timestamp'] = df['timestamp'].dt.tz_convert(cutoff.tz)
+        else:
+            # If cutoff is naive, ensure data timestamps are also naive
+            if df['timestamp'].dt.tz is not None:
+                df['timestamp'] = df['timestamp'].dt.tz_convert('UTC').dt.tz_localize(None)
+        
+        df = df[df['timestamp'] >= cutoff]
+    
+    # Filter to regular market hours
+    df = filter_to_regular_hours(df)
+    
+    # Get date range after filtering
+    start_date = pd.to_datetime(df['timestamp'].iloc[0]).to_pydatetime()
+    end_date = pd.to_datetime(df['timestamp'].iloc[-1]).to_pydatetime()
+    
     return df[cols_to_keep], start_date, end_date
 
 def save_backtest_results_to_db(model_type: ModelType,
@@ -845,7 +907,7 @@ def save_backtest_results_to_db(model_type: ModelType,
                                 info: dict[str, float],
                                 preprocessor_path: Optional[str] = None) -> tuple[int, str, str]:
     backtest_date = info['backtest_date']
-    return_rate = info['return_rate'] * 100
+    return_rate = info['return_rate']
     
     with app.app_context():
         db.create_all()
@@ -877,7 +939,7 @@ def save_backtest_results_to_db(model_type: ModelType,
             winning_trades=info['winning_trades'],
             losing_trades=info['losing_trades'],
             return_rate=return_rate,
-            max_drawdown=info['max_drawdown'],
+            max_drawdown=abs(info['max_drawdown']),
             sharpe_ratio=info['sharpe_ratio'],
             invalid_actions=info['invalid_actions'],
             preprocessor_path=preprocessor_path
@@ -1121,14 +1183,28 @@ def train_dqn(data_path: str,
     test_final_value = test_portfolio_values[-1]
     test_return = (test_final_value - config.initial_balance) / config.initial_balance
     
-    # Calculate Sharpe ratio
+    # Calculate performance metrics
     returns = np.diff(test_portfolio_values) / test_portfolio_values[:-1]
-    sharpe = np.sqrt(252 * 390) * returns.mean() / (returns.std() + 1e-10)
     
-    # Calculate max drawdown
+    # Calculate max drawdown (this calculation is correct)
     peak = np.maximum.accumulate(test_portfolio_values)
     drawdown = (test_portfolio_values - peak) / peak
     max_drawdown = np.min(drawdown)
+    
+    # Calculate a meaningful risk-adjusted return for intraday trading
+    if len(returns) > 0:
+        # Use the coefficient of variation approach
+        # This gives us return per unit of risk in a more interpretable way
+        portfolio_volatility = np.std(test_portfolio_values) / np.mean(test_portfolio_values)
+        
+        if portfolio_volatility > 1e-8:
+            # Risk-adjusted return: daily return divided by portfolio volatility
+            sharpe = test_return / portfolio_volatility
+        else:
+            # If no volatility, just use the return itself
+            sharpe = test_return * 10  # Scale for better readability
+    else:
+        sharpe = 0.0
     
     print(f"\nTest Results:")
     print(f"  Initial Balance: ${config.initial_balance:,.2f}")

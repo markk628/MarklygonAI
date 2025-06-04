@@ -300,10 +300,12 @@ class PaperTradingBot:
                         # Update last data timestamp to current time
                         self.last_data_timestamp = current_time
                         
-                        # Process data if buffer is full
-                        if len(self.data_buffer) >= WINDOW_SIZE:
-                            logger.info(f"Buffer full after forward fill, processing data for trading decision...")
+                        # Process data if buffer is full AND market is open
+                        if len(self.data_buffer) >= WINDOW_SIZE and self._is_market_open(current_time):
+                            logger.info(f"Buffer full after forward fill and market open - processing data for trading decision...")
                             self._process_data()
+                        elif len(self.data_buffer) >= WINDOW_SIZE:
+                            logger.info(f"Buffer full after forward fill but market closed - maintaining buffer only")
                 
             except Exception as e:
                 logger.error(f"Error in gap filler: {e}", exc_info=True)
@@ -339,8 +341,14 @@ class PaperTradingBot:
                 logger.info(f"Symbol: {msg.symbol}")
                 
                 if msg.symbol == self.ticker:
+                    current_time = datetime.now(timezone.utc)
+                    is_market_open = self._is_market_open(current_time)
+                    
                     logger.info(f"Processing {self.ticker} data:")
-                    logger.info(f"📊 REAL DATA RECEIVED")  # Make it clear this is real data
+                    if is_market_open:
+                        logger.info(f"📊 REAL DATA RECEIVED (MARKET OPEN)")
+                    else:
+                        logger.info(f"📊 REAL DATA RECEIVED (MARKET CLOSED - DATA ONLY)")
                     
                     # Log all available price/volume data
                     if hasattr(msg, 'open'):
@@ -378,10 +386,17 @@ class PaperTradingBot:
                     
                     logger.info(f"Added data point to buffer. Buffer size: {len(self.data_buffer)}/{WINDOW_SIZE}")
                     
-                    # Process data when we have enough
+                    # Only process trading decisions during market hours
                     if len(self.data_buffer) >= WINDOW_SIZE:
-                        logger.info(f"Buffer full, processing data for trading decision...")
-                        self._process_data()
+                        if is_market_open:
+                            logger.info(f"Buffer full and market open - processing data for trading decision...")
+                            self._process_data()
+                        else:
+                            logger.info(f"Buffer full but market closed - data collected for buffer maintenance only")
+                            # Keep buffer at window size by removing oldest data
+                            if len(self.data_buffer) > WINDOW_SIZE:
+                                self.data_buffer = self.data_buffer[-WINDOW_SIZE:]
+                                logger.info(f"Trimmed buffer to maintain window size: {len(self.data_buffer)}")
                 else:
                     logger.info(f"Ignoring message for symbol {msg.symbol} (not {self.ticker})")
             else:
@@ -391,8 +406,14 @@ class PaperTradingBot:
     def _process_data(self):
         """Process accumulated data and make trading decision"""
         try:
+            # Double-check market hours before processing
+            current_time = datetime.now(timezone.utc)
+            if not self._is_market_open(current_time):
+                logger.warning("_process_data called outside market hours - aborting trading decision")
+                return
+            
             logger.info("="*60)
-            logger.info("PROCESSING DATA FOR TRADING DECISION")
+            logger.info("PROCESSING DATA FOR TRADING DECISION (MARKET HOURS)")
             
             # Convert buffer to DataFrame
             df = pd.DataFrame(self.data_buffer[-WINDOW_SIZE:])
@@ -424,7 +445,7 @@ class PaperTradingBot:
                 # Get action from model
                 action = self._get_action(state)
                 
-                # Execute action
+                # Execute action (only during market hours)
                 self._execute_action(action)
                 
                 # Update session
@@ -607,6 +628,13 @@ class PaperTradingBot:
     def _execute_action(self, action: int):
         """Execute trading action via Alpaca"""
         try:
+            # Final safety check - don't execute trades outside market hours
+            current_time = datetime.now(timezone.utc)
+            if not self._is_market_open(current_time):
+                logger.warning(f"⚠️ Trade execution blocked - market is closed")
+                logger.info(f"Action {action} would have been executed but market hours restriction prevented it")
+                return
+            
             # DQN actions: 0=Hold, 1=Buy, 2=Sell
             action_names = {0: "HOLD", 1: "BUY", 2: "SELL"}
             logger.info(f"Model decision: {action_names.get(action, 'UNKNOWN')} (action={action})")
@@ -707,6 +735,14 @@ class PaperTradingBot:
         logger.info(f"Initial balance: ${self.initial_balance}")
         logger.info(f"Max position size: {self.max_position_size * 100}%")
         logger.info(f"Window size for analysis: {WINDOW_SIZE}")
+        
+        # Log market hours information
+        current_time = datetime.now(timezone.utc)
+        logger.info(f"🕐 TRADING HOURS RESTRICTION:")
+        logger.info(f"   Trading decisions will ONLY be made during regular market hours (9:30 AM - 4:00 PM EST)")
+        logger.info(f"   Data collection will continue 24/7 for buffer maintenance")
+        logger.info(f"   Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        logger.info(f"   Market status: {'🟢 OPEN' if self._is_market_open(current_time) else '🔴 CLOSED'}")
         
         # Start gap filler thread
         logger.info("Starting gap filler thread...")

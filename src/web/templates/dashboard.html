@@ -132,43 +132,28 @@
         </div>
 
         <!-- Holdings and Activity -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Current Holdings / Recent Trades -->
-            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-2xl font-bold obsidian-text" id="holdings-title">현재 보유 종목</h2>
-                    <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
-                    </svg>
-                </div>
-                <div class="obsidian-table rounded-lg overflow-hidden">
-                    <table class="w-full">
-                        <thead id="holdings-header">
-                            <tr>
-                                <th class="px-4 py-3 text-left">종목</th>
-                                <th class="px-4 py-3 text-right">수량</th>
-                                <th class="px-4 py-3 text-right">현재가</th>
-                                <th class="px-4 py-3 text-right">손익</th>
-                            </tr>
-                        </thead>
-                        <tbody id="holdings-data">
-                            <!-- Holdings or backtest results will be dynamically added here -->
-                        </tbody>
-                    </table>
-                </div>
+        <!-- Current Holdings / Recent Trades -->
+        <div class="obsidian-card rounded-lg p-6 border border-gray-800">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold obsidian-text" id="holdings-title">현재 보유 종목</h2>
+                <svg class="icon-lg text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"></path>
+                </svg>
             </div>
-
-            <!-- Account Summary / Model Summary -->
-            <div class="obsidian-card rounded-lg p-6 border border-gray-800">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-2xl font-bold obsidian-text" id="summary-title">계좌 요약</h2>
-                    <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                    </svg>
-                </div>
-                <div class="space-y-4" id="account-summary">
-                    <!-- Account or model summary will be dynamically added here -->
-                </div>
+            <div class="obsidian-table rounded-lg overflow-hidden">
+                <table class="w-full">
+                    <thead id="holdings-header">
+                        <tr>
+                            <th class="px-4 py-3 text-left">종목</th>
+                            <th class="px-4 py-3 text-right">수량</th>
+                            <th class="px-4 py-3 text-right">현재가</th>
+                            <th class="px-4 py-3 text-right">손익</th>
+                        </tr>
+                    </thead>
+                    <tbody id="holdings-data">
+                        <!-- Holdings or backtest results will be dynamically added here -->
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -340,15 +325,9 @@ async function loadPortfolioData() {
                 }
             }
         }
-        
-        // Update charts
-        if (usingAlpacaData && alpacaData.positions && alpacaData.positions.length > 0) {
-            updatePortfolioChartWithAlpaca(alpacaData.positions);
-            updateTickerChartWithAlpaca(alpacaData.positions);
-        } else if (backtestData.model_performance) {
-            updatePortfolioChart(backtestData.model_performance);
-            updateTickerChart(backtestData.model_performance);
-        }
+
+        updatePortfolioChartWithAlpaca(alpacaData);
+        updateTickerChartWithAlpaca(alpacaData.positions);
         
     } catch (error) {
         console.error('Error loading portfolio data:', error);
@@ -404,9 +383,6 @@ async function loadBacktestResults() {
                 tbody.appendChild(row);
             });
             
-            // Update account summary
-            updateAccountSummary(alpacaData);
-            
             // Show recent orders section if we have orders
             if (alpacaData.recent_orders && alpacaData.recent_orders.length > 0) {
                 updateRecentOrders(alpacaData.recent_orders);
@@ -416,7 +392,6 @@ async function loadBacktestResults() {
         } else {
             // No Alpaca data - show backtest results
             document.getElementById('holdings-title').textContent = '최근 백테스트 결과';
-            document.getElementById('summary-title').textContent = '모델 요약';
             
             // Update holdings header for backtest data
             const header = document.getElementById('holdings-header');
@@ -433,12 +408,15 @@ async function loadBacktestResults() {
             const response = await fetch('/api/backtest-results');
             const data = await response.json();
             
+            console.log('DEBUG: Backtest results data:', data); // Debug line
+            
             // Update recent backtests table
             const tbody = document.getElementById('holdings-data');
             tbody.innerHTML = '';
             
             // Show only the 5 most recent results
-            data.backtest_results.slice(0, 5).forEach(result => {
+            data.backtest_results.slice(0, 5).forEach((result, index) => {
+                console.log(`DEBUG: Result ${index + 1}:`, result); // Debug line
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="px-4 py-3">
@@ -457,9 +435,6 @@ async function loadBacktestResults() {
                 `;
                 tbody.appendChild(row);
             });
-            
-            // Update model summary
-            updateModelSummary(data.backtest_results);
             
             // Hide recent orders section
             document.getElementById('recent-orders-section').classList.add('hidden');
@@ -540,12 +515,24 @@ function createAlpacaPositionCard(position) {
 
 // Portfolio Performance Chart
 let portfolioChart = null;
-function updatePortfolioChart(modelPerformance) {
+function updatePortfolioChartWithAlpaca(alpacaData) {
     const ctx = document.getElementById('portfolioChart').getContext('2d');
     
-    // Extract data for chart
-    const labels = modelPerformance.map(m => m.model_name);
-    const values = modelPerformance.map(m => m.current_value);
+    // Calculate total portfolio value (cash + market value of positions)
+    const cashBalance = alpacaData.account.cash;
+    const positionsValue = alpacaData.positions.reduce((sum, p) => sum + p.market_value, 0);
+    const currentTotalValue = cashBalance + positionsValue;
+    // Generate 5-day historical data (in production, this would come from stored daily snapshots)
+    const labels = [];
+    const values = [];
+    const today = new Date();
+    
+    for (let i = 4; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        labels.push(date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+        values.push(currentTotalValue);
+    }
     
     if (portfolioChart) {
         portfolioChart.destroy();
@@ -556,13 +543,17 @@ function updatePortfolioChart(modelPerformance) {
         data: {
             labels: labels,
             datasets: [{
-                label: '포트폴리오 가치',
+                label: '총 포트폴리오 가치 (5일)',
                 data: values,
                 borderColor: '#8b5cf6',
                 backgroundColor: 'rgba(139, 92, 246, 0.1)',
                 borderWidth: 3,
                 fill: true,
-                tension: 0.4
+                tension: 0.4,
+                pointBackgroundColor: '#8b5cf6',
+                pointBorderColor: '#ffffff',
+                pointBorderWidth: 2,
+                pointRadius: 5
             }]
         },
         options: {
@@ -587,7 +578,10 @@ function updatePortfolioChart(modelPerformance) {
                     ticks: {
                         color: '#9ca3af',
                         callback: function(value) {
-                            return '$' + value.toLocaleString();
+                            return '$' + value.toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0
+                            });
                         }
                     },
                     grid: {
@@ -601,133 +595,12 @@ function updatePortfolioChart(modelPerformance) {
 
 // Ticker Distribution Chart
 let tickerChart = null;
-function updateTickerChart(modelPerformance) {
-    const ctx = document.getElementById('tickerChart').getContext('2d');
-    
-    // Group by ticker
-    const tickerGroups = {};
-    modelPerformance.forEach(model => {
-        const ticker = model.model_name.split(' - ')[1];
-        if (ticker) {
-            if (!tickerGroups[ticker]) {
-                tickerGroups[ticker] = 0;
-            }
-            tickerGroups[ticker] += model.allocation_percentage;
-        }
-    });
-    
-    const labels = Object.keys(tickerGroups);
-    const data = Object.values(tickerGroups);
-    
-    if (tickerChart) {
-        tickerChart.destroy();
-    }
-    
-    tickerChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: data,
-                backgroundColor: [
-                    '#8b5cf6',
-                    '#06b6d4',
-                    '#10b981',
-                    '#f59e0b',
-                    '#ef4444',
-                    '#ec4899',
-                    '#14b8a6',
-                    '#6366f1'
-                ],
-                borderColor: '#000000',
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: '#e0e0e0',
-                        padding: 20
-                    }
-                }
-            }
-        }
-    });
-}
-
-// Update portfolio chart with Alpaca data
-function updatePortfolioChartWithAlpaca(positions) {
-    const ctx = document.getElementById('portfolioChart').getContext('2d');
-    
-    // Extract data for chart
-    const labels = positions.map(p => p.symbol);
-    const values = positions.map(p => p.market_value);
-    
-    if (portfolioChart) {
-        portfolioChart.destroy();
-    }
-    
-    portfolioChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '포지션 가치',
-                data: values,
-                borderColor: '#8b5cf6',
-                backgroundColor: 'rgba(139, 92, 246, 0.1)',
-                borderWidth: 3,
-                fill: true,
-                tension: 0.4
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    labels: {
-                        color: '#e0e0e0'
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    ticks: {
-                        color: '#9ca3af'
-                    },
-                    grid: {
-                        color: '#1f2937'
-                    }
-                },
-                y: {
-                    ticks: {
-                        color: '#9ca3af',
-                        callback: function(value) {
-                            return '$' + value.toLocaleString();
-                        }
-                    },
-                    grid: {
-                        color: '#1f2937'
-                    }
-                }
-            }
-        }
-    });
-}
-
-// Update ticker chart with Alpaca data
 function updateTickerChartWithAlpaca(positions) {
     const ctx = document.getElementById('tickerChart').getContext('2d');
     
-    // Calculate total portfolio value
-    const totalValue = positions.reduce((sum, p) => sum + p.market_value, 0);
-    
-    // Calculate percentage for each position
+    // Use actual share quantities instead of percentages
     const labels = positions.map(p => p.symbol);
-    const data = positions.map(p => (p.market_value / totalValue) * 100);
+    const data = positions.map(p => Math.abs(parseFloat(p.qty))); // Use actual share quantities
     
     if (tickerChart) {
         tickerChart.destroy();
@@ -760,94 +633,35 @@ function updateTickerChartWithAlpaca(positions) {
                     position: 'bottom',
                     labels: {
                         color: '#e0e0e0',
-                        padding: 20
+                        padding: 20,
+                        generateLabels: function(chart) {
+                            const data = chart.data;
+                            if (data.labels.length && data.datasets.length) {
+                                return data.labels.map((label, i) => {
+                                    const value = data.datasets[0].data[i];
+                                    return {
+                                        text: `${label}: ${value} 주`,
+                                        fillStyle: data.datasets[0].backgroundColor[i],
+                                        strokeStyle: data.datasets[0].borderColor,
+                                        lineWidth: data.datasets[0].borderWidth
+                                    };
+                                });
+                            }
+                            return [];
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed;
+                            return `${label}: ${value} 주`;
+                        }
                     }
                 }
             }
         }
-    });
-}
-
-// Add new helper functions
-function updateAccountSummary(alpacaData) {
-    const account = alpacaData.account;
-    const summary = document.getElementById('account-summary');
-    document.getElementById('summary-title').textContent = '계좌 요약';
-    
-    summary.innerHTML = `
-        <div class="grid grid-cols-2 gap-4">
-            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
-                <p class="text-sm text-gray-400 mb-1">현금 잔고</p>
-                <p class="text-xl font-bold text-gray-200">$${account.cash.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
-            </div>
-            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
-                <p class="text-sm text-gray-400 mb-1">매수 가능 금액</p>
-                <p class="text-xl font-bold text-gray-200">$${account.buying_power.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
-            </div>
-            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
-                <p class="text-sm text-gray-400 mb-1">포지션 가치</p>
-                <p class="text-xl font-bold text-gray-200">$${account.long_market_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
-            </div>
-            <div class="p-4 obsidian-card rounded-lg border border-gray-700">
-                <p class="text-sm text-gray-400 mb-1">총 자산</p>
-                <p class="text-xl font-bold text-gray-200">$${account.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
-            </div>
-        </div>
-        <div class="mt-4 p-4 obsidian-card rounded-lg border border-gray-700">
-            <div class="flex items-center justify-between">
-                <div>
-                    <p class="text-sm text-gray-400">일일 거래 횟수</p>
-                    <p class="text-lg font-medium text-gray-200">${account.daytrade_count} / 3</p>
-                </div>
-                <div class="text-right">
-                    <p class="text-sm text-gray-400">패턴데이트레이더</p>
-                    <p class="text-lg font-medium ${account.pattern_day_trader ? 'text-yellow-400' : 'text-green-400'}">
-                        ${account.pattern_day_trader ? '활성' : '비활성'}
-                    </p>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function updateModelSummary(backtestResults) {
-    const summary = document.getElementById('account-summary');
-    summary.innerHTML = '';
-    
-    // Group results by model
-    const modelGroups = {};
-    backtestResults.forEach(result => {
-        if (!modelGroups[result.model_type]) {
-            modelGroups[result.model_type] = [];
-        }
-        modelGroups[result.model_type].push(result);
-    });
-    
-    // Create summary for each model type
-    Object.entries(modelGroups).forEach(([modelType, results]) => {
-        const avgReturn = results.reduce((sum, r) => sum + r.return_rate, 0) / results.length;
-        const avgSharpe = results.reduce((sum, r) => sum + r.sharpe_ratio, 0) / results.length;
-        
-        const summaryCard = document.createElement('div');
-        summaryCard.className = 'flex items-center justify-between p-4 obsidian-card rounded-lg border border-gray-700';
-        summaryCard.innerHTML = `
-            <div class="flex items-center">
-                <div class="w-10 h-10 obsidian-card rounded-full flex items-center justify-center mr-3">
-                    <span class="text-xs font-bold text-purple-400">${modelType}</span>
-                </div>
-                <div>
-                    <p class="font-medium text-gray-200">${modelType} Model</p>
-                    <p class="text-sm text-gray-400">${results.length} backtests</p>
-                </div>
-            </div>
-            <div class="text-right">
-                <p class="font-medium ${avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}">
-                    ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%
-                </p>
-                <p class="text-sm text-gray-400">Sharpe: ${avgSharpe.toFixed(2)}</p>
-            </div>
-        `;
-        summary.appendChild(summaryCard);
     });
 }
 
