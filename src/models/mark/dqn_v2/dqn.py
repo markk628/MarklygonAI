@@ -44,8 +44,8 @@ class TradingConfig:
     transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
     window_size: int = WINDOW_SIZE
     num_stock_features: int = len(STOCK_FEATURES)  # Use actual length from config
-    num_portfolio_features: int = 8
-    num_features: int = len(STOCK_FEATURES) + 8  # Stock features + portfolio features
+    num_portfolio_features: int = 17  # Expanded from 12 to 17 for complete state
+    num_features: int = len(STOCK_FEATURES) + 17  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
     
@@ -69,7 +69,7 @@ class TradingConfig:
     # Exploration
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 350000
+    epsilon_decay: float = 20000
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -305,9 +305,9 @@ class ImprovedDuelingNetwork(nn.Module):
         return q_values
 
 
-# class DuelingNetwork(ImprovedDuelingNetwork):
-#     """Use improved architecture by default"""
-#     pass
+class DuelingNetwork(ImprovedDuelingNetwork):
+    """Use improved architecture by default"""
+    pass
 
 
 class DuelingNetworkOriginal(nn.Module):
@@ -772,6 +772,15 @@ class TradingEnvironment:
         print(f"  Data coverage: {expected_total_minutes} / {actual_minutes} minutes")
         print(f"  Data utilization: {expected_total_minutes/actual_minutes*100:.1f}%")
         
+        # Initialize tracking variables
+        self.total_profit = 0.0
+        self.total_loss = 0.0
+        self.max_portfolio_value = self.config.initial_balance
+        self.position_entry_step = -1
+        self.consecutive_invalid_actions = 0
+        self.last_action = 0
+        self.unrealized_pnl = 0.0
+        
         self.reset()
         
     def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
@@ -782,6 +791,15 @@ class TradingEnvironment:
         self.winning_trades = 0
         self.losing_trades = 0
         self.invalid_actions = 0
+        
+        # Reset enhanced tracking variables
+        self.total_profit = 0.0
+        self.total_loss = 0.0
+        self.max_portfolio_value = self.config.initial_balance
+        self.position_entry_step = -1  # Track when position was entered
+        self.consecutive_invalid_actions = 0
+        self.last_action = 0  # Track last action (0=hold, 1=buy, 2=sell)
+        self.unrealized_pnl = 0.0
         
         # Select which day to trade
         if day_idx is not None:
@@ -818,7 +836,7 @@ class TradingEnvironment:
         return self._get_state()
     
     def _get_state(self) -> torch.Tensor:
-        """Get current state"""
+        """Get current state with enhanced features for intraday trading"""
         # Get historical data
         start_idx = max(0, self.current_step - self.config.window_size + 1)
         end_idx = self.current_step + 1
@@ -847,30 +865,84 @@ class TradingEnvironment:
         current_price = self.data.iloc[self.current_step]['close']
         portfolio_value = self.balance + (self.position * current_price)
         
-        # Normalize portfolio features (avoid division by zero)
+        # Update unrealized P&L if holding position
+        if self.position > 0:
+            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
+            market_value = self.position * current_price
+            self.unrealized_pnl = (market_value - cost_basis) / cost_basis
+        else:
+            self.unrealized_pnl = 0.0
+        
+        # Update max portfolio value for drawdown calculation
+        self.max_portfolio_value = max(self.max_portfolio_value, portfolio_value)
+        
+        # Calculate intraday time features (regular market hours: 9:30 AM - 4:00 PM = 390 minutes)
+        minutes_into_day = (self.current_step - self.episode_start) % self.minutes_per_day
+        time_of_day_normalized = minutes_into_day / self.minutes_per_day  # 0 to 1
+        
+        # Market session features
+        morning_session = 1.0 if minutes_into_day < 120 else 0.0  # First 2 hours (9:30-11:30)
+        midday_session = 1.0 if 120 <= minutes_into_day < 270 else 0.0  # Middle 2.5 hours (11:30-2:00)
+        afternoon_session = 1.0 if minutes_into_day >= 270 else 0.0  # Last 2 hours (2:00-4:00)
+        
+        # Position timing features
+        position_holding_time = (self.current_step - self.position_entry_step) if self.position_entry_step >= 0 else 0
+        normalized_holding_time = min(position_holding_time / 60, 1.0)  # Normalize to 1 hour max
+        
+        # Enhanced portfolio features for intraday trading
         initial_balance = self.config.initial_balance
         normalized_balance = self.balance / initial_balance if initial_balance > 0 else 0
         normalized_position = self.position * current_price / initial_balance if initial_balance > 0 else 0
         normalized_portfolio_value = portfolio_value / initial_balance if initial_balance > 0 else 0
         
-        # Calculate position ratio (0 if not holding, positive if long)
+        # Position ratio and risk metrics
         position_ratio = self.position * current_price / portfolio_value if portfolio_value > 0 else 0
+        drawdown = (self.max_portfolio_value - portfolio_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
         
-        # Normalize other metrics
-        normalized_trades = self.total_trades / (self.episode_length / 2)
+        # Trading activity metrics
+        trade_frequency = self.total_trades / max(1, minutes_into_day / 60)  # Trades per hour
         win_rate = self.winning_trades / max(1, self.total_trades)
-        normalized_invalid_actions = self.invalid_actions / self.episode_length
         
-        # Ensure all values are finite
+        # Calculate average profit/loss per trade
+        avg_profit_per_winning_trade = self.total_profit / max(1, self.winning_trades)
+        avg_loss_per_losing_trade = abs(self.total_loss) / max(1, self.losing_trades)
+        profit_loss_ratio = avg_profit_per_winning_trade / max(0.001, avg_loss_per_losing_trade)
+        
+        # Action sequence features
+        normalized_invalid_actions = self.invalid_actions / max(1, self.current_step - self.episode_start)
+        consecutive_invalid_penalty = min(self.consecutive_invalid_actions / 5.0, 1.0)
+        
+        # Position flag
+        has_position_flag = 1.0 if self.position > 0 else 0.0
+        
+        # ✅ Portfolio features: Complete state representation (17 features)
         portfolio_features = [
+            # Core metrics (4)
             normalized_balance,
-            normalized_position,
+            normalized_position, 
             normalized_portfolio_value,
             position_ratio,
-            normalized_trades,
+            
+            # Performance metrics (4)
+            self.unrealized_pnl,
+            drawdown,
             win_rate,
+            profit_loss_ratio,
+            
+            # Timing & activity (4)
+            time_of_day_normalized,
+            normalized_holding_time,
+            trade_frequency,
+            has_position_flag,
+            
+            # Market session indicators (3)
+            morning_session,
+            midday_session,
+            afternoon_session,
+            
+            # Mistake tracking (2)  
             normalized_invalid_actions,
-            1.0 if self.position > 0 else 0.0
+            consecutive_invalid_penalty
         ]
         
         # Replace any non-finite values with 0
@@ -910,15 +982,25 @@ class TradingEnvironment:
     
     def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
         """Execute action and return next state, reward, done, info"""
-            
+        
         current_price = self.data.iloc[self.current_step]['close']        
         reward = 0
         trade_executed = False
         invalid_action = self._is_invalid_action(action)
+        
+        # Calculate market session for context
+        minutes_into_day = (self.current_step - self.episode_start) % self.minutes_per_day
+        is_near_close = minutes_into_day >= (self.minutes_per_day - 30)  # Last 30 minutes
+        
         if invalid_action:
             self.invalid_actions += 1
-            reward = -0.01
+            self.consecutive_invalid_actions += 1
+            # Escalating penalty for consecutive invalid actions
+            penalty = 0.01 + (self.consecutive_invalid_actions * 0.005)
+            reward = -min(penalty, 0.05)  # Cap penalty at -0.05
         else:
+            self.consecutive_invalid_actions = 0  # Reset on valid action
+            
             if action == 1:  # Buy
                 position_value = self.balance * self.config.max_position_size
                 shares_to_buy = position_value / current_price
@@ -927,8 +1009,15 @@ class TradingEnvironment:
                 self.position = shares_to_buy
                 self.balance -= cost
                 self.entry_price = current_price
+                self.position_entry_step = self.current_step
                 trade_executed = True
-                reward = 0.001
+                self.last_action = 1
+                
+                # Small positive reward for entering position (risk taking)
+                reward = 0.002
+                # Bonus for entering position when not near market close
+                if not is_near_close:
+                    reward += 0.001
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -939,31 +1028,82 @@ class TradingEnvironment:
                 self.position = 0
                 trade_executed = True
                 self.total_trades += 1
+                self.last_action = 2
+                
+                # Calculate holding time bonus/penalty
+                holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 1
+                holding_time_factor = min(holding_time / 30, 1.0)  # Normalize to 30 minutes
                 
                 if profit > 0:
                     self.winning_trades += 1
+                    self.total_profit += profit
+                    # Reward based on profit percentage with holding time factor
+                    profit_percentage = profit / cost_basis
+                    reward = profit_percentage * 20 * (0.5 + 0.5 * holding_time_factor)
+                    # Bonus for profitable exit near market close
+                    if is_near_close:
+                        reward += 0.005
                 else:
                     self.losing_trades += 1
+                    self.total_loss += abs(profit)
+                    # Penalty for losses, but reduced if exit was quick (stop-loss like)
+                    loss_percentage = abs(profit) / cost_basis
+                    stop_loss_factor = 1.0 - holding_time_factor  # Quick exit = less penalty
+                    reward = -loss_percentage * 15 * (0.3 + 0.7 * stop_loss_factor)
                 
-                percentage_return = profit / cost_basis
-                reward = percentage_return * 10
-        
-            # Additional reward shaping
-            # Penalize having too many invalid actions
-            if self.invalid_actions > 50:
-                reward -= 0.001 * (self.invalid_actions / 50)
+                self.position_entry_step = -1
+                
+            else:  # Hold (action == 0)
+                self.last_action = 0
+                
+                # Holding rewards/penalties based on market conditions and position
+                if self.position > 0:
+                    # Reward for holding profitable positions
+                    unrealized_pnl = ((current_price - self.entry_price) / self.entry_price)
+                    if unrealized_pnl > 0:
+                        reward = 0.0005 * unrealized_pnl  # Small reward for holding winners
+                    else:
+                        reward = 0.0002 * unrealized_pnl  # Small penalty for holding losers
+                    
+                    # Penalty for holding too long (encourage active management)
+                    holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 0
+                    if holding_time > 120:  # More than 2 hours
+                        reward -= 0.001
+                else:
+                    # Small reward for staying in cash during potentially bad times
+                    # Look at recent price movement as a proxy
+                    if self.current_step > self.episode_start + 5:
+                        recent_return = (current_price - self.data.iloc[self.current_step - 5]['close']) / self.data.iloc[self.current_step - 5]['close']
+                        if recent_return < -0.005:  # If price dropped > 0.5%
+                            reward = 0.0005  # Small reward for avoiding loss
             
-            # Reward maintaining portfolio value
+            # Portfolio-level rewards
             current_portfolio_value = self.balance + (self.position * current_price)
             portfolio_return = (current_portfolio_value - self.config.initial_balance) / self.config.initial_balance
             
-            # Small reward for positive returns
+            # Reward for maintaining/growing portfolio value
             if portfolio_return > 0:
-                reward += 0.0001 * portfolio_return
+                reward += 0.0002 * portfolio_return
             
-            # Penalize if balance is getting too low
-            if self.balance < self.config.initial_balance * 0.1:  # Less than 10% of initial
-                reward -= 0.01
+            # Penalty for excessive trading (more than 1 trade per hour on average)
+            minutes_elapsed = max(1, self.current_step - self.episode_start)
+            trade_rate = self.total_trades / (minutes_elapsed / 60)
+            if trade_rate > 1.0:
+                reward -= 0.001 * (trade_rate - 1.0)
+            
+            # Risk management rewards
+            # Reward for keeping reasonable position sizes
+            if self.position > 0:
+                position_pct = (self.position * current_price) / current_portfolio_value
+                if 0.3 <= position_pct <= 0.8:  # Reasonable position size
+                    reward += 0.0001
+                elif position_pct > 0.9:  # Too concentrated
+                    reward -= 0.002
+            
+            # Penalty for low cash reserves (risk management)
+            cash_ratio = self.balance / current_portfolio_value if current_portfolio_value > 0 else 0
+            if cash_ratio < 0.1 and self.position > 0:  # Less than 10% cash when holding position
+                reward -= 0.001
         
         # Move to next step
         self.current_step += 1
@@ -978,21 +1118,25 @@ class TradingEnvironment:
         if done and self.position > 0:
             # Close position at current price
             revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
-            self.balance += revenue
-            
-            # Calculate final trade result
             cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
             profit = revenue - cost_basis
             
+            self.balance += revenue
             self.position = 0
             self.total_trades += 1
             
             if profit > 0:
                 self.winning_trades += 1
-                reward += (profit / cost_basis) * 5  # Reward for profitable day-end close
+                self.total_profit += profit
+                # Reward for profitable end-of-day close
+                profit_percentage = profit / cost_basis
+                reward += profit_percentage * 10
             else:
                 self.losing_trades += 1
-                reward += (profit / cost_basis) * 2  # Smaller penalty for unprofitable close
+                self.total_loss += abs(profit)
+                # Smaller penalty for end-of-day close (forced exit)
+                loss_percentage = abs(profit) / cost_basis
+                reward -= loss_percentage * 5
         
         # Get next state (or final state if done)
         if done:
@@ -1015,7 +1159,10 @@ class TradingEnvironment:
             'winning_trades': self.winning_trades,
             'losing_trades': self.losing_trades,
             'current_day': self.current_day,
-            'episode_steps_remaining': self.episode_steps_remaining
+            'episode_steps_remaining': self.episode_steps_remaining,
+            'unrealized_pnl': getattr(self, 'unrealized_pnl', 0.0),
+            'total_profit': self.total_profit,
+            'total_loss': self.total_loss
         }
         
         return next_state, reward, done, info
@@ -1198,8 +1345,6 @@ class DoubleDuelingDQN:
         # Calculate return
         total_return = (final_value - self.config.initial_balance) / self.config.initial_balance
         
-        win_rate = info['winning_trades'] / max(1, info['total_trades'])
-        
         # Average the update metrics over the episode
         avg_update_metrics = {}
         for key, values in update_metrics.items():
@@ -1212,7 +1357,8 @@ class DoubleDuelingDQN:
             'total_return': total_return,
             'final_value': final_value,
             'total_trades': info['total_trades'],
-            'win_rate': win_rate,
+            'winning_trades': info['winning_trades'],
+            'losing_trades': info['losing_trades'],
             'invalid_actions': info['invalid_actions'],
             **avg_update_metrics
         }
@@ -1463,7 +1609,9 @@ def train_dqn(data_path: str,
         print(f"  Reward: {metrics['episode_reward']:.4f}")
         print(f"  Return: {metrics['total_return']:.2%}")
         print(f"  Final Value: ${metrics['final_value']:,.2f}")
-        print(f"  Trades: {metrics['total_trades']}, Win Rate: {metrics.get('win_rate', 0):.2%}")
+        print(f"  Trades: {metrics['total_trades']}")
+        print(f"  Winning Trades: {metrics['winning_trades']}")
+        print(f"  Losing Trades: {metrics['losing_trades']}")
         print(f"  Invalid Actions: {metrics['invalid_actions']}")
         print(f"  Steps: {metrics['episode_steps']}")
         print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
@@ -1495,7 +1643,6 @@ def train_dqn(data_path: str,
             print(f"  Return: {val_return:.2%}")
             print(f"  Final Value: ${val_final_value:,.2f}")
             print(f"  Trades: {val_info['total_trades']}")
-            print(f"  Win Rate: {val_info['winning_trades'] / max(1, val_info['total_trades']):.2%}")
             print(f"  Invalid Actions: {val_info['invalid_actions']}")
             
             # Update learning rate scheduler based on validation return
@@ -1608,7 +1755,8 @@ def train_dqn(data_path: str,
     print(f"  Sharpe Ratio: {sharpe:.2f}")
     print(f"  Max Drawdown: {max_drawdown:.2%}")
     print(f"  Total Trades: {test_info['total_trades']}")
-    print(f"  Win Rate: {test_info['winning_trades'] / max(1, test_info['total_trades']):.2%}")
+    print(f"  Winning Trades: {test_info['winning_trades']}")
+    print(f"  Losing Trades: {test_info['losing_trades']}")
     print(f"  Invalid Actions: {test_info['invalid_actions']}")
     
     # Return comprehensive results
@@ -1631,7 +1779,6 @@ def train_dqn(data_path: str,
             'total_trades': test_info['total_trades'],
             'winning_trades': test_info['winning_trades'],
             'losing_trades': test_info['losing_trades'],
-            'win_rate': test_info['winning_trades'] / max(1, test_info['total_trades']),
             'invalid_actions': test_info['invalid_actions'],
             'action_history': test_action_history,
             'portfolio_values': test_portfolio_values,

@@ -85,7 +85,6 @@ def plot_training_results(training_results: dict, ticker: str = "Stock", validat
 Total Return: {test_results['total_return']:.2%}
 Sharpe Ratio: {test_results['sharpe_ratio']:.2f}
 Max Drawdown: {test_results['max_drawdown']:.2%}
-Win Rate: {test_results['win_rate']:.2%}
 Total Trades: {test_results['total_trades']}
 Invalid Actions: {test_results['invalid_actions']}
 Final Value: ${test_results['final_value']:,.2f}"""
@@ -229,7 +228,6 @@ def main():
     print(f"Total Trades: {test_results['total_trades']}")
     print(f"Winning Trades: {test_results['winning_trades']}")
     print(f"Losing Trades: {test_results['losing_trades']}")
-    print(f"Win Rate: {test_results['win_rate']:.2%}")
     print(f"Invalid Actions: {test_results['invalid_actions']}")
     print("="*50)
     
