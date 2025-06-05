@@ -69,7 +69,7 @@ class TradingConfig:
     # Exploration
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 20000
+    epsilon_decay: float = 175000
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -1643,6 +1643,8 @@ def train_dqn(data_path: str,
             print(f"  Return: {val_return:.2%}")
             print(f"  Final Value: ${val_final_value:,.2f}")
             print(f"  Trades: {val_info['total_trades']}")
+            print(f"  Winning Trades: {val_info['winning_trades']}")
+            print(f"  Losing Trades: {val_info['losing_trades']}")
             print(f"  Invalid Actions: {val_info['invalid_actions']}")
             
             # Update learning rate scheduler based on validation return

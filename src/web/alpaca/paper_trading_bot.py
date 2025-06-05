@@ -14,6 +14,7 @@ from polygon.websocket.models import WebSocketMessage, Feed, Market
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
+from collections import deque
 
 from src.config.apikeys import POLYGON_APIKEY, ALPACA_APIKEY, ALPACA_SECRET_KEY
 from src.config.config import DEVICE, WINDOW_SIZE, TRANSACTION_FEE_PERCENT
@@ -41,11 +42,36 @@ class PaperTradingBot:
     def __init__(self, model_id: int, initial_balance: float, max_position_size: float = 0.7):
         self.model_id = model_id
         self.initial_balance = initial_balance
-        self.max_position_size = max_position_size
         self.balance = initial_balance
+        self.max_position_size = max_position_size
         self.position = 0
         self.entry_price = 0
+        self.current_price = 0
+        
+        # Trading statistics
+        self.total_trades = 0
+        self.winning_trades = 0
+        self.losing_trades = 0
+        self.invalid_actions = 0
+        
+        # Enhanced tracking for 17-feature state (matching DQN training environment)
+        self.total_profit = 0.0
+        self.total_loss = 0.0
+        self.max_portfolio_value = initial_balance
+        self.position_entry_step = -1  # Track when position was entered
+        self.consecutive_invalid_actions = 0
+        self.last_action = 0  # Track last action (0=hold, 1=buy, 2=sell)
+        self.unrealized_pnl = 0.0
+        self.step_count = 0  # Track steps for timing calculations
+        
+        # Trading session tracking
+        self.session_start_time = datetime.now(timezone.utc)
+        
+        # Data buffer for windowed analysis
+        self.data_buffer = deque(maxlen=WINDOW_SIZE * 3)  # 60 minutes to ensure proper feature engineering
+        
         self.is_running = False
+        self.ticker = None
         self.device = DEVICE
         
         # Load model and preprocessor
@@ -71,8 +97,7 @@ class PaperTradingBot:
             from src.models.mark.dqn_v2.dqn import TradingConfig
             self.config = TradingConfig()
         
-        # Initialize data buffer
-        self.data_buffer = []
+        # Initialize feature engineer
         self.feature_engineer = FeatureEngineer()
         
         # Initialize Alpaca client
@@ -93,20 +118,14 @@ class PaperTradingBot:
         self.polygon_client.subscribe(subscription)
         logger.info(f"Successfully subscribed to {subscription}")
         
-        # Trading statistics
-        self.total_trades = 0
-        self.winning_trades = 0
-        self.losing_trades = 0
-        self.invalid_actions = 0
+        # Create trading session in database
+        self.session_id = self._create_trading_session()
         
-        # Gap filling mechanism
+        # Gap filling setup
         self.last_data_timestamp = None
         self.last_data_point = None
         self.gap_filler_thread = None
         self.gap_filler_stop_event = threading.Event()
-        
-        # Create trading session in database
-        self._create_trading_session()
     
     def _load_model(self):
         """Load the trained model"""
@@ -168,7 +187,7 @@ class PaperTradingBot:
             )
             db.session.add(self.session)
             db.session.commit()
-            self.session_id = self.session.id
+            return self.session.id
     
     def _update_trading_session(self):
         """Update trading session statistics"""
@@ -301,11 +320,18 @@ class PaperTradingBot:
                         self.last_data_timestamp = current_time
                         
                         # Process data if buffer is full AND market is open
-                        if len(self.data_buffer) >= WINDOW_SIZE and self._is_market_open(current_time):
+                        if len(self.data_buffer) >= WINDOW_SIZE * 2 and self._is_market_open(current_time):
                             logger.info(f"Buffer full after forward fill and market open - processing data for trading decision...")
                             self._process_data()
-                        elif len(self.data_buffer) >= WINDOW_SIZE:
-                            logger.info(f"Buffer full after forward fill but market closed - maintaining buffer only")
+                        elif len(self.data_buffer) >= WINDOW_SIZE * 2:
+                            logger.info(f"Buffer full after forward fill but market closed - data collected for buffer maintenance only")
+                            # Keep buffer at window size by removing oldest data
+                            if len(self.data_buffer) > WINDOW_SIZE * 3:
+                                # Convert to list, slice, and recreate deque
+                                buffer_list = list(self.data_buffer)
+                                self.data_buffer.clear()
+                                self.data_buffer.extend(buffer_list[-(WINDOW_SIZE * 3):])
+                                logger.info(f"Trimmed buffer to maintain window size: {len(self.data_buffer)}")
                 
             except Exception as e:
                 logger.error(f"Error in gap filler: {e}", exc_info=True)
@@ -384,18 +410,21 @@ class PaperTradingBot:
                     self.last_data_timestamp = datetime.now(timezone.utc)
                     self.last_data_point = data_point.copy()
                     
-                    logger.info(f"Added data point to buffer. Buffer size: {len(self.data_buffer)}/{WINDOW_SIZE}")
+                    logger.info(f"Added data point to buffer. Buffer size: {len(self.data_buffer)}/{WINDOW_SIZE * 3} (need {WINDOW_SIZE * 2}+ for processing)")
                     
                     # Only process trading decisions during market hours
-                    if len(self.data_buffer) >= WINDOW_SIZE:
+                    if len(self.data_buffer) >= WINDOW_SIZE * 2:  # Need 40+ minutes for proper feature engineering
                         if is_market_open:
                             logger.info(f"Buffer full and market open - processing data for trading decision...")
                             self._process_data()
                         else:
                             logger.info(f"Buffer full but market closed - data collected for buffer maintenance only")
                             # Keep buffer at window size by removing oldest data
-                            if len(self.data_buffer) > WINDOW_SIZE:
-                                self.data_buffer = self.data_buffer[-WINDOW_SIZE:]
+                            if len(self.data_buffer) > WINDOW_SIZE * 3:  # Maintain 60-minute buffer
+                                # Convert to list, slice, and recreate deque
+                                buffer_list = list(self.data_buffer)
+                                self.data_buffer.clear()
+                                self.data_buffer.extend(buffer_list[-(WINDOW_SIZE * 3):])
                                 logger.info(f"Trimmed buffer to maintain window size: {len(self.data_buffer)}")
                 else:
                     logger.info(f"Ignoring message for symbol {msg.symbol} (not {self.ticker})")
@@ -415,13 +444,28 @@ class PaperTradingBot:
             logger.info("="*60)
             logger.info("PROCESSING DATA FOR TRADING DECISION (MARKET HOURS)")
             
-            # Convert buffer to DataFrame
-            df = pd.DataFrame(self.data_buffer[-WINDOW_SIZE:])
-            logger.info(f"Created DataFrame with {len(df)} rows")
+            # Convert full buffer to DataFrame for feature engineering
+            full_df = pd.DataFrame(list(self.data_buffer))
+            logger.info(f"Full buffer DataFrame: {len(full_df)} rows")
             
-            # Add technical indicators
-            df = self._add_features(df)
-            logger.info(f"Added features. Total columns: {len(df.columns)}")
+            # Apply feature engineering to full buffer (ensures proper indicator calculation)
+            full_df = self.feature_engineer._add_technical_indicators(full_df)
+            full_df = self.feature_engineer._add_temporal_patterns(full_df)
+            full_df = self.feature_engineer._add_price_differences_and_returns(full_df)
+            
+            # Fill any NaN values (should be minimal now with larger buffer)
+            full_df = full_df.ffill().fillna(0)
+            
+            # Extract last WINDOW_SIZE minutes for model analysis
+            df = full_df.tail(WINDOW_SIZE).copy()
+            logger.info(f"Analysis window: {len(df)} rows (last {WINDOW_SIZE} minutes)")
+            
+            # Check for any remaining NaN values in analysis window
+            nan_count = df.isnull().sum().sum()
+            if nan_count > 0:
+                logger.warning(f"⚠️ Analysis window still contains {nan_count} NaN values - may need larger buffer")
+            else:
+                logger.info("✅ Analysis window clean - no NaN values")
             
             # Get the state for the model
             state = self._prepare_state(df)
@@ -532,21 +576,100 @@ class PaperTradingBot:
                 # Calculate portfolio features
                 portfolio_value = self.balance + (self.position * self.current_price)
                 
-                # Match the exact portfolio features from DQN training environment
-                # These MUST match the 8 features expected by the model
+                # Update unrealized P&L if holding position
+                if self.position > 0:
+                    cost_basis = self.position * self.entry_price * (1 + TRANSACTION_FEE_PERCENT)
+                    market_value = self.position * self.current_price
+                    self.unrealized_pnl = (market_value - cost_basis) / cost_basis
+                else:
+                    self.unrealized_pnl = 0.0
+                
+                # Update max portfolio value for drawdown calculation
+                self.max_portfolio_value = max(self.max_portfolio_value, portfolio_value)
+                
+                # Calculate time and session features
+                current_time = datetime.now(timezone.utc)
+                
+                # For live trading, we'll approximate the time within trading day
+                # Convert to Eastern time to match market hours
+                eastern_time = current_time.astimezone(timezone(timedelta(hours=-5)))  # EST approximation
+                market_open_time = eastern_time.replace(hour=9, minute=30, second=0, microsecond=0)
+                
+                # Calculate minutes into trading day (regular market hours: 390 minutes)
+                if eastern_time >= market_open_time:
+                    minutes_into_day = (eastern_time - market_open_time).total_seconds() / 60
+                    minutes_into_day = max(0, min(minutes_into_day, 390))  # Cap at 390 minutes
+                else:
+                    minutes_into_day = 0
+                
+                time_of_day_normalized = minutes_into_day / 390  # Normalize to 0-1
+                
+                # Market session features (matching DQN training)
+                morning_session = 1.0 if minutes_into_day < 120 else 0.0  # First 2 hours (9:30-11:30)
+                midday_session = 1.0 if 120 <= minutes_into_day < 270 else 0.0  # Middle 2.5 hours (11:30-2:00)
+                afternoon_session = 1.0 if minutes_into_day >= 270 else 0.0  # Last 2 hours (2:00-4:00)
+                
+                # Position timing features
+                position_holding_time = self.step_count - self.position_entry_step if self.position_entry_step >= 0 else 0
+                normalized_holding_time = min(position_holding_time / 60, 1.0)  # Normalize to 1 hour max
+                
+                # Enhanced portfolio features matching DQN training environment (17 features)
+                normalized_balance = self.balance / self.initial_balance if self.initial_balance > 0 else 0
+                normalized_position = self.position * self.current_price / self.initial_balance if self.initial_balance > 0 else 0
+                normalized_portfolio_value = portfolio_value / self.initial_balance if self.initial_balance > 0 else 0
+                position_ratio = self.position * self.current_price / portfolio_value if portfolio_value > 0 else 0
+                drawdown = (self.max_portfolio_value - portfolio_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
+                
+                # Trading activity metrics
+                session_duration = (current_time - self.session_start_time).total_seconds() / 3600  # Hours
+                trade_frequency = self.total_trades / max(1, session_duration)  # Trades per hour
+                win_rate = self.winning_trades / max(1, self.total_trades)
+                
+                # Calculate average profit/loss per trade
+                avg_profit_per_winning_trade = self.total_profit / max(1, self.winning_trades)
+                avg_loss_per_losing_trade = abs(self.total_loss) / max(1, self.losing_trades)
+                profit_loss_ratio = avg_profit_per_winning_trade / max(0.001, avg_loss_per_losing_trade)
+                
+                # Action sequence features
+                normalized_invalid_actions = self.invalid_actions / max(1, self.step_count)
+                consecutive_invalid_penalty = min(self.consecutive_invalid_actions / 5.0, 1.0)
+                
+                # Position flag
+                has_position_flag = 1.0 if self.position > 0 else 0.0
+                
+                # ✅ Portfolio features: Complete state representation (17 features)
                 portfolio_features = np.array([
-                    self.balance / self.initial_balance if self.initial_balance > 0 else 0,  # normalized_balance
-                    (self.position * self.current_price) / self.initial_balance if self.initial_balance > 0 else 0,  # normalized_position
-                    portfolio_value / self.initial_balance if self.initial_balance > 0 else 0,  # normalized_portfolio_value
-                    (self.position * self.current_price) / portfolio_value if portfolio_value > 0 else 0,  # position_ratio
-                    self.total_trades / (len(self.data_buffer) / 2) if len(self.data_buffer) > 0 else 0,  # normalized_trades
-                    self.winning_trades / max(1, self.total_trades),  # win_rate
-                    self.invalid_actions / max(1, len(self.data_buffer)),  # normalized_invalid_actions
-                    1.0 if self.position > 0 else 0.0  # has_position
+                    # Core metrics (4)
+                    normalized_balance,
+                    normalized_position,
+                    normalized_portfolio_value,
+                    position_ratio,
+                    
+                    # Performance metrics (4)
+                    self.unrealized_pnl,
+                    drawdown,
+                    win_rate,
+                    profit_loss_ratio,
+                    
+                    # Timing & activity (4)
+                    time_of_day_normalized,
+                    normalized_holding_time,
+                    trade_frequency,
+                    has_position_flag,
+                    
+                    # Market session indicators (3)
+                    morning_session,
+                    midday_session,
+                    afternoon_session,
+                    
+                    # Mistake tracking (2)  
+                    normalized_invalid_actions,
+                    consecutive_invalid_penalty
                 ])
                 
-                # Ensure all values are finite
+                # Ensure all values are finite and increment step count
                 portfolio_features = np.nan_to_num(portfolio_features, nan=0.0, posinf=1.0, neginf=-1.0)
+                self.step_count += 1
                 
                 # Combine features
                 portfolio_features_repeated = np.tile(portfolio_features, (WINDOW_SIZE, 1))
@@ -557,9 +680,9 @@ class PaperTradingBot:
                 
                 # Log final state details
                 logger.info(f"Final state tensor created:")
-                logger.info(f"  Shape: {state.shape} (expected: [{WINDOW_SIZE}, {expected_stock_features + 8}])")
+                logger.info(f"  Shape: {state.shape} (expected: [{WINDOW_SIZE}, {expected_stock_features + 17}])")
                 logger.info(f"  Stock features: {expected_stock_features}")
-                logger.info(f"  Portfolio features: 8")
+                logger.info(f"  Portfolio features: 17")
                 logger.info(f"  Total features per timestep: {state.shape[1]}")
                 
                 # Check for any data quality issues
@@ -597,7 +720,7 @@ class PaperTradingBot:
         logger.info("Sample state values:")
         logger.info(f"  First timestep stock features (first 6): {state_np[0, :6]}")
         logger.info(f"  Last timestep stock features (first 6): {state_np[-1, :6]}")
-        logger.info(f"  Portfolio features: {state_np[0, -8:]}")  # Last 8 features are portfolio
+        logger.info(f"  Portfolio features: {state_np[0, -17:]}")  # Last 17 features are portfolio
         
         with torch.no_grad():
             if self.model_type == "DQN":
@@ -640,12 +763,15 @@ class PaperTradingBot:
             logger.info(f"Model decision: {action_names.get(action, 'UNKNOWN')} (action={action})")
             
             if action == 0:  # Hold
+                # Reset consecutive invalid actions on valid action
+                self.consecutive_invalid_actions = 0
+                self.last_action = 0  # Track last action as HOLD
                 logger.info(f"HOLD - Current position: {self.position} shares, Balance: ${self.balance:.2f}")
-                return
             
             elif action == 1:  # Buy
                 if self.position > 0:  # Already have position
                     self.invalid_actions += 1
+                    self.consecutive_invalid_actions += 1
                     logger.warning(f"Invalid BUY action - Already holding {self.position} shares")
                     return
                 
@@ -655,8 +781,12 @@ class PaperTradingBot:
                 
                 if shares_to_buy <= 0:
                     self.invalid_actions += 1
+                    self.consecutive_invalid_actions += 1
                     logger.warning(f"Invalid BUY action - Insufficient balance (${self.balance:.2f}) to buy at ${self.current_price}")
                     return
+                
+                # Reset consecutive invalid actions on valid action
+                self.consecutive_invalid_actions = 0
                 
                 # Place buy order
                 order_request = MarketOrderRequest(
@@ -674,6 +804,8 @@ class PaperTradingBot:
                 self.balance -= cost
                 self.position = shares_to_buy
                 self.entry_price = self.current_price
+                self.position_entry_step = self.step_count  # Track when position was entered
+                self.last_action = 1  # Track last action as BUY
                 
                 # Save trade
                 self._save_trade(TradeType.BUY, cost, self.current_price, shares_to_buy)
@@ -684,8 +816,12 @@ class PaperTradingBot:
             elif action == 2:  # Sell
                 if self.position <= 0:  # No position to sell
                     self.invalid_actions += 1
+                    self.consecutive_invalid_actions += 1
                     logger.warning(f"Invalid SELL action - No position to sell (position={self.position})")
                     return
+                
+                # Reset consecutive invalid actions on valid action
+                self.consecutive_invalid_actions = 0
                 
                 # Place sell order
                 order_request = MarketOrderRequest(
@@ -708,13 +844,17 @@ class PaperTradingBot:
                 self.total_trades += 1
                 if profit > 0:
                     self.winning_trades += 1
+                    self.total_profit += profit
                 else:
                     self.losing_trades += 1
+                    self.total_loss += abs(profit)
                 
                 # Update local state
                 self.balance += revenue
                 shares_sold = self.position
                 self.position = 0
+                self.position_entry_step = -1  # Reset position entry tracking
+                self.last_action = 2  # Track last action as SELL
                 
                 # Save trade
                 self._save_trade(TradeType.SELL, revenue, self.current_price, shares_sold)
