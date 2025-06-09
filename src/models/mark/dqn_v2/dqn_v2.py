@@ -30,6 +30,7 @@ from src.config.config import (
     TRAIN_RATIO,
     VALID_RATIO,
     TRAIN_INTERVAL,
+    MINUTES_PER_TRADING_DAY
 )
 from src.utils.utils import create_directory
 from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
@@ -1546,7 +1547,7 @@ def train_dqn(data_path: str,
     preprocessor = None
     if use_preprocessing:
         print(f"\nApplying preprocessing (scaling: {scaling_method}, outliers: {outlier_method})...")
-        from src.models.mark.dqn_v2.data_preprocessor import preprocess_financial_data
+        from src.models.mark.dqn_v2.data_preprocessor_v2 import preprocess_financial_data
         
         # Set default preprocessor save path if not provided
         if preprocessor_save_path is None:
@@ -1578,6 +1579,10 @@ def train_dqn(data_path: str,
     train_env = TradingEnvironment(train_data, train_data_scaled, config, mode=TradingMode.TRAIN)
     val_env = TradingEnvironment(valid_data, valid_data_scaled, config, mode=TradingMode.VAL)
     test_env = TradingEnvironment(test_data, test_data_scaled, config, mode=TradingMode.TEST)
+    
+    print(f"train_data_scaled.shape: {train_data_scaled.shape}")
+    print(f"valid_data_scaled.shape: {valid_data_scaled.shape}")
+    print(f"test_data_scaled.shape: {test_data_scaled.shape}")
     
     # Create agent
     agent = DoubleDuelingDQN(config)

@@ -101,6 +101,25 @@ FILTERED_TEMPORAL_FEATURES = ['minute_sin', 'minute_cos',
                               'quarter_sin', 'quarter_cos']
 STOCK_FEATURES = CORE_FEATURES + AUXILIARY_FEATURES + FILTERED_TEMPORAL_FEATURES
 
+# dqn v2
+PRICE_FEATURES = ['open', 'high', 'low', 'close', 'vwap']
+VOLUME_FEATURES = ['volume']
+TECHNICAL_FEATURES = [
+    'stochrsi_k_14_1min', 'stochrsi_d_14_1min', 'rsi_14_1min',
+    'macd_12_26_9_1min', 'macd_signal_12_26_9_1min', 'macd_hist_12_26_9_1min',
+    'roc_10_1min', 'obv_1min', 'ema_3_1min', 'ema_9_1min', 'ema_21_1min',
+    'plusdi_20_1min', 'minusdi_20_1min', 'adx_20_1min',
+    'bband_upper_20_1min', 'bband_lower_20_1min',
+    'atr_14_1min', 'cci_20_1min', 'mfi_14_1min'
+]
+VOLATILLITY_FEATURES = ['volume_rolling_std_15', 'log_return_rolling_std_15']
+RETURNS_FEATURES = ['close_diff_1', 'log_return_1']
+TEMPORAL_FEATURES = ['minute_sin', 'minute_cos', 
+                     'hour_sin', 'hour_cos',
+                     'day_sin', 'day_cos',
+                     'month_sin', 'month_cos',
+                     'quarter_sin', 'quarter_cos']
+
 # feature engineering v2
 STOCK_FEATURES_V2 = ['open','high','low','close','volume','vwap',
                      'return_1m','return_2m','return_3m','return_5m','return_7m','return_10m','return_12m','return_15m',
