@@ -526,7 +526,8 @@ def api_start_trading():
     
     try:
         # Import at module level to ensure all dependencies are loaded
-        from src.web.alpaca.paper_trading_bot import PaperTradingBot
+        # from src.web.alpaca.paper_trading_bot import PaperTradingBot
+        from src.web.alpaca.paper_trading_bot_v2 import PaperTradingBot
         
         data = request.json
         model_id = data.get('model_id')

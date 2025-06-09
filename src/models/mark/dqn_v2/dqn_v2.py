@@ -47,9 +47,9 @@ class TradingConfig:
     initial_balance: float = INITIAL_BALANCE
     transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
     window_size: int = WINDOW_SIZE
-    num_stock_features: int = len(STOCK_FEATURES_V2)  # Use actual length from config
-    num_portfolio_features: int = 17  # Expanded from 12 to 17 for complete state
-    num_features: int = len(STOCK_FEATURES_V2) + 17  # Stock features + portfolio features
+    num_stock_features: int = len(STOCK_FEATURES_V2)
+    num_portfolio_features: int = 12
+    num_features: int = len(STOCK_FEATURES_V2) + 12  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
     
@@ -58,7 +58,7 @@ class TradingConfig:
     
     # Network parameters
     hidden_size: int = 512
-    learning_rate: float = 1e-4
+    learning_rate: float = 0.0001
     
     # Training parameters
     batch_size: int = BATCH_SIZE
@@ -156,11 +156,11 @@ class ImprovedDuelingNetwork(nn.Module):
         self.attention_pool = nn.MultiheadAttention(128, 4, batch_first=True)
         self.pool_query = nn.Parameter(torch.randn(1, 128))
         
-        # Enhanced portfolio branch with risk awareness
+        # Portfolio branch
         self.portfolio_branch = nn.Sequential(
             nn.Linear(config.num_portfolio_features, 64),
             nn.LayerNorm(64),
-            nn.GELU(),  # Better activation for financial data
+            nn.GELU(),
             nn.Dropout(0.1),
             
             nn.Linear(64, 128),
@@ -215,7 +215,7 @@ class ImprovedDuelingNetwork(nn.Module):
         padding = kernel_size // 2
         return nn.Sequential(
             nn.Conv1d(in_channels, 64, kernel_size=kernel_size, padding=padding),
-            nn.GroupNorm(4, 64),  # Better than BatchNorm for financial data
+            nn.GroupNorm(4, 64),
             nn.GELU(),
             nn.Dropout(0.1),
             
@@ -636,15 +636,13 @@ class PrioritizedReplayBufferGPU:
         self.device = device
         self.position = 0
         self.size = 0
-        
-        # Pre-allocate GPU tensors for the buffer
+
         self.states = torch.zeros((capacity, config.window_size, config.num_features), dtype=torch.float32, device=device)
         self.actions = torch.zeros(capacity, dtype=torch.long, device=device)
         self.rewards = torch.zeros(capacity, dtype=torch.float32, device=device)
         self.next_states = torch.zeros((capacity, config.window_size, config.num_features), dtype=torch.float32, device=device)
         self.dones = torch.zeros(capacity, dtype=torch.bool, device=device)
-        
-        # Priority management - initialize with small positive values
+
         self.priorities = torch.ones(capacity, dtype=torch.float32, device=device) * 0.01
         self.max_priority = 1.0
         
@@ -655,7 +653,6 @@ class PrioritizedReplayBufferGPU:
              next_state: torch.Tensor, 
              done: bool):
         """save experience"""
-        # Ensure tensors are on the correct device
         state = state.to(self.device)
         next_state = next_state.to(self.device)
         
@@ -810,7 +807,6 @@ class TradingEnvironment:
             self.current_day = day_idx
         elif self.mode == TradingMode.TRAIN:
             # Random day for training to ensure good exploration
-            # Ensure we don't go beyond available complete days
             max_day = max(0, self.total_days - 1)
             self.current_day = np.random.randint(0, max_day + 1) if max_day >= 0 else 0
         else:
@@ -885,9 +881,9 @@ class TradingEnvironment:
         time_of_day_normalized = minutes_into_day / self.minutes_per_day  # 0 to 1
         
         # Market session features
-        morning_session = 1.0 if minutes_into_day < 120 else 0.0  # First 2 hours (9:30-11:30)
-        midday_session = 1.0 if 120 <= minutes_into_day < 270 else 0.0  # Middle 2.5 hours (11:30-2:00)
-        afternoon_session = 1.0 if minutes_into_day >= 270 else 0.0  # Last 2 hours (2:00-4:00)
+        morning_session = 1.0 if minutes_into_day < 120 else 0.0  # (9:30-11:30)
+        midday_session = 1.0 if 120 <= minutes_into_day < 270 else 0.0  # (11:30-2:00)
+        afternoon_session = 1.0 if minutes_into_day >= 270 else 0.0  # (2:00-4:00)
         
         # Position timing features
         position_holding_time = (self.current_step - self.position_entry_step) if self.position_entry_step >= 0 else 0
@@ -901,52 +897,38 @@ class TradingEnvironment:
         
         # Position ratio and risk metrics
         position_ratio = self.position * current_price / portfolio_value if portfolio_value > 0 else 0
-        drawdown = (self.max_portfolio_value - portfolio_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
         
-        # Trading activity metrics
-        trade_frequency = self.total_trades / max(1, minutes_into_day / 60)  # Trades per hour
-        win_rate = self.winning_trades / max(1, self.total_trades)
+        # Action validity flags (match execution logic exactly)
+        position_value = self.balance * self.config.max_position_size
+        shares_to_buy = int(position_value / current_price) if current_price > 0 else 0
+        total_cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
+
+        can_buy = 1.0 if (self.position == 0 and 
+                          shares_to_buy > 0 and 
+                          total_cost <= self.balance) else 0.0
+        can_sell = 1.0 if self.position > 0 else 0.0
         
-        # Calculate average profit/loss per trade
-        avg_profit_per_winning_trade = self.total_profit / max(1, self.winning_trades)
-        avg_loss_per_losing_trade = abs(self.total_loss) / max(1, self.losing_trades)
-        profit_loss_ratio = avg_profit_per_winning_trade / max(0.001, avg_loss_per_losing_trade)
-        
-        # Action sequence features
-        normalized_invalid_actions = self.invalid_actions / max(1, self.current_step - self.episode_start)
-        consecutive_invalid_penalty = min(self.consecutive_invalid_actions / 5.0, 1.0)
-        
-        # Position flag
-        has_position_flag = 1.0 if self.position > 0 else 0.0
-        
-        # ✅ Portfolio features: Complete state representation (17 features)
+        # Portfolio features
         portfolio_features = [
-            # Core metrics (4)
-            normalized_balance,
-            normalized_position,
-            normalized_portfolio_value,
-            position_ratio,
+            # Core current metrics (4)
+            normalized_balance,           # Current cash available
+            normalized_position,          # Current stock holdings
+            normalized_portfolio_value,   # Current total value
+            position_ratio,               # Current position size ratio
             
-            # Performance metrics (4)
-            self.unrealized_pnl,
-            drawdown,
-            win_rate,
-            profit_loss_ratio,
+            # Current position status (2)
+            self.unrealized_pnl,          # Current position P&L
+            normalized_holding_time,      # How long holding current position
             
-            # Timing & activity (4)
-            time_of_day_normalized,
-            normalized_holding_time,
-            trade_frequency,
-            has_position_flag,
-            
-            # Market session indicators (3)
-            morning_session,
+            # Current timing context (4)
+            time_of_day_normalized,       # Where in trading day
+            morning_session,              # Current market session
             midday_session,
             afternoon_session,
             
-            # Mistake tracking (2)  
-            normalized_invalid_actions,
-            consecutive_invalid_penalty
+            # Current action validity (2)
+            can_buy,                      # Can execute buy now
+            can_sell                      # Can execute sell now
         ]
         
         # Replace any non-finite values with 0
@@ -1089,11 +1071,46 @@ class TradingEnvironment:
             if portfolio_return > 0:
                 reward += 0.0002 * portfolio_return
             
-            # Penalty for excessive trading (more than 1 trade per hour on average)
+            # Win Rate Bonus (encourage consistent profitability)
+            if self.total_trades > 0:
+                current_win_rate = self.winning_trades / self.total_trades
+                if current_win_rate >= 0.6:  # High win rate bonus
+                    reward += 0.002
+                elif current_win_rate >= 0.5:  # Decent win rate
+                    reward += 0.001
+                elif current_win_rate < 0.3:  # Poor win rate penalty
+                    reward -= 0.001
+            
+            # Profit/Loss Ratio Rewards (encourage good risk management)
+            if self.winning_trades > 0 and self.losing_trades > 0:
+                avg_profit = self.total_profit / self.winning_trades
+                avg_loss = abs(self.total_loss) / self.losing_trades
+                profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 1.0
+                
+                if profit_loss_ratio >= 2.0:  # Excellent risk/reward
+                    reward += 0.003
+                elif profit_loss_ratio >= 1.5:  # Good risk/reward
+                    reward += 0.002
+                elif profit_loss_ratio < 0.8:  # Poor risk/reward
+                    reward -= 0.002
+            
+            # Drawdown Management (penalize excessive portfolio decline)
+            drawdown = (self.max_portfolio_value - current_portfolio_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
+            if drawdown > 0.1:  # More than 10% drawdown
+                reward -= 0.003 * drawdown  # Escalating penalty
+            elif drawdown > 0.05:  # More than 5% drawdown
+                reward -= 0.001 * drawdown
+            
+            # Trade Frequency Management (prevent overtrading and undertrading)
             minutes_elapsed = max(1, self.current_step - self.episode_start)
-            trade_rate = self.total_trades / (minutes_elapsed / 60)
-            if trade_rate > 1.0:
-                reward -= 0.001 * (trade_rate - 1.0)
+            trade_rate = self.total_trades / (minutes_elapsed / 60)  # Trades per hour
+            
+            if 0.3 <= trade_rate <= 1.2:  # Optimal trading frequency (18-72 trades per day)
+                reward += 0.0005  # Small bonus for appropriate activity
+            elif trade_rate > 2.0:  # Overtrading penalty
+                reward -= 0.002 * (trade_rate - 2.0)
+            elif trade_rate < 0.1 and minutes_elapsed > 120:  # Undertrading penalty (after 2 hours)
+                reward -= 0.001
             
             # Risk management rewards
             # Reward for keeping reasonable position sizes

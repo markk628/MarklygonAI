@@ -42,7 +42,7 @@ class FeatureEngineer:
         df_filtered = df_et.between_time('09:30', '15:59').copy()
         
         # Fill gaps and clean
-        cols_to_ffill = ['open', 'high', 'low', 'close', 'vwap'] 
+        cols_to_ffill = ['open', 'high', 'low', 'close', 'vwap']
         cols_to_fillna = ['volume', 'transactions']
         df_filtered[cols_to_ffill] = df_filtered[cols_to_ffill].ffill()
         df_filtered[cols_to_fillna] = df_filtered[cols_to_fillna].fillna(0)
