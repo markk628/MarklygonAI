@@ -34,6 +34,10 @@ from src.config.config import (
 from src.utils.utils import create_directory
 from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
+class ArchitectureType(Enum):
+    ORIGINAL = "original"
+    IMPROVED = "improved"
+    HYBRID = "hybrid"
 
 @dataclass
 class TradingConfig:
@@ -49,7 +53,7 @@ class TradingConfig:
     max_position_size: float = MAX_POSITION_SIZE
     
     # Network architecture selection
-    architecture_type: str = "improved"  # "original", "improved", "hybrid"
+    architecture_type: ArchitectureType = ArchitectureType.IMPROVED
     
     # Network parameters
     hidden_size: int = 512
@@ -68,7 +72,7 @@ class TradingConfig:
     # Exploration
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 175000
+    epsilon_decay: float = 12500
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -572,7 +576,7 @@ class HybridCNNLSTMNetwork(nn.Module):
             # Multi-scale CNN
             scale_features = []
             for cnn_branch in self.cnn_branches:
-                features = cnn_branch(timestep_data.transpose(1, 2))  # (batch, 64, 1)
+                features = cnn_branch(timestep_data)  # (batch, 64, 1) - timestep_data is already (batch, features, 1)
                 features = features.squeeze(-1)  # (batch, 64)
                 scale_features.append(features)
             
@@ -612,11 +616,11 @@ class HybridCNNLSTMNetwork(nn.Module):
 
 def create_network(config: TradingConfig) -> nn.Module:
     """Factory function to create network based on config"""
-    if config.architecture_type == "original":
+    if config.architecture_type == ArchitectureType.ORIGINAL:
         return DuelingNetworkOriginal(config)
-    elif config.architecture_type == "improved":
+    elif config.architecture_type == ArchitectureType.IMPROVED:
         return ImprovedDuelingNetwork(config)
-    elif config.architecture_type == "hybrid":
+    elif config.architecture_type == ArchitectureType.HYBRID:
         return HybridCNNLSTMNetwork(config)
     else:
         raise ValueError(f"Unknown architecture type: {config.architecture_type}")
@@ -1137,13 +1141,14 @@ class TradingEnvironment:
                 loss_percentage = abs(profit) / cost_basis
                 reward -= loss_percentage * 5
         
-        # Get next state (or final state if done)
+        # Get next state (or terminal state if done)
         if done:
             # Return current state as next state when episode is done
             self.current_step -= 1
             next_state = self._get_state()
             self.current_step += 1
         else:
+            # For non-terminal transitions, use the state at the new current_step
             next_state = self._get_state()
         
         # Additional info
@@ -1174,7 +1179,7 @@ class DoubleDuelingDQN:
         self.config = config
         self.device = device
         print(f"Using device: {device}")
-        print(f"Using architecture: {config.architecture_type}")
+        print(f"Using architecture: {config.architecture_type.value}")
         
         # Networks using factory function
         self.q_network = create_network(config).to(device)
@@ -1215,10 +1220,13 @@ class DoubleDuelingDQN:
             epsilon = self.config.epsilon_end + (self.config.epsilon_start - self.config.epsilon_end) * math.exp(-1. * self.steps_done / self.config.epsilon_decay)
         
         if random.random() > epsilon:
+            self.q_network.eval()  # Set to evaluation mode for deterministic inference
             with torch.no_grad():
                 state = state.unsqueeze(0).to(self.device)
                 q_values = self.q_network(state)
-                return q_values.max(1)[1].item()
+                action = torch.argmax(q_values, dim=1).item()
+            self.q_network.train()  # Set back to training mode
+            return action
         else:
             return random.randrange(self.config.num_actions)
     
@@ -1501,7 +1509,7 @@ def train_dqn(data_path: str,
               scaling_method: str = 'robust',
               outlier_method: str = 'winsorize',
               preprocessor_save_path: Optional[str] = None,
-              architecture_type: str = "improved"):
+              architecture_type: ArchitectureType = ArchitectureType.IMPROVED):
     """
     Main training function with validation and early stopping
     
@@ -1805,7 +1813,7 @@ if __name__ == "__main__":
             {
                 "name": "Original CNN",
                 "config": TradingConfig(
-                    architecture_type="original",
+                    architecture_type=ArchitectureType.ORIGINAL,
                     hidden_size=512,
                     learning_rate=1e-4
                 )
@@ -1813,7 +1821,7 @@ if __name__ == "__main__":
             {
                 "name": "Improved Transformer + Multi-scale CNN",
                 "config": TradingConfig(
-                    architecture_type="improved",
+                    architecture_type=ArchitectureType.IMPROVED,
                     hidden_size=512,
                     learning_rate=1e-4,
                     transformer_layers=2,
@@ -1824,7 +1832,7 @@ if __name__ == "__main__":
             {
                 "name": "Hybrid CNN + LSTM",
                 "config": TradingConfig(
-                    architecture_type="hybrid",
+                    architecture_type=ArchitectureType.HYBRID,
                     hidden_size=512,
                     learning_rate=8e-5,  # Slightly lower for LSTM stability
                     cnn_scales=[3, 5, 7]
@@ -1839,7 +1847,7 @@ if __name__ == "__main__":
             
             config = arch['config']
             print(f"Configuration:")
-            print(f"  Architecture: {config.architecture_type}")
+            print(f"  Architecture: {config.architecture_type.value}")
             print(f"  Hidden Size: {config.hidden_size}")
             print(f"  Learning Rate: {config.learning_rate}")
             print(f"  Batch Size: {config.batch_size}")
@@ -1858,13 +1866,13 @@ if __name__ == "__main__":
                 
                 # Show model structure
                 print(f"\nArchitecture Summary:")
-                if config.architecture_type == "original":
+                if config.architecture_type == ArchitectureType.ORIGINAL:
                     print("  • Standard 1D CNN with BatchNorm")
                     print("  • ReLU activations")
                     print("  • Max pooling")
                     print("  • Simple dueling streams")
                     
-                elif config.architecture_type == "improved":
+                elif config.architecture_type == ArchitectureType.IMPROVED:
                     print("  • Multi-scale CNN (3, 5, 7 kernel sizes)")
                     print("  • Transformer blocks with self-attention")
                     print("  • GELU activations (better for financial data)")
@@ -1873,7 +1881,7 @@ if __name__ == "__main__":
                     print("  • Attention pooling")
                     print("  • Residual connections in shared layers")
                     
-                elif config.architecture_type == "hybrid":
+                elif config.architecture_type == ArchitectureType.HYBRID:
                     print("  • Multi-scale CNN for local patterns")
                     print("  • Bidirectional LSTM for temporal dependencies")
                     print("  • Attention mechanism for LSTM outputs")
@@ -1881,39 +1889,39 @@ if __name__ == "__main__":
                     print("  • GroupNorm for stability")
                 
                 print(f"\nBest Use Cases:")
-                if config.architecture_type == "original":
+                if config.architecture_type == ArchitectureType.ORIGINAL:
                     print("  ✓ Baseline model")
                     print("  ✓ Quick prototyping") 
                     print("  ✓ Limited computational resources")
                     print("  ✓ Simple pattern recognition")
                     
-                elif config.architecture_type == "improved":
+                elif config.architecture_type == ArchitectureType.IMPROVED:
                     print("  ✓ Complex temporal relationships")
                     print("  ✓ Long-range dependencies")
                     print("  ✓ Multi-timeframe analysis")
                     print("  ✓ When you have sufficient data")
                     print("  ✓ Production deployment with good hardware")
                     
-                elif config.architecture_type == "hybrid":
+                elif config.architecture_type == ArchitectureType.HYBRID:
                     print("  ✓ Best of both worlds (CNN + RNN)")
                     print("  ✓ Sequential pattern recognition")
                     print("  ✓ Trend following strategies")
                     print("  ✓ Medium computational requirements")
                 
                 print(f"\nExpected Performance Characteristics:")
-                if config.architecture_type == "original":
+                if config.architecture_type == ArchitectureType.ORIGINAL:
                     print("  • Training Speed: Fast")
                     print("  • Memory Usage: Low")
                     print("  • Pattern Recognition: Basic")
                     print("  • Overfitting Risk: Medium")
                     
-                elif config.architecture_type == "improved":
+                elif config.architecture_type == ArchitectureType.IMPROVED:
                     print("  • Training Speed: Moderate")
                     print("  • Memory Usage: High")
                     print("  • Pattern Recognition: Advanced")
                     print("  • Overfitting Risk: Low (with proper regularization)")
                     
-                elif config.architecture_type == "hybrid":
+                elif config.architecture_type == ArchitectureType.HYBRID:
                     print("  • Training Speed: Moderate")
                     print("  • Memory Usage: Medium-High")
                     print("  • Pattern Recognition: Good")
