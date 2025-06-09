@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.models.mark.dqn_v2.dqn import train_dqn, save_backtest_results_to_db
+# from src.models.mark.dqn_v2.dqn import train_dqn, save_backtest_results_to_db
+from src.models.mark.dqn_v2.dqn_v2 import train_dqn, save_backtest_results_to_db
 from src.config.config import CUTOFF_TIMESTAMP, DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
 from src.utils.utils import create_directory
 from src.web.models import ModelType
@@ -163,7 +164,8 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock"):
 def main():
     # Configuration
     ticker = 'TSLA'  # Change to your stock ticker
-    data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
+    # data_path = f"{DATA_DIR}/feature_engineered/{ticker}.csv"
+    data_path = f"{DATA_DIR}/feature_engineered_v2/{ticker}.csv"
     
     # Create results directory if it doesn't exist
     models_dir = MODELS_DIR / 'dqn_v2'

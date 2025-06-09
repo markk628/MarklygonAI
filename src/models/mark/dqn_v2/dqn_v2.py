@@ -25,7 +25,7 @@ from src.config.config import (
     REPLAY_BUFFER_SIZE,
     UPDATE_TARGET_EVERY,
     EPSILON_EARLY_STOPPING_THRESHOLD,
-    STOCK_FEATURES,
+    STOCK_FEATURES_V2,
     NUM_EPISODES,
     TRAIN_RATIO,
     VALID_RATIO,
@@ -42,9 +42,9 @@ class TradingConfig:
     initial_balance: float = INITIAL_BALANCE
     transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
     window_size: int = WINDOW_SIZE
-    num_stock_features: int = len(STOCK_FEATURES)  # Use actual length from config
+    num_stock_features: int = len(STOCK_FEATURES_V2)  # Use actual length from config
     num_portfolio_features: int = 17  # Expanded from 12 to 17 for complete state
-    num_features: int = len(STOCK_FEATURES) + 17  # Stock features + portfolio features
+    num_features: int = len(STOCK_FEATURES_V2) + 17  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
     
@@ -1410,7 +1410,7 @@ def filter_to_regular_hours(df):
     print(f"Data filtered: {len(df)} → {len(filtered_df)} rows ({len(filtered_df)/len(df)*100:.1f}%)")
     return filtered_df
 
-def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_keep: list[str]=STOCK_FEATURES) -> tuple[pd.DataFrame, datetime, datetime]:
+def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_keep: list[str]=STOCK_FEATURES_V2) -> tuple[pd.DataFrame, datetime, datetime]:
     """
     Get saved csv data and filter to regular market hours
     """
