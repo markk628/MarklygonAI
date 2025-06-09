@@ -1828,8 +1828,9 @@ def train_dqn(data_path: str,
                 progress = train_env.portfolio_normalizer.episode_count / train_env.portfolio_normalizer.warmup_episodes
                 print(f"  Portfolio Normalizer: 🔥 WARMUP ({progress*100:.1f}%) - ⚠️  TRAINING PAUSED")
         
-        # Validation
-        if (episode + 1) % validation_frequency == 0:
+        # Validation (skip during portfolio normalization warmup)        
+        if ((episode + 1) % validation_frequency == 0 and 
+            (train_env.portfolio_normalizer is None or train_env.portfolio_normalizer.is_fitted)):
             print("\nRunning validation...")
             
             # Run validation episode
@@ -1904,7 +1905,9 @@ def train_dqn(data_path: str,
                 print(f"Continuing training... (patience reset to {early_stopping_patience // 2})")
                 # Partially reset patience counter to give more chances
                 patience_counter = early_stopping_patience // 2
-        
+        else:
+            print(f"\n⚠️  Validation SKIPPED (episode {episode+1}) - Portfolio normalization warmup in progress")
+            
         # Save checkpoint
         if episode % save_interval == 0 and episode > 0:
             checkpoint_path = f"dqn_checkpoint_episode_{episode}.pt"
