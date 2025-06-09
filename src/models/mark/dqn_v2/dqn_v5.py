@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import pandas as pd
-from collections import deque
 from enum import Enum
 from typing import Tuple, Optional, Dict
 import random
@@ -39,6 +38,158 @@ from src.config.config import (
 from src.utils.utils import create_directory
 from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
+class PortfolioStateNormalizer:
+    """Normalizes portfolio states using statistics collected during warmup period"""
+    
+    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100):
+        self.warmup_episodes = warmup_episodes
+        self.update_frequency = update_frequency
+        self.episode_count = 0
+        
+        # Feature indices that need normalization (unbounded features)
+        self.normalize_features = [4]  # unrealized_pnl index
+        self.clip_features = [3]       # position_ratio index (clip to 0-2)
+        
+        # Statistics storage
+        self.feature_stats = {}
+        self.warmup_data = {idx: [] for idx in self.normalize_features}
+        self.is_fitted = False
+        
+    def collect_warmup_data(self, portfolio_states: list):
+        """Collect portfolio states during warmup period"""
+        if self.episode_count < self.warmup_episodes:
+            for state in portfolio_states:
+                for idx in self.normalize_features:
+                    if idx < len(state):
+                        self.warmup_data[idx].append(state[idx])
+    
+    def fit_normalizer(self):
+        """Fit normalizer using collected warmup data"""
+        if self.episode_count >= self.warmup_episodes and not self.is_fitted:
+            print(f"Fitting portfolio normalizer with {self.warmup_episodes} episodes of data...")
+            
+            for idx in self.normalize_features:
+                data = np.array(self.warmup_data[idx])
+                if len(data) > 0:
+                    # Use robust statistics (less sensitive to outliers)
+                    median = np.median(data)
+                    q25, q75 = np.percentile(data, [25, 75])
+                    iqr = q75 - q25
+                    
+                    # Handle edge case where IQR is zero
+                    if iqr < 1e-6:
+                        iqr = max(abs(median), 0.01)  # Fallback scaling
+                    
+                    self.feature_stats[idx] = {
+                        'median': median,
+                        'iqr': iqr,
+                        'q25': q25,
+                        'q75': q75,
+                        'min': np.min(data),
+                        'max': np.max(data)
+                    }
+                    
+                    print(f"Feature {idx} (unrealized_pnl) stats:")
+                    print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
+                    print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
+            
+            self.is_fitted = True
+            # Clear warmup data to save memory
+            self.warmup_data.clear()
+            print("✅ Portfolio normalization ACTIVATED - Training will now resume!")
+    
+    def fit_from_sample_data(self, sample_portfolio_states: list):
+        """Pre-fit normalizer using sample data (alternative to warmup)"""
+        if self.is_fitted:
+            return
+            
+        print(f"Pre-fitting portfolio normalizer with {len(sample_portfolio_states)} sample states...")
+        
+        for idx in self.normalize_features:
+            data = []
+            for state in sample_portfolio_states:
+                if idx < len(state):
+                    data.append(state[idx])
+            
+            if len(data) > 0:
+                data = np.array(data)
+                median = np.median(data)
+                q25, q75 = np.percentile(data, [25, 75])
+                iqr = q75 - q25
+                
+                if iqr < 1e-6:
+                    iqr = max(abs(median), 0.01)
+                
+                self.feature_stats[idx] = {
+                    'median': median,
+                    'iqr': iqr,
+                    'q25': q25,
+                    'q75': q75,
+                    'min': np.min(data),
+                    'max': np.max(data)
+                }
+                
+                print(f"Pre-fit feature {idx} (unrealized_pnl) stats:")
+                print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
+                print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
+        
+        self.is_fitted = True
+        print("✅ Portfolio normalizer PRE-FITTED - Training enabled from start!")
+            
+    def normalize_state(self, portfolio_state: np.ndarray) -> np.ndarray:
+        """Normalize a single portfolio state"""
+        if not self.is_fitted:
+            return portfolio_state  # Return unchanged during warmup
+            
+        state = portfolio_state.copy()
+        
+        # Normalize unbounded features using robust scaling
+        for idx in self.normalize_features:
+            if idx < len(state) and idx in self.feature_stats:
+                stats = self.feature_stats[idx]
+                # Robust scaling: (x - median) / IQR
+                state[idx] = (state[idx] - stats['median']) / stats['iqr']
+                # Clip extreme outliers to [-3, 3] (roughly 3 IQRs)
+                state[idx] = np.clip(state[idx], -3.0, 3.0)
+        
+        # Clip features that should be bounded
+        for idx in self.clip_features:
+            if idx < len(state):
+                state[idx] = np.clip(state[idx], 0.0, 2.0)  # Allow up to 200% position ratio
+        
+        return state
+    
+    def increment_episode(self):
+        """Call this after each episode"""
+        self.episode_count += 1
+        
+        # Fit normalizer after warmup period
+        if self.episode_count == self.warmup_episodes:
+            self.fit_normalizer()
+    
+    def save(self, path: str):
+        """Save normalizer state"""
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'feature_stats': self.feature_stats,
+                'is_fitted': self.is_fitted,
+                'episode_count': self.episode_count,
+                'warmup_episodes': self.warmup_episodes
+            }, f)
+    
+    def load(self, path: str):
+        """Load normalizer state"""
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.feature_stats = data['feature_stats']
+                self.is_fitted = data['is_fitted']
+                self.episode_count = data['episode_count']
+                self.warmup_episodes = data.get('warmup_episodes', 50)
+            print(f"Loaded portfolio normalizer from {path}")
+        except FileNotFoundError:
+            print(f"No existing normalizer found at {path}, starting fresh")
+
 class ArchitectureType(Enum):
     ORIGINAL = "original"
     IMPROVED = "improved"
@@ -56,10 +207,6 @@ class TradingConfig:
     num_features: int = len(STOCK_FEATURES_V2) + 12  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
-    
-    # Portfolio state normalization
-    use_portfolio_normalization: bool = True
-    portfolio_warmup_episodes: int = 50
     
     # Network architecture selection
     architecture_type: ArchitectureType = ArchitectureType.IMPROVED
@@ -81,7 +228,7 @@ class TradingConfig:
     # Exploration
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
-    epsilon_decay: float = 100000
+    epsilon_decay: float = 12500
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -99,6 +246,11 @@ class TradingConfig:
     use_residual_connections: bool = True
     transformer_layers: int = 2
     cnn_scales: list = None  # [3, 5, 7] if None
+    
+    # Portfolio state normalization
+    use_portfolio_normalization: bool = True
+    portfolio_warmup_episodes: int = 50
+    portfolio_update_frequency: int = 100
     
     def __post_init__(self):
         if self.cnn_scales is None:
@@ -136,19 +288,7 @@ class FinancialTransformerBlock(nn.Module):
 
 
 class ImprovedDuelingNetwork(nn.Module):
-    """Enhanced Dueling DQN with Transformer and financial-specific improvements
-    
-    **Portfolio Temporal Processing:**
-    - Uses dedicated transformer block to model portfolio evolution over time
-    - Attention mechanism learns dependencies between portfolio states across timesteps
-    - Captures patterns like: "P&L declining trend → exit signal", "Session momentum patterns"
-    - Best for: Complex temporal portfolio patterns, advanced risk management
-    
-    **Stock Processing:**
-    - Multi-scale CNN for local patterns at different timeframes
-    - Transformer blocks for long-range temporal dependencies
-    - Positional encoding for time awareness
-    """
+    """Enhanced Dueling DQN with Transformer and financial-specific improvements"""
     
     def __init__(self, config: TradingConfig):
         super(ImprovedDuelingNetwork, self).__init__()
@@ -176,20 +316,18 @@ class ImprovedDuelingNetwork(nn.Module):
         self.attention_pool = nn.MultiheadAttention(128, 4, batch_first=True)
         self.pool_query = nn.Parameter(torch.randn(1, 128))
         
-        # Portfolio temporal branch with transformer for portfolio sequence modeling
-        self.portfolio_embedding = nn.Linear(config.num_portfolio_features, 64)
-        self.portfolio_transformer = FinancialTransformerBlock(64, nhead=4, dropout=0.1)
-        
-        # Portfolio attention pooling for sequence aggregation
-        self.portfolio_attention_pool = nn.MultiheadAttention(64, 2, batch_first=True)
-        self.portfolio_pool_query = nn.Parameter(torch.randn(1, 64))
-        
-        # Portfolio output projection
-        self.portfolio_output = nn.Sequential(
+        # Portfolio branch
+        self.portfolio_branch = nn.Sequential(
+            nn.Linear(config.num_portfolio_features, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            
             nn.Linear(64, 128),
             nn.LayerNorm(128),
             nn.GELU(),
             nn.Dropout(0.1),
+            
             nn.Linear(128, 64),
             nn.LayerNorm(64),
             nn.GELU(),
@@ -268,7 +406,7 @@ class ImprovedDuelingNetwork(nn.Module):
         
         # Split stock data and portfolio data
         stock_data = x[:, :, :self.config.num_stock_features]
-        # Portfolio data is now temporal - will be extracted later in portfolio processing
+        portfolio_data = x[:, 0, self.config.num_stock_features:]
         
         # ========== Stock Data Processing ==========
         
@@ -298,33 +436,7 @@ class ImprovedDuelingNetwork(nn.Module):
         pooled_features = pooled_features.squeeze(1)  # (batch_size, 128)
         
         # ========== Portfolio Data Processing ==========
-        # portfolio_data shape: (batch_size, window_size, num_portfolio_features)
-        # Note: We now expect temporal portfolio data, not just current state
-        
-        # Extract portfolio sequence from combined input
-        # The portfolio data should be the last num_portfolio_features of each timestep
-        portfolio_sequence = x[:, :, self.config.num_stock_features:]  # (batch_size, window_size, 12)
-        
-        # Portfolio embedding - PRESERVES temporal structure!
-        # Linear layer operates on last dimension only: (batch, 30, 12) → (batch, 30, 64)
-        # Each of the 30 timesteps gets independently transformed: 12 features → 64 features
-        portfolio_embedded = self.portfolio_embedding(portfolio_sequence)  # (batch_size, window_size, 64)
-        
-        # Portfolio transformer processing for temporal portfolio patterns
-        # Now we have rich 64-dimensional representations for each timestep
-        # Transformer can learn attention patterns across the 30 timesteps
-        portfolio_transformed = self.portfolio_transformer(portfolio_embedded)  # (batch_size, window_size, 64)
-        
-        # Portfolio attention pooling
-        # Aggregate the 30 timesteps into a single representation using learned attention
-        portfolio_query = self.portfolio_pool_query.expand(batch_size, -1, -1)  # (batch_size, 1, 64)
-        portfolio_pooled, _ = self.portfolio_attention_pool(
-            portfolio_query, portfolio_transformed, portfolio_transformed
-        )
-        portfolio_pooled = portfolio_pooled.squeeze(1)  # (batch_size, 64)
-        
-        # Portfolio output processing
-        portfolio_features = self.portfolio_output(portfolio_pooled)  # (batch_size, 64)
+        portfolio_features = self.portfolio_branch(portfolio_data)
         
         # ========== Feature Combination ==========
         combined_features = torch.cat([
@@ -363,19 +475,7 @@ class DuelingNetwork(ImprovedDuelingNetwork):
 
 
 class DuelingNetworkOriginal(nn.Module):
-    """Original Dueling DQN architecture
-    
-    **Portfolio Processing:**
-    - Simple FC layers processing only current portfolio state
-    - No temporal modeling - treats portfolio as static features
-    - Fast and lightweight, good for baseline comparisons
-    - Best for: Simple strategies, quick prototyping, limited compute resources
-    
-    **Stock Processing:**
-    - Standard 1D CNN with BatchNorm and ReLU activations
-    - Max pooling for feature extraction
-    - Adequate for basic pattern recognition
-    """
+    """Original Dueling DQN architecture"""
     
     def __init__(self, config: TradingConfig):
         super(DuelingNetworkOriginal, self).__init__()
@@ -492,10 +592,7 @@ class DuelingNetworkOriginal(nn.Module):
         """Forward pass combining value and advantage streams"""        
         # Split stock data and portfolio data
         stock_data = x[:, :, :self.config.num_stock_features]  # (batch_size, window_size, self.config.num_stock_features)
-        
-        # For original architecture, we'll use the current portfolio state (last timestep)
-        # This maintains backward compatibility while still getting current portfolio info
-        portfolio_data = x[:, -1, self.config.num_stock_features:]  # (batch_size, self.config.num_portfolio_features)
+        portfolio_data = x[:, 0, self.config.num_stock_features:]  # (batch_size, self.config.num_portfolio_features)
         
         # Process stock data through CNN
         # Conv1d expects (batch_size, channels, window_size)
@@ -523,19 +620,7 @@ class DuelingNetworkOriginal(nn.Module):
 
 
 class HybridCNNLSTMNetwork(nn.Module):
-    """Hybrid CNN-LSTM network combining convolutional and recurrent processing
-    
-    **Portfolio Temporal Processing:**
-    - Uses LSTM to model sequential portfolio evolution patterns
-    - Captures momentum and trend patterns in portfolio performance
-    - Learns optimal position holding durations and session effects
-    - Best for: Trend following, momentum strategies, medium complexity
-    
-    **Stock Processing:**
-    - Multi-scale CNN for local pattern extraction at different timeframes
-    - Bidirectional LSTM for temporal sequence modeling
-    - Attention mechanism for important time point identification
-    """
+    """Hybrid CNN-LSTM network combining convolutional and recurrent processing"""
     
     def __init__(self, config: TradingConfig):
         super(HybridCNNLSTMNetwork, self).__init__()
@@ -569,24 +654,16 @@ class HybridCNNLSTMNetwork(nn.Module):
         # Attention mechanism for LSTM outputs
         self.lstm_attention = nn.MultiheadAttention(256, 8, batch_first=True)
         
-        # Portfolio branch with LSTM for temporal portfolio modeling
-        self.portfolio_lstm = nn.LSTM(
-            input_size=config.num_portfolio_features,
-            hidden_size=64,
-            num_layers=1,
-            batch_first=True,
-            dropout=0.0  # No dropout for single layer
-        )
-        
-        # Portfolio output processing
-        self.portfolio_output = nn.Sequential(
+        # Portfolio branch
+        self.portfolio_branch = nn.Sequential(
+            nn.Linear(config.num_portfolio_features, 64),
+            nn.LayerNorm(64),
+            nn.GELU(),
+            nn.Dropout(0.1),
             nn.Linear(64, 128),
             nn.LayerNorm(128),
             nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(128, 64),
-            nn.LayerNorm(64),
-            nn.GELU()
+            nn.Linear(128, 64)
         )
         
         # Combined processing
@@ -648,9 +725,9 @@ class HybridCNNLSTMNetwork(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len = x.size(0), x.size(1)
         
-        # Split stock and portfolio data  
+        # Split stock and portfolio data
         stock_data = x[:, :, :self.config.num_stock_features]
-        portfolio_sequence = x[:, :, self.config.num_stock_features:]  # (batch_size, seq_len, portfolio_features)
+        portfolio_data = x[:, 0, self.config.num_stock_features:]
         
         # CNN processing for each timestep
         cnn_outputs = []
@@ -679,14 +756,8 @@ class HybridCNNLSTMNetwork(nn.Module):
         pooled_features, _ = self.lstm_attention(lstm_out, lstm_out, lstm_out)
         pooled_features = pooled_features.mean(dim=1)  # (batch, 256)
         
-        # Portfolio LSTM processing for temporal patterns
-        portfolio_lstm_out, _ = self.portfolio_lstm(portfolio_sequence)  # (batch, seq_len, 64)
-        
-        # Use last output of LSTM (most recent portfolio state with temporal context)
-        portfolio_lstm_final = portfolio_lstm_out[:, -1, :]  # (batch, 64)
-        
-        # Portfolio output processing
-        portfolio_features = self.portfolio_output(portfolio_lstm_final)  # (batch, 64)
+        # Portfolio processing
+        portfolio_features = self.portfolio_branch(portfolio_data)  # (batch, 64)
         
         # Combine features
         combined_features = torch.cat([pooled_features, portfolio_features], dim=1)
@@ -717,13 +788,7 @@ def create_network(config: TradingConfig) -> nn.Module:
 
 
 class PrioritizedReplayBufferGPU:
-    """Prioritized Experience Replay buffer with GPU acceleration
-    
-    Stores temporal states where:
-    - Stock features vary across timesteps (market data evolution)
-    - Portfolio features now vary across timesteps (portfolio state evolution)
-    - Shape: (capacity, window_size, num_stock_features + num_portfolio_features)
-    """
+    """PER VRAM version"""
     
     def __init__(self, capacity: int, config: TradingConfig, device: torch.device=DEVICE):
         self.capacity = capacity
@@ -881,9 +946,9 @@ class TradingEnvironment:
         self.portfolio_normalizer = None
         if config.use_portfolio_normalization:
             self.portfolio_normalizer = PortfolioStateNormalizer(
-                warmup_episodes=config.portfolio_warmup_episodes
+                warmup_episodes=config.portfolio_warmup_episodes,
+                update_frequency=config.portfolio_update_frequency
             )
-        self.episode_portfolio_states = []  # Collect states during episode for warmup
         
         self.reset()
         
@@ -935,24 +1000,39 @@ class TradingEnvironment:
         # Validate episode has minimum required steps
         if self.episode_steps_remaining < 10:  # Minimum reasonable episode length
             print(f"Warning: Very short episode {self.current_day}: only {self.episode_steps_remaining} steps")
-            
-        # Initialize portfolio history with initial state
-        self.portfolio_history = deque(maxlen=self.config.window_size)
-        
-        # Calculate initial portfolio state and fill history
-        initial_portfolio_state = self._calculate_current_portfolio_state()
-        
-        # Fill portfolio history with initial state
-        for _ in range(self.config.window_size):
-            self.portfolio_history.append(initial_portfolio_state)
         
         # Reset episode portfolio state collection for warmup
         self.episode_portfolio_states = []
         
         return self._get_state()
     
-    def _calculate_current_portfolio_state(self) -> np.ndarray:
-        """Calculate current portfolio state features"""
+    def _get_state(self) -> torch.Tensor:
+        """Get current state with enhanced features for intraday trading"""
+        # Get historical data
+        start_idx = max(0, self.current_step - self.config.window_size + 1)
+        end_idx = self.current_step + 1
+        
+        # If not enough historical data, pad with the earliest available data
+        if start_idx < self.episode_start - self.config.window_size + 1:
+            # Pad with the first available data point in the episode
+            padding_needed = (self.episode_start - self.config.window_size + 1) - start_idx
+            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
+            if padding_needed > 0:
+                first_row = stock_data[0:1]  # Get first row
+                padding = np.repeat(first_row, padding_needed, axis=0)
+                stock_data = np.vstack([padding, stock_data])
+        else:
+            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
+        
+        # Ensure there is exactly window_size rows
+        if len(stock_data) < self.config.window_size:
+            padding_needed = self.config.window_size - len(stock_data)
+            first_row = stock_data[0:1] if len(stock_data) > 0 else self.scaled_data.iloc[0:1].values
+            padding = np.repeat(first_row, padding_needed, axis=0)
+            stock_data = np.vstack([padding, stock_data])
+        elif len(stock_data) > self.config.window_size:
+            stock_data = stock_data[-self.config.window_size:]
+        
         current_price = self.data.iloc[self.current_step]['close']
         portfolio_value = self.balance + (self.position * current_price)
         
@@ -1038,57 +1118,19 @@ class TradingEnvironment:
             self.portfolio_normalizer.is_fitted):
             portfolio_state = self.portfolio_normalizer.normalize_state(portfolio_state)
         
-        return portfolio_state
-    
-    def _get_state(self) -> torch.Tensor:
-        """Get current state with enhanced features for intraday trading"""
-        # Get historical stock data
-        start_idx = max(0, self.current_step - self.config.window_size + 1)
-        end_idx = self.current_step + 1
-        
-        # If not enough historical data, pad with the earliest available data
-        if start_idx < self.episode_start - self.config.window_size + 1:
-            # Pad with the first available data point in the episode
-            padding_needed = (self.episode_start - self.config.window_size + 1) - start_idx
-            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
-            if padding_needed > 0:
-                first_row = stock_data[0:1]  # Get first row
-                padding = np.repeat(first_row, padding_needed, axis=0)
-                stock_data = np.vstack([padding, stock_data])
-        else:
-            stock_data = self.scaled_data.iloc[start_idx:end_idx].values
-        
-        # Ensure there is exactly window_size rows
-        if len(stock_data) < self.config.window_size:
-            padding_needed = self.config.window_size - len(stock_data)
-            first_row = stock_data[0:1] if len(stock_data) > 0 else self.scaled_data.iloc[0:1].values
-            padding = np.repeat(first_row, padding_needed, axis=0)
-            stock_data = np.vstack([padding, stock_data])
-        elif len(stock_data) > self.config.window_size:
-            stock_data = stock_data[-self.config.window_size:]
+        # Convert to tensor
+        portfolio_state = torch.tensor(portfolio_state, dtype=torch.float32, device=self.device)
         
         # Convert stock data to tensor
         stock_data_state = torch.tensor(stock_data.astype(np.float32), dtype=torch.float32, device=self.device)
         
-        # Get portfolio history - should already be properly sized from portfolio updates
-        if len(self.portfolio_history) < self.config.window_size:
-            # Pad with current state if history isn't full yet
-            current_portfolio_state = self._calculate_current_portfolio_state()
-            padding_needed = self.config.window_size - len(self.portfolio_history)
-            portfolio_history_array = ([current_portfolio_state] * padding_needed + 
-                                     list(self.portfolio_history))
-        else:
-            portfolio_history_array = list(self.portfolio_history)
-        
-        # Convert to tensor
-        portfolio_state_history = torch.tensor(
-            np.array(portfolio_history_array), 
-            dtype=torch.float32, 
-            device=self.device
-        )
+        # Repeat portfolio state for each timestep and concatenate
+        # This is needed for compatibility with the current state representation
+        # The network will extract portfolio features from the first timestep
+        portfolio_state_repeated = portfolio_state.unsqueeze(0).repeat(self.config.window_size, 1)
         
         # Concatenate stock data and portfolio features
-        combined_state = torch.cat([stock_data_state, portfolio_state_history], dim=1)
+        combined_state = torch.cat([stock_data_state, portfolio_state_repeated], dim=1)
         
         return combined_state
     
@@ -1300,10 +1342,6 @@ class TradingEnvironment:
                 # Smaller penalty for end-of-day close (forced exit)
                 loss_percentage = abs(profit) / cost_basis
                 reward -= loss_percentage * 5
-        
-        # Update portfolio history AFTER action execution
-        current_portfolio_state = self._calculate_current_portfolio_state()
-        self.portfolio_history.append(current_portfolio_state)
         
         # Get next state (or terminal state if done)
         if done:
@@ -1564,11 +1602,10 @@ class DoubleDuelingDQN:
             'update_count': self.update_count
         }, path)
         
-        # Save portfolio normalizer if provided
+        # Save portfolio normalizer separately if provided
         if portfolio_normalizer is not None:
-            normalizer_path = path.replace('.pt', '_portfolio_normalizer.pkl')
+            normalizer_path = path.replace('.pt', '_normalizer.pkl')
             portfolio_normalizer.save(normalizer_path)
-            print(f"Saved portfolio normalizer to {normalizer_path}")
     
     def load(self, path: str, portfolio_normalizer=None):
         """Load model checkpoint"""
@@ -1585,7 +1622,7 @@ class DoubleDuelingDQN:
         
         # Load portfolio normalizer if provided
         if portfolio_normalizer is not None:
-            normalizer_path = path.replace('.pt', '_portfolio_normalizer.pkl')
+            normalizer_path = path.replace('.pt', '_normalizer.pkl')
             portfolio_normalizer.load(normalizer_path)
 
 
@@ -2196,156 +2233,3 @@ if __name__ == "__main__":
     #     scaling_method='robust',
     #     outlier_method='winsorize'
     # )
-
-
-class PortfolioStateNormalizer:
-    """Normalizes portfolio states using statistics collected during warmup period"""
-    
-    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100):
-        self.warmup_episodes = warmup_episodes
-        self.update_frequency = update_frequency
-        self.episode_count = 0
-        
-        # Feature indices that need normalization (unbounded features)
-        self.normalize_features = [4]  # unrealized_pnl index
-        self.clip_features = [3]       # position_ratio index (clip to 0-2)
-        
-        # Statistics storage
-        self.feature_stats = {}
-        self.warmup_data = {idx: [] for idx in self.normalize_features}
-        self.is_fitted = False
-        
-    def collect_warmup_data(self, portfolio_states: list):
-        """Collect portfolio states during warmup period"""
-        if self.episode_count < self.warmup_episodes:
-            for state in portfolio_states:
-                for idx in self.normalize_features:
-                    if idx < len(state):
-                        self.warmup_data[idx].append(state[idx])
-    
-    def fit_normalizer(self):
-        """Fit normalizer using collected warmup data"""
-        if self.episode_count >= self.warmup_episodes and not self.is_fitted:
-            print(f"Fitting portfolio normalizer with {self.warmup_episodes} episodes of data...")
-            
-            for idx in self.normalize_features:
-                data = np.array(self.warmup_data[idx])
-                if len(data) > 0:
-                    # Use robust statistics (less sensitive to outliers)
-                    median = np.median(data)
-                    q25, q75 = np.percentile(data, [25, 75])
-                    iqr = q75 - q25
-                    
-                    # Handle edge case where IQR is zero
-                    if iqr < 1e-6:
-                        iqr = max(abs(median), 0.01)  # Fallback scaling
-                    
-                    self.feature_stats[idx] = {
-                        'median': median,
-                        'iqr': iqr,
-                        'q25': q25,
-                        'q75': q75,
-                        'min': np.min(data),
-                        'max': np.max(data)
-                    }
-                    
-                    print(f"Feature {idx} (unrealized_pnl) stats:")
-                    print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
-                    print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
-            
-            self.is_fitted = True
-            # Clear warmup data to save memory
-            self.warmup_data.clear()
-            print("✅ Portfolio normalization ACTIVATED - Training will now resume!")
-    
-    def fit_from_sample_data(self, sample_portfolio_states: list):
-        """Pre-fit normalizer using sample data (alternative to warmup)"""
-        if self.is_fitted:
-            return
-            
-        print(f"Pre-fitting portfolio normalizer with {len(sample_portfolio_states)} sample states...")
-        
-        for idx in self.normalize_features:
-            data = []
-            for state in sample_portfolio_states:
-                if idx < len(state):
-                    data.append(state[idx])
-            
-            if len(data) > 0:
-                data = np.array(data)
-                median = np.median(data)
-                q25, q75 = np.percentile(data, [25, 75])
-                iqr = q75 - q25
-                
-                if iqr < 1e-6:
-                    iqr = max(abs(median), 0.01)
-                
-                self.feature_stats[idx] = {
-                    'median': median,
-                    'iqr': iqr,
-                    'q25': q25,
-                    'q75': q75,
-                    'min': np.min(data),
-                    'max': np.max(data)
-                }
-                
-                print(f"Pre-fit feature {idx} (unrealized_pnl) stats:")
-                print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
-                print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
-        
-        self.is_fitted = True
-        print("✅ Portfolio normalizer PRE-FITTED - Training enabled from start!")
-            
-    def normalize_state(self, portfolio_state: np.ndarray) -> np.ndarray:
-        """Normalize a single portfolio state"""
-        if not self.is_fitted:
-            return portfolio_state  # Return unchanged during warmup
-            
-        state = portfolio_state.copy()
-        
-        # Normalize unbounded features using robust scaling
-        for idx in self.normalize_features:
-            if idx < len(state) and idx in self.feature_stats:
-                stats = self.feature_stats[idx]
-                # Robust scaling: (x - median) / IQR
-                state[idx] = (state[idx] - stats['median']) / stats['iqr']
-                # Clip extreme outliers to [-3, 3] (roughly 3 IQRs)
-                state[idx] = np.clip(state[idx], -3.0, 3.0)
-        
-        # Clip features that should be bounded
-        for idx in self.clip_features:
-            if idx < len(state):
-                state[idx] = np.clip(state[idx], 0.0, 2.0)  # Allow up to 200% position ratio
-        
-        return state
-    
-    def increment_episode(self):
-        """Call this after each episode"""
-        self.episode_count += 1
-        
-        # Fit normalizer after warmup period
-        if self.episode_count == self.warmup_episodes:
-            self.fit_normalizer()
-    
-    def save(self, path: str):
-        """Save normalizer state"""
-        with open(path, 'wb') as f:
-            pickle.dump({
-                'feature_stats': self.feature_stats,
-                'is_fitted': self.is_fitted,
-                'episode_count': self.episode_count,
-                'warmup_episodes': self.warmup_episodes
-            }, f)
-    
-    def load(self, path: str):
-        """Load normalizer state"""
-        try:
-            with open(path, 'rb') as f:
-                data = pickle.load(f)
-                self.feature_stats = data['feature_stats']
-                self.is_fitted = data['is_fitted']
-                self.episode_count = data['episode_count']
-                self.warmup_episodes = data.get('warmup_episodes', 50)
-            print(f"Loaded portfolio normalizer from {path}")
-        except FileNotFoundError:
-            print(f"No existing normalizer found at {path}, starting fresh")
