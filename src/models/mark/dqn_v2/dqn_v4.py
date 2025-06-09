@@ -13,6 +13,9 @@ import math
 from datetime import datetime, time
 from pathlib import Path
 
+# Add portfolio normalizer imports
+import pickle
+
 from src.config.config import (
     DEVICE,
     DATA_DIR,
@@ -53,6 +56,10 @@ class TradingConfig:
     num_features: int = len(STOCK_FEATURES_V2) + 12  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
+    
+    # Portfolio state normalization
+    use_portfolio_normalization: bool = True
+    portfolio_warmup_episodes: int = 50
     
     # Network architecture selection
     architecture_type: ArchitectureType = ArchitectureType.IMPROVED
@@ -870,6 +877,14 @@ class TradingEnvironment:
         self.last_action = 0
         self.unrealized_pnl = 0.0
         
+        # Portfolio state normalization
+        self.portfolio_normalizer = None
+        if config.use_portfolio_normalization:
+            self.portfolio_normalizer = PortfolioStateNormalizer(
+                warmup_episodes=config.portfolio_warmup_episodes
+            )
+        self.episode_portfolio_states = []  # Collect states during episode for warmup
+        
         self.reset()
         
     def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
@@ -930,6 +945,9 @@ class TradingEnvironment:
         # Fill portfolio history with initial state
         for _ in range(self.config.window_size):
             self.portfolio_history.append(initial_portfolio_state)
+        
+        # Reset episode portfolio state collection for warmup
+        self.episode_portfolio_states = []
         
         return self._get_state()
     
@@ -1007,7 +1025,20 @@ class TradingEnvironment:
         # Replace any non-finite values with 0
         portfolio_features = [x if np.isfinite(x) else 0.0 for x in portfolio_features]
         
-        return np.array(portfolio_features, dtype=np.float32)
+        # Convert to numpy array
+        portfolio_state = np.array(portfolio_features, dtype=np.float32)
+        
+        # Collect state for warmup if normalizer exists and is in warmup phase
+        if (self.portfolio_normalizer is not None and 
+            not self.portfolio_normalizer.is_fitted):
+            self.episode_portfolio_states.append(portfolio_state.copy())
+        
+        # Apply normalization if fitted
+        if (self.portfolio_normalizer is not None and 
+            self.portfolio_normalizer.is_fitted):
+            portfolio_state = self.portfolio_normalizer.normalize_state(portfolio_state)
+        
+        return portfolio_state
     
     def _get_state(self) -> torch.Tensor:
         """Get current state with enhanced features for intraday trading"""
@@ -1302,6 +1333,15 @@ class TradingEnvironment:
             'total_loss': self.total_loss
         }
         
+        # Handle portfolio normalizer episode completion
+        if done and self.portfolio_normalizer is not None:
+            # Collect episode data for warmup
+            if not self.portfolio_normalizer.is_fitted:
+                self.portfolio_normalizer.collect_warmup_data(self.episode_portfolio_states)
+            
+            # Increment episode counter and potentially fit normalizer
+            self.portfolio_normalizer.increment_episode()
+        
         return next_state, reward, done, info
 
 
@@ -1503,7 +1543,7 @@ class DoubleDuelingDQN:
             **avg_update_metrics
         }
     
-    def save(self, path: str):
+    def save(self, path: str, portfolio_normalizer=None):
         """Save model checkpoint"""
         torch.save({
             'q_network_state_dict': self.q_network.state_dict(),
@@ -1514,8 +1554,14 @@ class DoubleDuelingDQN:
             'episodes_done': self.episodes_done,
             'update_count': self.update_count
         }, path)
+        
+        # Save portfolio normalizer if provided
+        if portfolio_normalizer is not None:
+            normalizer_path = path.replace('.pt', '_portfolio_normalizer.pkl')
+            portfolio_normalizer.save(normalizer_path)
+            print(f"Saved portfolio normalizer to {normalizer_path}")
     
-    def load(self, path: str):
+    def load(self, path: str, portfolio_normalizer=None):
         """Load model checkpoint"""
         checkpoint = torch.load(path, map_location=self.device)
         self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
@@ -1527,6 +1573,11 @@ class DoubleDuelingDQN:
         self.steps_done = checkpoint['steps_done']
         self.episodes_done = checkpoint['episodes_done']
         self.update_count = checkpoint['update_count']
+        
+        # Load portfolio normalizer if provided
+        if portfolio_normalizer is not None:
+            normalizer_path = path.replace('.pt', '_portfolio_normalizer.pkl')
+            portfolio_normalizer.load(normalizer_path)
 
 
 def filter_to_regular_hours(df):
@@ -1760,6 +1811,14 @@ def train_dqn(data_path: str,
         print(f"  Steps: {metrics['episode_steps']}")
         print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
         
+        # Log portfolio normalization status
+        if train_env.portfolio_normalizer is not None:
+            if train_env.portfolio_normalizer.is_fitted:
+                print(f"  Portfolio Normalizer: ✅ ACTIVE")
+            else:
+                progress = train_env.portfolio_normalizer.episode_count / train_env.portfolio_normalizer.warmup_episodes
+                print(f"  Portfolio Normalizer: 🔥 WARMUP ({progress*100:.1f}%)")
+        
         # Validation
         if (episode + 1) % validation_frequency == 0:
             print("\nRunning validation...")
@@ -1839,8 +1898,17 @@ def train_dqn(data_path: str,
         
         # Save checkpoint
         if episode % save_interval == 0 and episode > 0:
-            agent.save(f"dqn_checkpoint_episode_{episode}.pt")
+            checkpoint_path = f"dqn_checkpoint_episode_{episode}.pt"
+            agent.save(checkpoint_path, train_env.portfolio_normalizer)
             print(f"Saved checkpoint at episode {episode}")
+            
+            # Log portfolio normalization status
+            if train_env.portfolio_normalizer is not None:
+                if train_env.portfolio_normalizer.is_fitted:
+                    print(f"  Portfolio normalizer: FITTED and active")
+                else:
+                    progress = train_env.portfolio_normalizer.episode_count / train_env.portfolio_normalizer.warmup_episodes
+                    print(f"  Portfolio normalizer: WARMUP ({progress*100:.1f}% complete)")
     
     # Final test evaluation
     print("\n" + "="*50)
@@ -2119,3 +2187,117 @@ if __name__ == "__main__":
     #     scaling_method='robust',
     #     outlier_method='winsorize'
     # )
+
+
+class PortfolioStateNormalizer:
+    """Normalizes portfolio states using statistics collected during warmup period"""
+    
+    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100):
+        self.warmup_episodes = warmup_episodes
+        self.update_frequency = update_frequency
+        self.episode_count = 0
+        
+        # Feature indices that need normalization (unbounded features)
+        self.normalize_features = [4]  # unrealized_pnl index
+        self.clip_features = [3]       # position_ratio index (clip to 0-2)
+        
+        # Statistics storage
+        self.feature_stats = {}
+        self.warmup_data = {idx: [] for idx in self.normalize_features}
+        self.is_fitted = False
+        
+    def collect_warmup_data(self, portfolio_states: list):
+        """Collect portfolio states during warmup period"""
+        if self.episode_count < self.warmup_episodes:
+            for state in portfolio_states:
+                for idx in self.normalize_features:
+                    if idx < len(state):
+                        self.warmup_data[idx].append(state[idx])
+    
+    def fit_normalizer(self):
+        """Fit normalizer using collected warmup data"""
+        if self.episode_count >= self.warmup_episodes and not self.is_fitted:
+            print(f"Fitting portfolio normalizer with {self.warmup_episodes} episodes of data...")
+            
+            for idx in self.normalize_features:
+                data = np.array(self.warmup_data[idx])
+                if len(data) > 0:
+                    # Use robust statistics (less sensitive to outliers)
+                    median = np.median(data)
+                    q25, q75 = np.percentile(data, [25, 75])
+                    iqr = q75 - q25
+                    
+                    # Handle edge case where IQR is zero
+                    if iqr < 1e-6:
+                        iqr = max(abs(median), 0.01)  # Fallback scaling
+                    
+                    self.feature_stats[idx] = {
+                        'median': median,
+                        'iqr': iqr,
+                        'q25': q25,
+                        'q75': q75,
+                        'min': np.min(data),
+                        'max': np.max(data)
+                    }
+                    
+                    print(f"Feature {idx} (unrealized_pnl) stats:")
+                    print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
+                    print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
+            
+            self.is_fitted = True
+            # Clear warmup data to save memory
+            self.warmup_data.clear()
+            
+    def normalize_state(self, portfolio_state: np.ndarray) -> np.ndarray:
+        """Normalize a single portfolio state"""
+        if not self.is_fitted:
+            return portfolio_state  # Return unchanged during warmup
+            
+        state = portfolio_state.copy()
+        
+        # Normalize unbounded features using robust scaling
+        for idx in self.normalize_features:
+            if idx < len(state) and idx in self.feature_stats:
+                stats = self.feature_stats[idx]
+                # Robust scaling: (x - median) / IQR
+                state[idx] = (state[idx] - stats['median']) / stats['iqr']
+                # Clip extreme outliers to [-3, 3] (roughly 3 IQRs)
+                state[idx] = np.clip(state[idx], -3.0, 3.0)
+        
+        # Clip features that should be bounded
+        for idx in self.clip_features:
+            if idx < len(state):
+                state[idx] = np.clip(state[idx], 0.0, 2.0)  # Allow up to 200% position ratio
+        
+        return state
+    
+    def increment_episode(self):
+        """Call this after each episode"""
+        self.episode_count += 1
+        
+        # Fit normalizer after warmup period
+        if self.episode_count == self.warmup_episodes:
+            self.fit_normalizer()
+    
+    def save(self, path: str):
+        """Save normalizer state"""
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'feature_stats': self.feature_stats,
+                'is_fitted': self.is_fitted,
+                'episode_count': self.episode_count,
+                'warmup_episodes': self.warmup_episodes
+            }, f)
+    
+    def load(self, path: str):
+        """Load normalizer state"""
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.feature_stats = data['feature_stats']
+                self.is_fitted = data['is_fitted']
+                self.episode_count = data['episode_count']
+                self.warmup_episodes = data.get('warmup_episodes', 50)
+            print(f"Loaded portfolio normalizer from {path}")
+        except FileNotFoundError:
+            print(f"No existing normalizer found at {path}, starting fresh")
