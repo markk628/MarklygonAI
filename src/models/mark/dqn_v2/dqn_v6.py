@@ -41,7 +41,7 @@ from src.config.config import DEVICE, MINUTES_PER_TRADING_DAY
 # =============================================================================
 
 MINIMAL_FEATURES = [
-    'close',                    # Current price (for normalization)
+    'close',                    # Current price (for normalization - not used directly)
     'return_1m',               # 1-minute price momentum  
     'return_5m',               # 5-minute price momentum
     'return_15m',              # 15-minute price momentum
@@ -49,6 +49,9 @@ MINIMAL_FEATURES = [
     'volatility_5m',           # Recent volatility measure
     'hour_sin',                # Time of day (cyclical)
 ]
+
+# Features actually used in state (excluding 'close')
+ACTUAL_FEATURES = [f for f in MINIMAL_FEATURES if f != 'close']
 
 # For temporal CNN - these features work well in 2D format
 TEMPORAL_FEATURES = [
@@ -81,7 +84,7 @@ class EnhancedTradingConfig:
         self.num_actions = 3  # Hold, Buy, Sell
         
         if architecture == "mlp":
-            self.state_size = len(MINIMAL_FEATURES) + 2  # features + position + cash_ratio
+            self.state_size = len(ACTUAL_FEATURES) + 2  # actual features + position + cash_ratio
         else:  # cnn or mamba
             self.state_size = (len(TEMPORAL_FEATURES), temporal_window)  # 2D: (features, time)
             self.input_channels = len(TEMPORAL_FEATURES)
@@ -459,7 +462,10 @@ class EnhancedEnvironment:
         self.config = config
         
         # Validate required features
-        required_features = TEMPORAL_FEATURES if config.architecture != "mlp" else MINIMAL_FEATURES
+        if config.architecture == "mlp":
+            required_features = MINIMAL_FEATURES  # Need 'close' for price, but use ACTUAL_FEATURES for state
+        else:
+            required_features = TEMPORAL_FEATURES
         missing_features = [f for f in required_features if f not in data.columns]
         if missing_features:
             raise ValueError(f"Missing required features: {missing_features}")
@@ -516,11 +522,9 @@ class EnhancedEnvironment:
         row = self.data.iloc[self.current_step]
         current_price = row['close']
         
-        # Extract minimal features
+        # Extract actual features (excluding 'close')
         features = []
-        for feature in MINIMAL_FEATURES:
-            if feature == 'close':
-                continue  # Skip raw price
+        for feature in ACTUAL_FEATURES:
             value = row.get(feature, 0.0)
             if pd.isna(value):
                 value = 0.0
@@ -827,7 +831,10 @@ def train_enhanced_dqn(data_path: str,
     print(f"Data shape: {data.shape}")
     
     # Validate features
-    required_features = TEMPORAL_FEATURES if architecture != "mlp" else MINIMAL_FEATURES
+    if architecture == "mlp":
+        required_features = MINIMAL_FEATURES  # Need 'close' for price, but use ACTUAL_FEATURES for state
+    else:
+        required_features = TEMPORAL_FEATURES
     missing_features = [f for f in required_features if f not in data.columns]
     if missing_features:
         raise ValueError(f"Missing features in data: {missing_features}")
@@ -844,7 +851,7 @@ def train_enhanced_dqn(data_path: str,
         print(f"  Temporal window: {temporal_window}")
         print(f"  Temporal features: {TEMPORAL_FEATURES}")
     else:
-        print(f"  Single-row features: {MINIMAL_FEATURES}")
+        print(f"  State features: {ACTUAL_FEATURES} + [position_ratio, cash_ratio]")
     print(f"  Total parameters: {sum(p.numel() for p in agent.q_network.parameters()):,}")
     print(f"  PER buffer size: {config.buffer_size:,}")
     
