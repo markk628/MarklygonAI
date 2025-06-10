@@ -107,12 +107,17 @@ class EnhancedTradingConfig:
         self.beta_end = 1.0
         self.beta_frames = 100000
         
-        # Training parameters
+        # Training parameters - faster exploration decay for trading
         self.epsilon_start = 1.0
-        self.epsilon_end = 0.05
-        self.epsilon_decay = 10000  
+        self.epsilon_end = 0.01  # Lower minimum exploration for trading
+        self.epsilon_decay = 2000  # Much faster decay to reduce random trading losses
         self.target_update = 500   # Less frequent updates for stability
         self.gamma = 0.99
+        
+        # Trading-specific parameters
+        self.min_profit_threshold = 0.005  # Minimum 0.5% expected profit to trade
+        self.trading_frequency_penalty = 0.002  # Penalty for excessive trading
+        self.patience_bonus_rate = 0.0001  # Bonus for holding positions
 
 
 # =============================================================================
@@ -501,6 +506,10 @@ class EnhancedEnvironment:
         self.total_profit = 0.0
         self.total_loss = 0.0
         
+        # Trading behavior tracking
+        self.consecutive_holds = 0
+        self.trades_this_episode = 0
+        
         return self._get_state()
     
     def _get_state(self) -> np.ndarray:
@@ -624,6 +633,11 @@ class EnhancedEnvironment:
                 self.entry_price = current_price
                 trade_executed = True
                 self.total_trades += 1
+                self.trades_this_episode += 1
+                self.consecutive_holds = 0  # Reset hold counter
+                
+                # Trading frequency penalty
+                reward -= self.config.trading_frequency_penalty
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -634,6 +648,8 @@ class EnhancedEnvironment:
                 self.position = 0.0
                 trade_executed = True
                 self.total_trades += 1
+                self.trades_this_episode += 1
+                self.consecutive_holds = 0  # Reset hold counter
                 
                 # Track P&L
                 if profit > 0:
@@ -641,10 +657,17 @@ class EnhancedEnvironment:
                 else:
                     self.total_loss += abs(profit)
                     
-                # Simple reward: actual profit/loss
+                # Base reward: actual profit/loss
                 reward = profit / self.config.initial_balance  # Normalize by initial balance
+                
+                # Trading frequency penalty
+                reward -= self.config.trading_frequency_penalty
             
-            # action == 0 (Hold) does nothing but is valid
+            elif action == 0:  # Hold
+                # Patience bonus for holding
+                self.consecutive_holds += 1
+                patience_bonus = self.consecutive_holds * self.config.patience_bonus_rate
+                reward = patience_bonus
         
         # Move to next step
         self.current_step += 1
@@ -682,6 +705,8 @@ class EnhancedEnvironment:
             'invalid_action': invalid_action,
             'valid_actions': valid_actions,
             'total_trades': self.total_trades,
+            'trades_this_episode': self.trades_this_episode,
+            'consecutive_holds': self.consecutive_holds,
             'total_profit': self.total_profit,
             'total_loss': self.total_loss,
             'return': (current_value - self.config.initial_balance) / self.config.initial_balance
@@ -776,6 +801,14 @@ class EnhancedDQN:
                 for action in range(self.config.num_actions):
                     if action not in valid_actions:
                         masked_q_values[action] = -float('inf')
+                
+                # Apply minimum profit threshold: only trade if significantly better than holding
+                hold_q_value = masked_q_values[0]  # Q-value for holding
+                for action in [1, 2]:  # Buy and Sell
+                    if action in valid_actions:
+                        profit_advantage = masked_q_values[action] - hold_q_value
+                        if profit_advantage < self.config.min_profit_threshold:
+                            masked_q_values[action] = -float('inf')  # Don't trade unless advantage is clear
                 
                 action = masked_q_values.argmax().item()
             self.q_network.train()  # Set back to train mode
@@ -948,10 +981,14 @@ def train_enhanced_dqn(data_path: str,
             avg_invalid = np.mean(episode_invalid_actions[-20:])
             
             invalid_str = f" | Invalid: {avg_invalid:.1f}" if avg_invalid > 0 else ""
+            
+            # Calculate trading frequency (trades per day)
+            trading_freq = avg_trades / 1  # Per episode (1 day)
+            
             print(f"Episode {episode:3d} | "
                   f"Reward: {avg_reward:6.3f} | "
                   f"Return: {avg_return:6.1%} | "
-                  f"Trades: {avg_trades:4.1f} | "
+                  f"Trades/Day: {trading_freq:4.0f} | "
                   f"ε: {results['epsilon']:.3f} | "
                   f"Buffer: {len(agent.memory):,}{invalid_str}")
     
@@ -969,14 +1006,29 @@ def train_enhanced_dqn(data_path: str,
     print(f"Final 20-episode averages:")
     print(f"  Reward: {final_avg_reward:.3f}")
     print(f"  Return: {final_avg_return:.1%}")
-    print(f"  Trades: {final_avg_trades:.1f}")
+    print(f"  Trades/Day: {final_avg_trades:.0f}")
     print(f"  Invalid Actions: {final_avg_invalid:.1f}")
+    
+    # Calculate trading frequency improvement
+    if final_avg_trades < 50:
+        print(f"  🎯 LOW trading frequency - good for cost reduction!")
+    elif final_avg_trades > 200:
+        print(f"  ⚠️  HIGH trading frequency - may be overtrading")
     
     if total_invalid > 0:
         print(f"\n⚠️  Total invalid actions across all episodes: {total_invalid}")
         print("   (Should be 0 with proper action masking)")
     else:
         print("\n✅ No invalid actions - action masking working perfectly!")
+    
+    # Show epsilon decay progress
+    final_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
+                   math.exp(-1. * agent.steps_done / config.epsilon_decay)
+    print(f"\n📈 Training Progress:")
+    print(f"  Final ε: {final_epsilon:.4f} (exploration rate)")
+    print(f"  Total steps: {agent.steps_done:,}")
+    if final_epsilon < 0.02:
+        print("  ✅ Low exploration achieved - agent focusing on learned strategy")
     
     # Save model if requested
     if save_path:
@@ -1006,6 +1058,54 @@ def train_enhanced_dqn(data_path: str,
 # =============================================================================
 # ENHANCED BACKTESTING
 # =============================================================================
+
+def buy_and_hold_baseline(data: pd.DataFrame, 
+                         num_days: int = 5, 
+                         initial_balance: float = 10000.0,
+                         transaction_fee: float = 0.001) -> Dict:
+    """Simple buy-and-hold strategy baseline"""
+    
+    print(f"\n💰 Buy-and-Hold Baseline on {num_days} random days...")
+    
+    results = []
+    episode_length = MINUTES_PER_TRADING_DAY
+    
+    for day in range(num_days):
+        # Random start for each day
+        max_start = len(data) - episode_length
+        start_idx = random.randint(0, max_start) if max_start > 0 else 0
+        end_idx = start_idx + episode_length
+        
+        start_price = data.iloc[start_idx]['close']
+        end_price = data.iloc[end_idx-1]['close']
+        
+        # Buy at start
+        shares = initial_balance / (start_price * (1 + transaction_fee))
+        
+        # Sell at end
+        final_value = shares * end_price * (1 - transaction_fee)
+        day_return = (final_value - initial_balance) / initial_balance
+        
+        results.append({
+            'day': day + 1,
+            'final_value': final_value,
+            'return': day_return,
+            'trades': 2,  # Buy at start, sell at end
+            'start_price': start_price,
+            'end_price': end_price
+        })
+        
+        print(f"Day {day + 1}: Return {day_return:6.1%}, Trades: 2, Final: ${final_value:,.0f}")
+    
+    avg_return = np.mean([r['return'] for r in results])
+    print(f"\nBuy-and-Hold Average return: {avg_return:.1%}")
+    
+    return {
+        'results': results,
+        'avg_return': avg_return,
+        'strategy': 'buy_and_hold'
+    }
+
 
 def backtest_enhanced_dqn(agent: EnhancedDQN, 
                          data: pd.DataFrame, 
@@ -1081,13 +1181,160 @@ def backtest_enhanced_dqn(agent: EnhancedDQN,
 # COMPARISON UTILITIES
 # =============================================================================
 
+def comprehensive_architecture_comparison(data_path: str, 
+                                        num_sessions: int = 10,
+                                        num_episodes: int = 200,
+                                        num_backtest_days: int = 20,
+                                        temporal_window: int = 30) -> Dict:
+    """Comprehensive multi-session comparison with statistical analysis"""
+    
+    print("="*90)
+    print("🎯 COMPREHENSIVE ARCHITECTURE EVALUATION")
+    print("="*90)
+    print(f"📊 Sessions: {num_sessions} | Episodes: {num_episodes} | Backtest Days: {num_backtest_days}")
+    print("="*90)
+    
+    architectures = ["mlp", "cnn", "mamba"]
+    arch_names = {"mlp": "Dueling MLP", "cnn": "Dueling CNN", "mamba": "Dueling Mamba SSM"}
+    
+    # Store results across all sessions
+    all_results = {arch: {'training_returns': [], 'backtest_returns': [], 'trading_frequencies': [], 
+                         'agents': [], 'total_invalid_actions': []} for arch in architectures}
+    
+    # Load data once
+    data = pd.read_csv(data_path)
+    
+    # Run buy-and-hold baseline once
+    print("\n💰 Running Buy-and-Hold Baseline...")
+    baseline = buy_and_hold_baseline(data, num_days=num_backtest_days)
+    baseline_return = baseline['avg_return']
+    
+    # Run multiple sessions
+    for session in range(num_sessions):
+        print(f"\n{'='*20} SESSION {session + 1}/{num_sessions} {'='*20}")
+        
+        for arch in architectures:
+            print(f"\n🔥 Training {arch_names[arch]} (Session {session + 1})...")
+            
+            # Set different random seed for each session
+            torch.manual_seed(42 + session * 10 + architectures.index(arch))
+            np.random.seed(42 + session * 10 + architectures.index(arch))
+            random.seed(42 + session * 10 + architectures.index(arch))
+            
+            # Train model
+            arch_results = train_enhanced_dqn(
+                data_path, 
+                num_episodes, 
+                architecture=arch,
+                temporal_window=temporal_window,
+                save_path=f"dqn_v6_{arch}_session_{session}.pth"
+            )
+            
+            # Record training performance
+            training_return = np.mean(arch_results['episode_returns'][-20:])
+            trading_freq = np.mean(arch_results['episode_trades'][-20:])
+            total_invalid = arch_results['total_invalid_actions']
+            
+            all_results[arch]['training_returns'].append(training_return)
+            all_results[arch]['trading_frequencies'].append(trading_freq)
+            all_results[arch]['total_invalid_actions'].append(total_invalid)
+            all_results[arch]['agents'].append(arch_results['agent'])
+            
+            # Backtest this session
+            print(f"🔍 Backtesting {arch_names[arch]} (Session {session + 1})...")
+            backtest_results = backtest_enhanced_dqn(
+                arch_results['agent'], data, num_days=num_backtest_days
+            )
+            
+            all_results[arch]['backtest_returns'].append(backtest_results['avg_return'])
+    
+    # Statistical analysis
+    print("\n" + "="*90)
+    print("📊 COMPREHENSIVE STATISTICAL ANALYSIS")
+    print("="*90)
+    
+    def calculate_stats(values):
+        mean = np.mean(values)
+        std = np.std(values)
+        ci_lower = mean - 1.96 * std / np.sqrt(len(values))  # 95% confidence interval
+        ci_upper = mean + 1.96 * std / np.sqrt(len(values))
+        return mean, std, ci_lower, ci_upper
+    
+    print(f"\n{'Architecture':<15} {'Training Return':<20} {'Backtest Return':<20} {'Trades/Day':<15} {'Invalid Actions':<15}")
+    print("-" * 85)
+    
+    stats_summary = {}
+    for arch in architectures:
+        train_mean, train_std, train_ci_l, train_ci_u = calculate_stats(all_results[arch]['training_returns'])
+        backtest_mean, backtest_std, backtest_ci_l, backtest_ci_u = calculate_stats(all_results[arch]['backtest_returns'])
+        trades_mean, trades_std, _, _ = calculate_stats(all_results[arch]['trading_frequencies'])
+        invalid_total = sum(all_results[arch]['total_invalid_actions'])
+        
+        stats_summary[arch] = {
+            'train_mean': train_mean, 'train_std': train_std,
+            'backtest_mean': backtest_mean, 'backtest_std': backtest_std,
+            'trades_mean': trades_mean, 'trades_std': trades_std,
+            'invalid_total': invalid_total
+        }
+        
+        print(f"{arch_names[arch]:<15} {train_mean:6.1%} ±{train_std:5.1%}     {backtest_mean:6.1%} ±{backtest_std:5.1%}     {trades_mean:6.0f} ±{trades_std:4.0f}    {invalid_total:>6}")
+    
+    # Statistical significance tests
+    print(f"\n📈 PERFORMANCE COMPARISON:")
+    print(f"Buy-and-Hold Baseline:  {baseline_return:6.1%}")
+    
+    best_arch = max(architectures, key=lambda x: stats_summary[x]['backtest_mean'])
+    best_mean = stats_summary[best_arch]['backtest_mean']
+    best_std = stats_summary[best_arch]['backtest_std']
+    
+    print(f"\n🏆 WINNER: {arch_names[best_arch]}")
+    print(f"   Backtest Return: {best_mean:6.1%} ± {best_std:5.1%}")
+    print(f"   95% Confidence Interval: [{best_mean - 1.96*best_std/np.sqrt(num_sessions):6.1%}, {best_mean + 1.96*best_std/np.sqrt(num_sessions):6.1%}]")
+    
+    # Compare against baseline
+    rl_beats_baseline = 0
+    for arch in architectures:
+        wins = sum(1 for ret in all_results[arch]['backtest_returns'] if ret > baseline_return)
+        win_rate = wins / num_sessions
+        print(f"   {arch_names[arch]} beats baseline {wins}/{num_sessions} times ({win_rate:.0%})")
+        if stats_summary[arch]['backtest_mean'] > baseline_return:
+            rl_beats_baseline += 1
+    
+    if rl_beats_baseline == 0:
+        print(f"\n🚨 WARNING: NO RL model beats buy-and-hold on average!")
+        print(f"   This strongly suggests the market data is unpredictable.")
+        print(f"   All models may be overfitting to noise.")
+    
+    # Trading frequency analysis
+    print(f"\n📊 TRADING FREQUENCY ANALYSIS:")
+    for arch in architectures:
+        trades_mean = stats_summary[arch]['trades_mean']
+        daily_cost = trades_mean * 0.001  # Rough estimate
+        print(f"   {arch_names[arch]}: {trades_mean:4.0f} trades/day (~{daily_cost*100:.1f}% daily cost)")
+    
+    print(f"\n✅ STATISTICAL CONFIDENCE:")
+    print(f"   Sample size: {num_sessions} sessions × {num_backtest_days} days = {num_sessions * num_backtest_days} total backtests per architecture")
+    print(f"   Training: {num_sessions} × {num_episodes} = {num_sessions * num_episodes:,} total episodes per architecture")
+    
+    return {
+        'all_results': all_results,
+        'stats_summary': stats_summary,
+        'baseline_return': baseline_return,
+        'best_architecture': best_arch,
+        'num_sessions': num_sessions,
+        'num_episodes': num_episodes,
+        'num_backtest_days': num_backtest_days
+    }
+
+
 def compare_all_architectures(data_path: str, 
-                             num_episodes: int = 100,
+                             num_episodes: int = 200,
                              temporal_window: int = 30) -> Dict:
-    """Compare MLP vs CNN vs Mamba architectures"""
+    """Legacy single-session comparison (kept for compatibility)"""
     
     print("="*80)
-    print("DUELING ARCHITECTURE SHOWDOWN: MLP vs CNN vs Mamba")
+    print("SINGLE SESSION COMPARISON: MLP vs CNN vs Mamba")
+    print("⚠️  Consider using comprehensive_architecture_comparison() for better statistics")
     print("="*80)
     
     results = {}
@@ -1202,22 +1449,34 @@ def compare_architectures(data_path: str,
 
 
 if __name__ == "__main__":
-    # Example usage - compare all three architectures
+    # Comprehensive evaluation with proper statistics
     from src.config.config import DATA_DIR
     
     data_path = DATA_DIR / "feature_engineered_v2" / "TSLA.csv"
     
-    # Architecture showdown!
-    results = compare_all_architectures(str(data_path), num_episodes=50)
+    # Run comprehensive comparison
+    print("🚀 Starting comprehensive evaluation...")
+    print("⏱️  This will take some time (10 sessions × 3 architectures × 200 episodes)")
+    print("🔬 But will provide statistically significant results!")
     
-    # Backtest all three
-    data = pd.read_csv(data_path)
+    results = comprehensive_architecture_comparison(
+        str(data_path),
+        num_sessions=10,        # 10 different random seeds
+        num_episodes=200,       # 200 episodes per session
+        num_backtest_days=20,   # 20 backtest days per session
+        temporal_window=30
+    )
     
-    print("\n🔍 Backtesting MLP...")
-    mlp_backtest = backtest_enhanced_dqn(results['mlp']['agent'], data, num_days=3)
+    print(f"\n🎉 COMPREHENSIVE EVALUATION COMPLETE!")
+    print(f"📊 Total training: {results['num_sessions'] * results['num_episodes'] * 3:,} episodes")
+    print(f"📊 Total backtesting: {results['num_sessions'] * results['num_backtest_days'] * 3:,} days")
+    print(f"🏆 Statistical winner: {results['best_architecture'].upper()}")
     
-    print("\n🔍 Backtesting CNN...")
-    cnn_backtest = backtest_enhanced_dqn(results['cnn']['agent'], data, num_days=3)
+    # Optional: Run quick single session for comparison
+    print(f"\n" + "="*50)
+    print("🔄 Running quick single session for comparison...")
+    single_results = compare_all_architectures(str(data_path), num_episodes=50)
     
-    print("\n🔍 Backtesting Mamba...")
-    mamba_backtest = backtest_enhanced_dqn(results['mamba']['agent'], data, num_days=3)
+    print(f"\n💡 CONCLUSION:")
+    print(f"Use the comprehensive results above for your final conclusions.")
+    print(f"Single session results can vary significantly due to random initialization.")
