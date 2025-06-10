@@ -27,8 +27,8 @@ class TradingConfig:
     transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
     window_size: int = WINDOW_SIZE
     num_stock_features: int = len(STOCK_FEATURES_V2)
-    num_portfolio_features: int = 12
-    num_features: int = len(STOCK_FEATURES_V2) + 12  # Stock features + portfolio features
+    num_portfolio_features: int = 13  # Updated for new invalid_action_rate feature
+    num_features: int = len(STOCK_FEATURES_V2) + 13  # Stock features + portfolio features
     num_actions: int = 3  # Hold, Buy, Sell
     max_position_size: float = MAX_POSITION_SIZE
     
@@ -86,6 +86,10 @@ class TradingConfig:
     reflection_bonus_rate: float = 0.0003  # Bonus for staying in cash after losing trades
     min_hold_time_steps: int = 5  # Minimum steps to hold position before selling (thoughtful exits)
     
+    # Optimizable reward parameters (can be tuned via Optuna)
+    portfolio_scaling: float = 0.1  # Scaling factor for portfolio value changes
+    invalid_penalty: float = 0.1   # Penalty for invalid actions
+    
     def __post_init__(self):
         if self.cnn_scales is None:
             self.cnn_scales = [3, 5, 7]
@@ -136,6 +140,9 @@ def create_aggressive_trading_config(base_config: TradingConfig = None) -> Tradi
     print(f"   • Post-trade cooldown penalty: {config.post_trade_cooldown_penalty}")
     print(f"   • Reflection bonus rate: {config.reflection_bonus_rate}")
     print(f"   • Minimum hold time: {config.min_hold_time_steps} steps")
+    print(f"   • Portfolio scaling: {config.portfolio_scaling} (optimizable)")
+    print(f"   • Invalid penalty: {config.invalid_penalty} (optimizable)")
     print(f"   • 🎯 DESIGNED TO STOP BUY-AFTER-SELL BEHAVIOR!")
+    print(f"   • 🔧 Use dqn_v5_optimize_rewards.py to tune reward parameters!")
     
     return config 

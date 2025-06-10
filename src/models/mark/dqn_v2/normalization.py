@@ -12,8 +12,13 @@ class PortfolioStateNormalizer:
         self.episode_count = 0
         
         # Feature indices that need normalization (unbounded features)
-        self.normalize_features = [4]  # unrealized_pnl index
+        # Portfolio feature indices: 0=norm_balance, 1=norm_position, 2=norm_portfolio_value, 
+        # 3=position_ratio, 4=unrealized_pnl, 5=norm_holding_time, 6=time_of_day, 
+        # 7=morning_session, 8=midday_session, 9=afternoon_session, 10=can_buy, 
+        # 11=can_sell, 12=invalid_action_rate
+        self.normalize_features = [4]  # unrealized_pnl index (unbounded, needs normalization)
         self.clip_features = [3]       # position_ratio index (clip to 0-2)
+        # Note: invalid_action_rate (index 12) is already normalized (0-1 ratio), no processing needed
         
         # Statistics storage
         self.feature_stats = {}

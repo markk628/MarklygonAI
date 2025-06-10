@@ -1,17 +1,15 @@
 """
-DQN v5: Enhanced Trading Agent with FIXED Pure P&L Reward System
-===============================================================
+DQN v5: Enhanced Trading Agent with Portfolio Tracking + Invalid Action Learning
+===============================================================================
 
 REWARD SYSTEM FIX APPLIED:
-- Removed complex auxiliary rewards that caused reward hacking
-- Now uses pure P&L focused rewards aligned with actual returns
-- Buy: Transaction cost penalty (-fee%)
-- Sell: Actual profit/loss * 100 (scaled for learning)
-- Hold: Unrealized P&L * 10 (portfolio performance)
-- Invalid: Small penalty
+- Removed auxiliary rewards and inconsistent scaling
+- Implemented unified portfolio value change tracking for ALL actions  
+- ALL ACTIONS: Portfolio value change * 0.1 (consistent scaling)
+- INVALID ACTIONS: Additional -0.1 penalty to teach action validity
 
-This eliminates the reward-return misalignment problem where agents
-got positive rewards while losing money.
+This maintains reward-return alignment through portfolio tracking while
+ensuring the agent learns which actions are valid.
 """
 
 import torch
@@ -232,6 +230,9 @@ class TradingEnvironment:
         self.last_trade_was_loss = False  # Whether last completed trade was a loss
         self.steps_since_last_loss = 0  # Steps since last losing trade
         
+        # Initialize portfolio tracking for rewards
+        self.last_portfolio_value = self.config.initial_balance
+        
         # Select which day to trade
         if day_idx is not None:
             self.current_day = day_idx
@@ -341,6 +342,10 @@ class TradingEnvironment:
                           total_cost <= self.balance) else 0.0
         can_sell = 1.0 if self.position > 0 else 0.0
         
+        # Add invalid action frequency context (help agent learn patterns)
+        recent_invalid_rate = self.invalid_actions / max(self.current_step - self.episode_start + 1, 1)
+        normalized_invalid_rate = min(recent_invalid_rate, 1.0)  # Cap at 100%
+        
         # Portfolio features
         portfolio_features = [
             # Core current metrics (4)
@@ -359,9 +364,10 @@ class TradingEnvironment:
             midday_session,
             afternoon_session,
             
-            # Current action validity (2)
+            # Current action validity (3)
             can_buy,                      # Can execute buy now
-            can_sell                      # Can execute sell now
+            can_sell,                     # Can execute sell now
+            normalized_invalid_rate       # Recent invalid action frequency (helps learn patterns)
         ]
         
         # Replace any non-finite values with 0
@@ -416,13 +422,13 @@ class TradingEnvironment:
     def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
         """Execute action and return next state, reward, done, info
         
-        SIMPLIFIED REWARD SYSTEM - Pure P&L Focus:
-        - Buy: Small transaction cost penalty
-        - Sell: Actual profit/loss * 100 (scaled for better signal)
-        - Hold: Portfolio value change * 10 (actual performance)
-        - Invalid: Small penalty
+        OPTIMIZABLE REWARD SYSTEM - Pure Portfolio Value Change + Invalid Penalty:
+        - ALL ACTIONS: Portfolio value change * portfolio_scaling (configurable)
+        - INVALID ACTIONS: Additional -invalid_penalty to teach action validity
         
-        This ensures rewards align directly with actual trading returns.
+        This maintains portfolio tracking for performance while adding
+        direct feedback for invalid actions. Parameters can be optimized
+        using the Optuna-based optimization script.
         """
             
         current_price = self.data.iloc[self.current_step]['close']        
@@ -430,16 +436,28 @@ class TradingEnvironment:
         trade_executed = False
         invalid_action = self._is_invalid_action(action)
         
-        # Calculate market session for context
-        minutes_into_day = (self.current_step - self.episode_start) % self.minutes_per_day
-        is_near_close = minutes_into_day >= (self.minutes_per_day - 30)  # Last 30 minutes
+        # Store current portfolio value for comparison
+        if not hasattr(self, 'last_portfolio_value'):
+            self.last_portfolio_value = self.balance + (self.position * current_price)
         
+        # Calculate current portfolio value
+        current_portfolio_value = self.balance + (self.position * current_price)
+        
+        # PURE PORTFOLIO TRACKING: Reward = portfolio value change (always)
+        portfolio_change = current_portfolio_value - self.last_portfolio_value
+        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.1)  # Support optimization
+        reward = portfolio_change * portfolio_scaling  # Consistent scaling for all actions
+        
+        # Update last portfolio value for next step
+        self.last_portfolio_value = current_portfolio_value
+        
+        # Execute the action (portfolio change + invalid penalty if needed)
         if invalid_action:
             self.invalid_actions += 1
             self.consecutive_invalid_actions += 1
-            # Slightly stronger penalty to reduce invalid actions
-            penalty = 0.012 + (self.consecutive_invalid_actions * 0.006)
-            reward = -min(penalty, 0.04)  # Moderate increase in penalty
+            # Add penalty for invalid actions to teach action validity
+            invalid_penalty = getattr(self.config, 'invalid_penalty', 0.1)  # Support optimization
+            reward -= invalid_penalty  # Configurable penalty for invalid actions
         else:
             self.consecutive_invalid_actions = 0 
             
@@ -459,9 +477,6 @@ class TradingEnvironment:
                 # Update trade tracking
                 self.last_trade_step = self.current_step
                 self.steps_since_last_loss += 1
-                
-                # SIMPLIFIED REWARD: Just transaction cost penalty
-                reward = -self.config.transaction_fee_percent
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -490,29 +505,11 @@ class TradingEnvironment:
                     self.losing_trades += 1
                     self.total_loss += abs(profit)
                 
-                # SIMPLIFIED REWARD: Pure P&L scaled for learning
-                profit_percentage = profit / cost_basis
-                reward = profit_percentage * 100  # Scale for better signal
-                
                 self.position_entry_step = -1
                 
             else:  # Hold (action == 0)
                 self.last_action = 0
                 self.consecutive_holds += 1
-                
-                # SIMPLIFIED REWARD: Portfolio performance tracking
-                current_portfolio_value = self.balance + (self.position * current_price)
-                
-                # If holding a position, reward based on unrealized P&L
-                if self.position > 0:
-                    unrealized_pnl = ((current_price - self.entry_price) / self.entry_price)
-                    reward = unrealized_pnl * 10  # Small fraction of unrealized P&L
-                else:
-                    # If in cash, very small neutral reward
-                    reward = 0.001
-            
-            # REMOVED: All auxiliary portfolio-level rewards that cause reward hacking
-            # Now using pure P&L focused reward system
         
         # Move to next step
         self.current_step += 1
@@ -541,9 +538,11 @@ class TradingEnvironment:
                 self.losing_trades += 1
                 self.total_loss += abs(profit)
             
-            # SIMPLIFIED REWARD: Pure P&L for forced close
-            profit_percentage = profit / cost_basis
-            reward += profit_percentage * 100  # Same scaling as normal sell
+            # Update portfolio value after forced close for final reward calculation
+            final_portfolio_value = self.balance
+            final_change = final_portfolio_value - self.last_portfolio_value
+            portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.1)
+            reward += final_change * portfolio_scaling  # Same consistent scaling
         
         # Get next state (or terminal state if done)
         if done:
@@ -842,13 +841,18 @@ def filter_to_regular_hours(df):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     
     # Regular market hours filtering (handles DST automatically through pandas)
-    # Convert to Eastern time temporarily just for filtering
+    # First localize to UTC if timezone-naive, then convert to Eastern time
+    if df['timestamp'].dt.tz is None:
+        # Assume naive timestamps are UTC
+        df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+    
     eastern_times = df['timestamp'].dt.tz_convert('US/Eastern')
     market_open = eastern_times.dt.time >= time(9, 30)
     market_close = eastern_times.dt.time < time(16, 0)
     
-    # Apply filters and keep original UTC timestamps
+    # Apply filters and keep original timestamps (convert back to naive for consistency)
     filtered_df = df[market_open & market_close].reset_index(drop=True)
+    filtered_df['timestamp'] = filtered_df['timestamp'].dt.tz_localize(None)  # Remove timezone info
     
     print(f"Data filtered: {len(df)} → {len(filtered_df)} rows ({len(filtered_df)/len(df)*100:.1f}%)")
     return filtered_df
