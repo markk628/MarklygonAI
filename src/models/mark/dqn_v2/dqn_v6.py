@@ -718,10 +718,13 @@ class EnhancedDQN:
                      math.exp(-1. * self.steps_done / self.config.epsilon_decay)
         
         if random.random() > epsilon:
+            self.q_network.eval()  # Set to eval mode for inference
             with torch.no_grad():
                 state_tensor = torch.tensor(state, device=self.device, dtype=torch.float32).unsqueeze(0)
                 q_values = self.q_network(state_tensor)
-                return q_values.max(1)[1].item()
+                action = q_values.max(1)[1].item()
+            self.q_network.train()  # Set back to train mode
+            return action
         else:
             return random.randrange(self.config.num_actions)
     
@@ -743,9 +746,11 @@ class EnhancedDQN:
         current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
         
         # Next Q values from target network
+        self.target_network.eval()  # Set to eval mode for inference
         with torch.no_grad():
             next_q_values = self.target_network(next_states).max(1)[0]
             target_q_values = rewards + (self.config.gamma * next_q_values * ~dones)
+        self.target_network.train()  # Set back to train mode
         
         # Calculate TD errors for priority updates
         td_errors = target_q_values - current_q_values.squeeze()
