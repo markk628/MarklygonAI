@@ -5,7 +5,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # from src.models.mark.dqn_v2.dqn import train_dqn, save_backtest_results_to_db
-from src.models.mark.dqn_v2.dqn_v2 import train_dqn, save_backtest_results_to_db
+# from src.models.mark.dqn_v2.dqn_v2 import train_dqn, save_backtest_results_to_db
+# from src.models.mark.dqn_v2.dqn_v3 import train_dqn, save_backtest_results_to_db
+# from src.models.mark.dqn_v2.dqn_v4 import train_dqn, save_backtest_results_to_db
+from src.models.mark.dqn_v2.dqn_v5 import train_dqn, save_backtest_results_to_db, save_multi_day_backtest_to_db
 from src.config.config import CUTOFF_TIMESTAMP, DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
 from src.utils.utils import create_directory
 from src.web.models import ModelType
@@ -77,18 +80,31 @@ def plot_training_results(training_results: dict, ticker: str = "Stock", validat
     plt.title('Return Distribution')
     plt.grid(True, alpha=0.3)
     
-    # Add test results summary
+    # Add multi-day test results summary
     plt.subplot(2, 3, 6)
     plt.axis('off')
-    test_results = training_results['test_results']
-    summary_text = f"""Test Results Summary:
-    
-Total Return: {test_results['total_return']:.2%}
-Sharpe Ratio: {test_results['sharpe_ratio']:.2f}
-Max Drawdown: {test_results['max_drawdown']:.2%}
-Total Trades: {test_results['total_trades']}
-Invalid Actions: {test_results['invalid_actions']}
-Final Value: ${test_results['final_value']:,.2f}"""
+    if 'multi_day_test_results' in training_results:
+        aggregate_stats = training_results['multi_day_test_results']['aggregate_stats']
+        summary_text = f"""Multi-Day Test Results:
+        
+Average Return: {aggregate_stats['avg_return']:.2%} ± {aggregate_stats['std_return']:.2%}
+Best/Worst: {aggregate_stats['best_return']:.2%} / {aggregate_stats['worst_return']:.2%}
+Win Rate: {aggregate_stats['win_rate']:.0%}
+Avg Sharpe: {aggregate_stats['avg_sharpe_ratio']:.2f}
+Avg Drawdown: {aggregate_stats['avg_max_drawdown']:.2%}
+Avg Trades/Day: {aggregate_stats['avg_trades']:.1f}
+Avg Invalid Actions: {aggregate_stats['avg_invalid_actions']:.1f}"""
+    else:
+        # Fallback for old single-day format
+        test_results = training_results.get('test_results', {})
+        summary_text = f"""Test Results Summary:
+        
+Total Return: {test_results.get('total_return', 0):.2%}
+Sharpe Ratio: {test_results.get('sharpe_ratio', 0):.2f}
+Max Drawdown: {test_results.get('max_drawdown', 0):.2%}
+Total Trades: {test_results.get('total_trades', 0)}
+Invalid Actions: {test_results.get('invalid_actions', 0)}
+Final Value: ${test_results.get('final_value', 0):,.2f}"""
     
     plt.text(0.1, 0.5, summary_text, fontsize=12, verticalalignment='center',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
@@ -101,12 +117,28 @@ Final Value: ${test_results['final_value']:,.2f}"""
 
 def plot_backtest_results(test_results: dict, ticker: str = "Stock"):
     """
-    Visualize backtesting results including price chart, portfolio value, and buy/sell actions
-    Similar to trainer.py's plot_backtest_results
+    Visualize backtesting results - handles both single day and multi-day results
+    For multi-day results, shows the best performing day
     """
-    portfolio_values = test_results['portfolio_values']
-    price_history = test_results['price_history']
-    action_history = test_results['action_history']
+    # Handle multi-day results
+    if 'multi_day_test_results' in test_results:
+        multi_day_data = test_results['multi_day_test_results']
+        individual_days = multi_day_data['individual_days']
+        
+        # Find the best performing day
+        best_day_idx = max(range(len(individual_days)), key=lambda i: individual_days[i]['total_return'])
+        best_day = individual_days[best_day_idx]
+        
+        portfolio_values = multi_day_data['portfolio_values'][best_day_idx]
+        price_history = multi_day_data['price_histories'][best_day_idx]
+        action_history = multi_day_data['action_histories'][best_day_idx]
+        
+        print(f"Plotting best performing day (Day {best_day_idx + 1}): {best_day['total_return']:.1%} return")
+    else:
+        # Handle single day results (legacy format)
+        portfolio_values = test_results['portfolio_values']
+        price_history = test_results['price_history']
+        action_history = test_results['action_history']
     
     plt.figure(figsize=(15, 10))
     
@@ -161,6 +193,110 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock"):
     return plt
 
 
+def plot_multi_day_comparison(training_results: dict, ticker: str = "Stock"):
+    """
+    Plot all 6 days of backtesting on the same chart for comparison
+    """
+    if 'multi_day_test_results' not in training_results:
+        print("No multi-day results available for comparison plot")
+        return None
+        
+    multi_day_data = training_results['multi_day_test_results']
+    individual_days = multi_day_data['individual_days']
+    portfolio_values_list = multi_day_data['portfolio_values']
+    
+    plt.figure(figsize=(15, 10))
+    
+    # Color palette for different days
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    
+    # Plot 1: Portfolio Values
+    plt.subplot(2, 1, 1)
+    plt.title(f'{ticker} - Multi-Day Portfolio Performance Comparison', fontsize=16, fontweight='bold')
+    
+    initial_balance = portfolio_values_list[0][0] if portfolio_values_list else 10000
+    
+    for i, (portfolio_vals, day_info) in enumerate(zip(portfolio_values_list, individual_days)):
+        day_num = i + 1
+        return_pct = day_info['total_return']
+        color = colors[i % len(colors)]
+        
+        # Create time axis (minutes within trading day)
+        time_points = list(range(len(portfolio_vals)))
+        
+        # Plot portfolio value
+        plt.plot(time_points, portfolio_vals, 
+                label=f'Day {day_num} (Return: {return_pct:.1%})', 
+                color=color, linewidth=2, alpha=0.8)
+        
+        # Add final value annotation
+        final_val = portfolio_vals[-1]
+        plt.annotate(f'${final_val:,.0f}', 
+                    xy=(len(time_points)-1, final_val),
+                    xytext=(5, 0), textcoords='offset points',
+                    fontsize=9, color=color, fontweight='bold')
+    
+    # Add horizontal line for initial balance
+    plt.axhline(y=initial_balance, color='black', linestyle='--', alpha=0.5, 
+                label=f'Initial Balance (${initial_balance:,.0f})')
+    
+    plt.xlabel('Minutes into Trading Day')
+    plt.ylabel('Portfolio Value ($)')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
+    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
+    
+    # Plot 2: Normalized Returns (all starting at 100%)
+    plt.subplot(2, 1, 2)
+    plt.title('Normalized Returns Comparison (Starting at 100%)', fontsize=14, fontweight='bold')
+    
+    for i, (portfolio_vals, day_info) in enumerate(zip(portfolio_values_list, individual_days)):
+        day_num = i + 1
+        return_pct = day_info['total_return']
+        color = colors[i % len(colors)]
+        
+        # Normalize to percentage returns starting at 100%
+        if len(portfolio_vals) > 0:
+            normalized_returns = [(val / portfolio_vals[0]) * 100 for val in portfolio_vals]
+            time_points = list(range(len(normalized_returns)))
+            
+            plt.plot(time_points, normalized_returns, 
+                    label=f'Day {day_num} (Final: {normalized_returns[-1]:.1f}%)', 
+                    color=color, linewidth=2, alpha=0.8)
+            
+            # Add final percentage annotation
+            final_pct = normalized_returns[-1]
+            plt.annotate(f'{final_pct:.1f}%', 
+                        xy=(len(time_points)-1, final_pct),
+                        xytext=(5, 0), textcoords='offset points',
+                        fontsize=9, color=color, fontweight='bold')
+    
+    # Add horizontal line at 100%
+    plt.axhline(y=100, color='black', linestyle='--', alpha=0.5, label='Break-even (100%)')
+    
+    plt.xlabel('Minutes into Trading Day')
+    plt.ylabel('Portfolio Value (%)')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
+    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1f}%'))
+    
+    # Add aggregate statistics as text box
+    aggregate_stats = multi_day_data['aggregate_stats']
+    stats_text = f"""Aggregate Statistics:
+Average Return: {aggregate_stats['avg_return']:.1%} ± {aggregate_stats['std_return']:.1%}
+Best Return: {aggregate_stats['best_return']:.1%}
+Worst Return: {aggregate_stats['worst_return']:.1%}
+Win Rate: {aggregate_stats['win_rate']:.0%}
+Avg Trades/Day: {aggregate_stats['avg_trades']:.1f}
+Avg Sharpe Ratio: {aggregate_stats['avg_sharpe_ratio']:.2f}"""
+    
+    plt.gca().text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, fontsize=10,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    plt.tight_layout()
+    return plt
+
+
 def main():
     # Configuration
     ticker = 'TSLA'  # Change to your stock ticker
@@ -210,50 +346,75 @@ def main():
     
     # Plot and save backtest results
     print("\nGenerating backtest plots...")
-    backtest_plot = plot_backtest_results(training_results['test_results'], ticker=ticker)
+    backtest_plot = plot_backtest_results(training_results, ticker=ticker)
     backtest_filename = results_dir / f'dqn_v2_{ticker}_{timestamp}_backtest.png'
     backtest_plot.savefig(backtest_filename, dpi=150, bbox_inches='tight')
     print(f"Backtest results saved to: {backtest_filename}")
     plt.close()
     
+    # Plot and save multi-day comparison
+    print("\nGenerating multi-day comparison plots...")
+    multiday_plot = plot_multi_day_comparison(training_results, ticker=ticker)
+    if multiday_plot is not None:
+        multiday_filename = results_dir / f'dqn_v2_{ticker}_{timestamp}_multiday.png'
+        multiday_plot.savefig(multiday_filename, dpi=150, bbox_inches='tight')
+        print(f"Multi-day comparison saved to: {multiday_filename}")
+        plt.close()
+    else:
+        print("Multi-day comparison plot skipped (no multi-day data available)")
+    
     # Print final summary
-    test_results = training_results['test_results']
+    multi_day_results = training_results['multi_day_test_results']
+    aggregate_stats = multi_day_results['aggregate_stats']
+    individual_days = multi_day_results['individual_days']
+    
     print("\n" + "="*50)
-    print("FINAL TEST RESULTS SUMMARY")
+    print("MULTI-DAY TEST RESULTS SUMMARY")
     print("="*50)
     print(f"Ticker: {ticker}")
     print(f"Initial Balance: ${INITIAL_BALANCE:,.2f}")
-    print(f"Final Value: ${test_results['final_value']:,.2f}")
-    print(f"Total Return: {test_results['total_return']:.2%}")
-    print(f"Sharpe Ratio: {test_results['sharpe_ratio']:.2f}")
-    print(f"Max Drawdown: {test_results['max_drawdown']:.2%}")
-    print(f"Total Trades: {test_results['total_trades']}")
-    print(f"Winning Trades: {test_results['winning_trades']}")
-    print(f"Losing Trades: {test_results['losing_trades']}")
-    print(f"Invalid Actions: {test_results['invalid_actions']}")
+    print(f"Number of Test Days: {len(individual_days)}")
+    print(f"Average Return: {aggregate_stats['avg_return']:.2%} ± {aggregate_stats['std_return']:.2%}")
+    print(f"Best Day Return: {aggregate_stats['best_return']:.2%}")
+    print(f"Worst Day Return: {aggregate_stats['worst_return']:.2%}")
+    print(f"Win Rate: {aggregate_stats['win_rate']:.1%}")
+    print(f"Average Sharpe Ratio: {aggregate_stats['avg_sharpe_ratio']:.2f}")
+    print(f"Average Max Drawdown: {aggregate_stats['avg_max_drawdown']:.2%}")
+    print(f"Average Trades per Day: {aggregate_stats['avg_trades']:.1f}")
+    print(f"Average Invalid Actions: {aggregate_stats['avg_invalid_actions']:.1f}")
+    
+    print(f"\nIndividual Day Results:")
+    for i, day_result in enumerate(individual_days, 1):
+        print(f"  Day {i}: {day_result['total_return']:.1%} return, "
+              f"{day_result['total_trades']} trades, "
+              f"{day_result['invalid_actions']} invalid actions")
     print("="*50)
     
-    # Save backtest results to database
-    print("\nSaving results to database...")
-    db_info = {
-        'backtest_date': datetime.now(timezone.utc),
-        'start_date': start_date,
-        'end_date': end_date,
-        'initial_balance': INITIAL_BALANCE,
-        'final_balance': test_results['final_value'],
-        'net_profit': test_results['final_value'] - INITIAL_BALANCE,
-        'total_trades': test_results['total_trades'],
-        'winning_trades': test_results['winning_trades'],
-        'losing_trades': test_results['losing_trades'],
-        'return_rate': test_results['total_return'], 
-        'max_drawdown': test_results['max_drawdown'],
-        'sharpe_ratio': test_results['sharpe_ratio'],
-        'invalid_actions': test_results['invalid_actions'],
-    }
+    # Save multi-day backtest results to database
+    print("\nSaving multi-day results to database...")
     
-    # First save to database to get model ID and directory
-    model_id, model_path, model_dir = save_backtest_results_to_db(ModelType.DQN, ticker, db_info)
-    print(f"Model saved to database with ID: {model_id}")
+    # Save one model with multiple backtest entries
+    model_id, model_path, model_dir, backtest_ids = save_multi_day_backtest_to_db(
+        model_type=ModelType.DQN,
+        ticker=ticker,
+        multi_day_results=multi_day_results,
+        start_date=start_date,
+        end_date=end_date,
+        initial_balance=INITIAL_BALANCE,
+        preprocessor_path=None  # Will be updated later
+    )
+    
+    print(f"✅ Model created with ID: {model_id}")
+    print(f"✅ Created {len(backtest_ids)} backtest entries:")
+    print(f"   • Aggregate summary (backtest ID: {backtest_ids[0]})")
+    for i, backtest_id in enumerate(backtest_ids[1:], 1):
+        day_return = individual_days[i-1]['total_return']
+        print(f"   • Day {i} (backtest ID: {backtest_id}): {day_return:.1%} return")
+    
+    print(f"All results linked to model ID: {model_id}")
+    
+    # Ensure model directory exists
+    create_directory(model_dir)
     print(f"Model directory: {model_dir}")
     
     # Save the trained model
@@ -269,13 +430,13 @@ def main():
         import shutil
         shutil.copy2(str(preprocessor_path), preprocessor_model_path)
         
-        # Update the database with the preprocessor path
+        # Update the database with the preprocessor path for all backtest entries
         with app.app_context():
-            backtest = BacktestHistory.query.filter_by(model_id=model_id).first()
-            if backtest:
+            backtests = BacktestHistory.query.filter_by(model_id=model_id).all()
+            for backtest in backtests:
                 backtest.preprocessor_path = preprocessor_model_path
-                db.session.commit()
-                print(f"Updated database with preprocessor path")
+            db.session.commit()
+            print(f"Updated {len(backtests)} backtest entries with preprocessor path")
         
         print(f"Preprocessing Configuration: {training_results['preprocessor'].get_preprocessing_info()}")
     
