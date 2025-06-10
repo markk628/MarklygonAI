@@ -86,8 +86,8 @@ class EnhancedTradingConfig:
         if architecture == "mlp":
             self.state_size = len(ACTUAL_FEATURES) + 2  # actual features + position + cash_ratio
         else:  # cnn or mamba
-            self.state_size = (len(TEMPORAL_FEATURES), temporal_window)  # 2D: (features, time)
-            self.input_channels = len(TEMPORAL_FEATURES)
+            self.state_size = (len(TEMPORAL_FEATURES) + 2, temporal_window)  # 2D: (features + portfolio, time)
+            self.input_channels = len(TEMPORAL_FEATURES) + 2  # +2 for portfolio channels
         
         # Network parameters
         if architecture == "mlp":
@@ -540,7 +540,7 @@ class EnhancedEnvironment:
         return np.array(features, dtype=np.float32)
     
     def _get_temporal_state(self) -> np.ndarray:
-        """Get temporal window state for CNN"""
+        """Get temporal window state for CNN/Mamba with portfolio info"""
         # Get temporal window
         start_idx = max(0, self.current_step - self.config.temporal_window + 1)
         end_idx = self.current_step + 1
@@ -548,9 +548,11 @@ class EnhancedEnvironment:
         # Extract temporal features
         window_data = self.data.iloc[start_idx:end_idx]
         
-        # Create 2D array (features x time)
-        temporal_state = np.zeros((len(TEMPORAL_FEATURES), self.config.temporal_window))
+        # Create 2D array (features x time) - now includes portfolio channels
+        num_features = len(TEMPORAL_FEATURES) + 2  # +2 for position_ratio and cash_ratio
+        temporal_state = np.zeros((num_features, self.config.temporal_window))
         
+        # Fill temporal features
         for i, feature in enumerate(TEMPORAL_FEATURES):
             if feature in window_data.columns:
                 values = window_data[feature].fillna(0.0).values
@@ -560,6 +562,16 @@ class EnhancedEnvironment:
                     padded_values[-len(values):] = values
                     values = padded_values
                 temporal_state[i] = values
+        
+        # Add portfolio information (constant across time dimension)
+        current_price = self.data.iloc[self.current_step]['close']
+        current_value = self.balance + (self.position * current_price)
+        position_ratio = (self.position * current_price) / current_value if current_value > 0 else 0.0
+        cash_ratio = self.balance / current_value if current_value > 0 else 1.0
+        
+        # Fill portfolio channels (repeated across time)
+        temporal_state[-2] = position_ratio  # Second to last channel
+        temporal_state[-1] = cash_ratio      # Last channel
         
         return temporal_state.astype(np.float32)
     
@@ -854,7 +866,7 @@ def train_enhanced_dqn(data_path: str,
     print(f"  Episode length: {env.episode_length} steps")
     if architecture != "mlp":
         print(f"  Temporal window: {temporal_window}")
-        print(f"  Temporal features: {TEMPORAL_FEATURES}")
+        print(f"  Temporal features: {TEMPORAL_FEATURES} + [position_ratio, cash_ratio]")
     else:
         print(f"  State features: {ACTUAL_FEATURES} + [position_ratio, cash_ratio]")
     print(f"  Total parameters: {sum(p.numel() for p in agent.q_network.parameters()):,}")
