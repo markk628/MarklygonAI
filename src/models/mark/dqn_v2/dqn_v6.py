@@ -237,7 +237,7 @@ class SimpleSSMBlock(nn.Module):
         
         # State space parameters (simplified - not fully selective like real Mamba)
         self.A_log = nn.Parameter(torch.randn(d_state))  # State transition
-        self.D = nn.Parameter(torch.randn(d_model))      # Skip connection
+        self.D = nn.Parameter(torch.randn(self.d_inner))  # Skip connection - match d_inner size
         
         # Output projection
         self.out_proj = nn.Linear(self.d_inner, d_model)
