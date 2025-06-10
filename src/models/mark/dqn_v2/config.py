@@ -51,8 +51,8 @@ class TradingConfig:
     
     # Exploration
     epsilon_start: float = 1.0
-    epsilon_end: float = 0.12 
-    epsilon_decay: float = 100000  
+    epsilon_end: float = 0.01  # Lower minimum exploration for trading
+    epsilon_decay: float = 2000  # Much faster decay to reduce random trading losses
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -75,6 +75,16 @@ class TradingConfig:
     use_portfolio_normalization: bool = True
     portfolio_warmup_episodes: int = 50
     portfolio_update_frequency: int = 100
+    
+    # Trading-specific parameters (from dqn_v6 improvements)
+    min_profit_threshold: float = 0.015  # Minimum 1.5% expected profit to trade (3x more aggressive)
+    patience_bonus_rate: float = 0.0005  # Bonus for holding positions (5x stronger)
+    trading_frequency_penalty: float = 0.008  # Penalty for excessive trading (4x stronger)
+    
+    # Enhanced trading discipline parameters
+    post_trade_cooldown_penalty: float = 0.012  # Penalty for trading too soon after previous trade
+    reflection_bonus_rate: float = 0.0003  # Bonus for staying in cash after losing trades
+    min_hold_time_steps: int = 5  # Minimum steps to hold position before selling (thoughtful exits)
     
     def __post_init__(self):
         if self.cnn_scales is None:
@@ -99,10 +109,10 @@ def create_aggressive_trading_config(base_config: TradingConfig = None) -> Tradi
         import copy
         config = copy.deepcopy(base_config)
     
-    # Balanced exploration for smart active trading  
+    # Faster exploration decay for efficient trading  
     config.epsilon_start = 1.0
-    config.epsilon_end = 0.10  # Moderate final epsilon for strategic decisions
-    config.epsilon_decay = 100000  # Balanced decay
+    config.epsilon_end = 0.01  # Lower minimum exploration for trading
+    config.epsilon_decay = 2000  # Much faster decay to reduce random trading losses
     
     # Adjusted learning parameters for better exploration
     config.learning_rate = 0.0003  # Slightly higher learning rate
@@ -115,13 +125,17 @@ def create_aggressive_trading_config(base_config: TradingConfig = None) -> Tradi
     config.alpha = 0.7  # Higher prioritization
     config.beta_start = 0.5  # Higher importance sampling
     
-    print("🚀 Created SMART AGGRESSIVE trading configuration:")
-    print(f"   • Balanced final epsilon: {config.epsilon_end}")
-    print(f"   • Strategic epsilon decay: {config.epsilon_decay}")
+    print("🚀 Created ENHANCED DISCIPLINED TRADING configuration:")
+    print(f"   • Fast exploration decay: {config.epsilon_decay} (vs 100,000)")
+    print(f"   • Low final epsilon: {config.epsilon_end} (reduced random trading)")
     print(f"   • Higher learning rate: {config.learning_rate}")
     print(f"   • More frequent updates: every {config.update_frequency} steps")
-    print(f"   • Technical analysis-based reward system")
-    print(f"   • Smart invalid action penalties")
-    print(f"   • Multi-indicator decision making (RSI, MACD, Momentum, Volume, etc.)")
+    print(f"   • Minimum profit threshold: {config.min_profit_threshold:.1%} (3x higher)")
+    print(f"   • Patience bonus system: {config.patience_bonus_rate} (5x stronger)")
+    print(f"   • Trading frequency penalties: {config.trading_frequency_penalty} (4x stronger)")
+    print(f"   • Post-trade cooldown penalty: {config.post_trade_cooldown_penalty}")
+    print(f"   • Reflection bonus rate: {config.reflection_bonus_rate}")
+    print(f"   • Minimum hold time: {config.min_hold_time_steps} steps")
+    print(f"   • 🎯 DESIGNED TO STOP BUY-AFTER-SELL BEHAVIOR!")
     
     return config 

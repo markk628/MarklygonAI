@@ -9,15 +9,17 @@ A simplified but powerful DQN implementation with:
   * Simple MLP (single row features)
   * Temporal CNN (2D temporal data)
   * Mamba SSM (state space model)
-- Clean reward function (pure P&L + transaction costs)
+- PURE P&L REWARD SYSTEM (fixed reward-return misalignment issue)
 - Easy comparison between approaches
 
 Key Improvements:
 - Dueling architecture separates V(s) and A(s,a) for better learning
 - GPU-optimized PER for faster training
 - Mamba-inspired SSM for efficient temporal modeling
+- Simplified reward system that directly tracks actual profits/losses
+- Real-time reward-return alignment monitoring
 
-This serves as a strong baseline with modern RL techniques.
+This serves as a strong baseline with modern RL techniques and proper reward alignment.
 """
 
 import math
@@ -114,10 +116,10 @@ class EnhancedTradingConfig:
         self.target_update = 500   # Less frequent updates for stability
         self.gamma = 0.99
         
-        # Trading-specific parameters
-        self.min_profit_threshold = 0.005  # Minimum 0.5% expected profit to trade
-        self.trading_frequency_penalty = 0.002  # Penalty for excessive trading
-        self.patience_bonus_rate = 0.0001  # Bonus for holding positions
+        # Trading-specific parameters  
+        self.min_profit_threshold = 0.01  # Minimum 1% expected profit to trade (higher bar)
+        self.trading_frequency_penalty = 0.001  # Reduced since we removed complex penalties
+        self.patience_bonus_rate = 0.0  # Disabled - using pure P&L rewards now
 
 
 # =============================================================================
@@ -510,6 +512,9 @@ class EnhancedEnvironment:
         self.consecutive_holds = 0
         self.trades_this_episode = 0
         
+        # Initialize portfolio tracking for rewards
+        self.last_portfolio_value = self.config.initial_balance
+        
         return self._get_state()
     
     def _get_state(self) -> np.ndarray:
@@ -605,7 +610,16 @@ class EnhancedEnvironment:
         return valid_actions
     
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
-        """Execute action and return next state, reward, done, info"""
+        """Execute action and return next state, reward, done, info
+        
+        SIMPLIFIED REWARD SYSTEM - Pure P&L Focus:
+        - Buy: Small transaction cost penalty
+        - Sell: Actual profit/loss * 100 (scaled for better signal)
+        - Hold: Portfolio value change * 100 (actual performance)
+        - Invalid: Small penalty
+        
+        This ensures rewards align directly with actual trading returns.
+        """
         if self.current_step >= len(self.data):
             return self._get_state(), 0.0, True, {}
             
@@ -636,8 +650,8 @@ class EnhancedEnvironment:
                 self.trades_this_episode += 1
                 self.consecutive_holds = 0  # Reset hold counter
                 
-                # Trading frequency penalty
-                reward -= self.config.trading_frequency_penalty
+                # Simple reward: small entry cost penalty
+                reward = -self.config.transaction_fee_percent  # Just the transaction cost
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -657,17 +671,23 @@ class EnhancedEnvironment:
                 else:
                     self.total_loss += abs(profit)
                     
-                # Base reward: actual profit/loss
-                reward = profit / self.config.initial_balance  # Normalize by initial balance
-                
-                # Trading frequency penalty
-                reward -= self.config.trading_frequency_penalty
+                # PURE P&L REWARD: This is the actual profit/loss normalized
+                reward = profit / self.config.initial_balance * 100  # Scale by 100 for better signal
             
             elif action == 0:  # Hold
-                # Patience bonus for holding
                 self.consecutive_holds += 1
-                patience_bonus = self.consecutive_holds * self.config.patience_bonus_rate
-                reward = patience_bonus
+                
+                # For holding, reward is based on portfolio performance change
+                current_portfolio_value = self.balance + (self.position * current_price)
+                
+                if not hasattr(self, 'last_portfolio_value'):
+                    self.last_portfolio_value = current_portfolio_value
+                
+                # Reward based on portfolio value change (actual performance)
+                portfolio_change = current_portfolio_value - self.last_portfolio_value
+                reward = portfolio_change / self.config.initial_balance * 100  # Scale for better signal
+                
+                self.last_portfolio_value = current_portfolio_value
         
         # Move to next step
         self.current_step += 1
@@ -683,8 +703,8 @@ class EnhancedEnvironment:
             self.balance += revenue
             self.position = 0.0
             
-            # Add final P&L to reward
-            reward += final_profit / self.config.initial_balance
+            # Add final P&L to reward - scaled like other rewards
+            reward += final_profit / self.config.initial_balance * 100
             
             if final_profit > 0:
                 self.total_profit += final_profit
@@ -985,12 +1005,17 @@ def train_enhanced_dqn(data_path: str,
             # Calculate trading frequency (trades per day)
             trading_freq = avg_trades / 1  # Per episode (1 day)
             
+            # Check reward-return alignment
+            reward_return_ratio = avg_reward / max(abs(avg_return), 0.001)  # Avoid division by zero
+            alignment_status = "✅ALIGNED" if (avg_reward > 0 and avg_return > 0) or (avg_reward < 0 and avg_return < 0) else "❌MISALIGNED"
+            
             print(f"Episode {episode:3d} | "
                   f"Reward: {avg_reward:6.3f} | "
                   f"Return: {avg_return:6.1%} | "
                   f"Trades/Day: {trading_freq:4.0f} | "
                   f"ε: {results['epsilon']:.3f} | "
-                  f"Buffer: {len(agent.memory):,}{invalid_str}")
+                  f"Buffer: {len(agent.memory):,} | "
+                  f"{alignment_status}{invalid_str}")
     
     # Final results
     print("\n" + "="*60)
@@ -1020,6 +1045,15 @@ def train_enhanced_dqn(data_path: str,
         print("   (Should be 0 with proper action masking)")
     else:
         print("\n✅ No invalid actions - action masking working perfectly!")
+    
+    # Check final reward-return alignment
+    final_reward_alignment = "✅ALIGNED" if (final_avg_reward > 0 and final_avg_return > 0) or (final_avg_reward < 0 and final_avg_return < 0) else "❌MISALIGNED"
+    print(f"\n🎯 Reward-Return Alignment: {final_reward_alignment}")
+    if "MISALIGNED" in final_reward_alignment:
+        print("  ⚠️  Reward function may not be aligned with actual profits!")
+        print("  Consider adjusting reward scaling or components.")
+    else:
+        print("  ✅ Rewards properly aligned with actual trading performance!")
     
     # Show epsilon decay progress
     final_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \

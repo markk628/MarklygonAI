@@ -1,3 +1,19 @@
+"""
+DQN v5: Enhanced Trading Agent with FIXED Pure P&L Reward System
+===============================================================
+
+REWARD SYSTEM FIX APPLIED:
+- Removed complex auxiliary rewards that caused reward hacking
+- Now uses pure P&L focused rewards aligned with actual returns
+- Buy: Transaction cost penalty (-fee%)
+- Sell: Actual profit/loss * 100 (scaled for learning)
+- Hold: Unrealized P&L * 10 (portfolio performance)
+- Invalid: Small penalty
+
+This eliminates the reward-return misalignment problem where agents
+got positive rewards while losing money.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -207,8 +223,14 @@ class TradingEnvironment:
         self.max_portfolio_value = self.config.initial_balance
         self.position_entry_step = -1  # Track when position was entered
         self.consecutive_invalid_actions = 0
+        self.consecutive_holds = 0  # Track consecutive hold actions for patience bonus
         self.last_action = 0  # Track last action (0=hold, 1=buy, 2=sell)
         self.unrealized_pnl = 0.0
+        
+        # Enhanced trading discipline tracking
+        self.last_trade_step = -100  # When last buy/sell occurred (start far back)
+        self.last_trade_was_loss = False  # Whether last completed trade was a loss
+        self.steps_since_last_loss = 0  # Steps since last losing trade
         
         # Select which day to trade
         if day_idx is not None:
@@ -392,7 +414,16 @@ class TradingEnvironment:
         return False
     
     def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
-        """Execute action and return next state, reward, done, info"""
+        """Execute action and return next state, reward, done, info
+        
+        SIMPLIFIED REWARD SYSTEM - Pure P&L Focus:
+        - Buy: Small transaction cost penalty
+        - Sell: Actual profit/loss * 100 (scaled for better signal)
+        - Hold: Portfolio value change * 10 (actual performance)
+        - Invalid: Small penalty
+        
+        This ensures rewards align directly with actual trading returns.
+        """
             
         current_price = self.data.iloc[self.current_step]['close']        
         reward = 0
@@ -423,13 +454,14 @@ class TradingEnvironment:
                 self.position_entry_step = self.current_step
                 trade_executed = True
                 self.last_action = 1
+                self.consecutive_holds = 0  # Reset hold counter
                 
-                # Simple entry reward 
-                reward = 0.005
+                # Update trade tracking
+                self.last_trade_step = self.current_step
+                self.steps_since_last_loss += 1
                 
-                # Time-based entry bonus
-                if not is_near_close:
-                    reward += 0.003  # Avoid late entries
+                # SIMPLIFIED REWARD: Just transaction cost penalty
+                reward = -self.config.transaction_fee_percent
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -441,166 +473,46 @@ class TradingEnvironment:
                 trade_executed = True
                 self.total_trades += 1
                 self.last_action = 2
+                self.consecutive_holds = 0  # Reset hold counter
                 
-                # Calculate holding time factor
-                holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 1
-                holding_time_factor = min(holding_time / 30, 1.0)  # Normalize to 30 minutes
+                # Update trade tracking
+                self.last_trade_step = self.current_step
+                self.last_trade_was_loss = profit <= 0
+                if profit <= 0:
+                    self.steps_since_last_loss = 0  # Reset counter on loss
+                else:
+                    self.steps_since_last_loss += 1
                 
                 if profit > 0:
                     self.winning_trades += 1
                     self.total_profit += profit
-                    # Reward based on actual profit achieved
-                    profit_percentage = profit / cost_basis
-                    reward = profit_percentage * 30 * (0.5 + 0.5 * holding_time_factor)
-                    
-                    # Time-based exit bonus
-                    if is_near_close:
-                        reward += 0.005  # Good to close positions before market close
-                    
-                    # Activity bonus
-                    reward += 0.005
-                    
                 else:
                     self.losing_trades += 1
                     self.total_loss += abs(profit)
-                    loss_percentage = abs(profit) / cost_basis
-                    stop_loss_factor = 1.0 - holding_time_factor
-                    reward = -loss_percentage * 15 * (0.3 + 0.7 * stop_loss_factor)
-                    
-                    # Quick stop-loss rewards (good risk management)
-                    if holding_time <= 10 and loss_percentage < 0.01:
-                        reward += 0.008  # Quick small loss - good risk management
-                    elif holding_time <= 5:
-                        reward += 0.004
-                    
-                    # Small action bonus
-                    reward += 0.002
+                
+                # SIMPLIFIED REWARD: Pure P&L scaled for learning
+                profit_percentage = profit / cost_basis
+                reward = profit_percentage * 100  # Scale for better signal
                 
                 self.position_entry_step = -1
                 
             else:  # Hold (action == 0)
                 self.last_action = 0
+                self.consecutive_holds += 1
                 
+                # SIMPLIFIED REWARD: Portfolio performance tracking
+                current_portfolio_value = self.balance + (self.position * current_price)
+                
+                # If holding a position, reward based on unrealized P&L
                 if self.position > 0:
-                    # P&L-based holding logic
                     unrealized_pnl = ((current_price - self.entry_price) / self.entry_price)
-                    
-                    if unrealized_pnl > 0:  # Profitable position
-                        # Base reward for holding winners
-                        if unrealized_pnl > 0.02:
-                            reward = 0.008 * unrealized_pnl  # Hold big winners
-                        elif unrealized_pnl > 0.01:
-                            reward = 0.004 * unrealized_pnl  # Hold decent winners
-                        else:
-                            reward = 0.002 * unrealized_pnl  # Hold small winners
-                            
-                    else:  # Losing position
-                        reward = -0.004 * abs(unrealized_pnl)  # Penalty for holding losers
-                    
-                    # Time-based holding penalties (encourage active management)
-                    holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 0
-                    if holding_time > 90:  # Very long hold
-                        reward -= 0.008
-                    elif holding_time > 60:
-                        reward -= 0.005
-                    elif holding_time > 30:
-                        reward -= 0.002
+                    reward = unrealized_pnl * 10  # Small fraction of unrealized P&L
                 else:
-                    # Cash holding logic - encourage appropriate activity
-                    minutes_since_start = self.current_step - self.episode_start
-                    
-                    # Base inactivity penalties
-                    base_penalty = 0
-                    
-                    if minutes_since_start > 15 and self.total_trades == 0:
-                        # Escalating penalty for no trading at all
-                        no_trade_penalty = 0.008 + (minutes_since_start - 15) * 0.0003
-                        base_penalty = -min(no_trade_penalty, 0.04)
-                    elif minutes_since_start > 30 and self.total_trades > 0:
-                        # Penalty for too much time between trades
-                        avg_time_per_trade = minutes_since_start / max(self.total_trades, 1)
-                        if avg_time_per_trade > 25:
-                            base_penalty = -0.006
-                        elif avg_time_per_trade > 40:
-                            base_penalty = -0.012
-                    
-                    # Apply the penalty
-                    reward += base_penalty
-                    
-                    # Additional long-term inactivity penalty
-                    if minutes_since_start > 60:
-                        reward -= 0.004
+                    # If in cash, very small neutral reward
+                    reward = 0.001
             
-            # Portfolio-level rewards
-            current_portfolio_value = self.balance + (self.position * current_price)
-            portfolio_return = (current_portfolio_value - self.config.initial_balance) / self.config.initial_balance
-            
-            # Reward for maintaining/growing portfolio value
-            if portfolio_return > 0:
-                reward += 0.0002 * portfolio_return
-            
-            # Win Rate Bonus (encourage consistent profitability)
-            if self.total_trades > 0:
-                current_win_rate = self.winning_trades / self.total_trades
-                if current_win_rate >= 0.6:  # High win rate bonus
-                    reward += 0.002
-                elif current_win_rate >= 0.5:  # Decent win rate
-                    reward += 0.001
-                elif current_win_rate < 0.3:  # Poor win rate penalty
-                    reward -= 0.001
-            
-            # Profit/Loss Ratio Rewards (encourage good risk management)
-            if self.winning_trades > 0 and self.losing_trades > 0:
-                avg_profit = self.total_profit / self.winning_trades
-                avg_loss = abs(self.total_loss) / self.losing_trades
-                profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 1.0
-                
-                if profit_loss_ratio >= 2.0:  # Excellent risk/reward
-                    reward += 0.003
-                elif profit_loss_ratio >= 1.5:  # Good risk/reward
-                    reward += 0.002
-                elif profit_loss_ratio < 0.8:  # Poor risk/reward
-                    reward -= 0.002
-            
-            # Drawdown Management (penalize excessive portfolio decline)
-            drawdown = (self.max_portfolio_value - current_portfolio_value) / self.max_portfolio_value if self.max_portfolio_value > 0 else 0
-            if drawdown > 0.1:  # More than 10% drawdown
-                reward -= 0.003 * drawdown  # Escalating penalty
-            elif drawdown > 0.05:  # More than 5% drawdown
-                reward -= 0.001 * drawdown
-            
-            # Smart Trade Frequency Management (encourage quality activity)
-            minutes_elapsed = max(1, self.current_step - self.episode_start)
-            trade_rate = self.total_trades / (minutes_elapsed / 60)  # Trades per hour
-            
-            # Balanced incentives for smart trading
-            if 0.4 <= trade_rate <= 2.5:  # Optimal trading frequency (24-150 trades per day)
-                reward += 0.010  # Large bonus for good activity level
-            elif 0.15 <= trade_rate < 0.4:  # Moderate activity
-                reward += 0.005  # Encourage more activity
-            elif 0.05 <= trade_rate < 0.15:  # Low activity
-                reward += 0.002  # Small encouragement
-            elif trade_rate > 3.5:  # Overtrading penalty 
-                reward -= 0.003 * (trade_rate - 3.5)
-            elif trade_rate < 0.05 and minutes_elapsed > 25:  # Very low activity
-                undertrading_penalty = 0.012 * (0.05 - trade_rate)
-                reward -= undertrading_penalty
-            elif trade_rate < 0.02 and minutes_elapsed > 20:  # Almost no activity
-                reward -= 0.015
-            
-            # Risk management rewards
-            # Reward for keeping reasonable position sizes
-            if self.position > 0:
-                position_pct = (self.position * current_price) / current_portfolio_value
-                if 0.3 <= position_pct <= 0.8:  # Reasonable position size
-                    reward += 0.0001
-                elif position_pct > 0.9:  # Too concentrated
-                    reward -= 0.002
-            
-            # Penalty for low cash reserves (risk management)
-            cash_ratio = self.balance / current_portfolio_value if current_portfolio_value > 0 else 0
-            if cash_ratio < 0.1 and self.position > 0:  # Less than 10% cash when holding position
-                reward -= 0.001
+            # REMOVED: All auxiliary portfolio-level rewards that cause reward hacking
+            # Now using pure P&L focused reward system
         
         # Move to next step
         self.current_step += 1
@@ -625,15 +537,13 @@ class TradingEnvironment:
             if profit > 0:
                 self.winning_trades += 1
                 self.total_profit += profit
-                # Reward for profitable end-of-day close
-                profit_percentage = profit / cost_basis
-                reward += profit_percentage * 10
             else:
                 self.losing_trades += 1
                 self.total_loss += abs(profit)
-                # Smaller penalty for end-of-day close (forced exit)
-                loss_percentage = abs(profit) / cost_basis
-                reward -= loss_percentage * 5
+            
+            # SIMPLIFIED REWARD: Pure P&L for forced close
+            profit_percentage = profit / cost_basis
+            reward += profit_percentage * 100  # Same scaling as normal sell
         
         # Get next state (or terminal state if done)
         if done:
@@ -661,6 +571,10 @@ class TradingEnvironment:
             'unrealized_pnl': getattr(self, 'unrealized_pnl', 0.0),
             'total_profit': self.total_profit,
             'total_loss': self.total_loss,
+            'consecutive_holds': self.consecutive_holds,
+            'steps_since_last_trade': self.current_step - self.last_trade_step,
+            'last_trade_was_loss': self.last_trade_was_loss,
+            'steps_since_last_loss': self.steps_since_last_loss,
             'final_reward': reward  # Track the final reward for analysis
         }
         
@@ -710,7 +624,7 @@ class DoubleDuelingDQN:
         
         
     def select_action(self, state: torch.Tensor, epsilon: Optional[float] = None) -> int:
-        """Select action using epsilon-greedy policy"""
+        """Select action using epsilon-greedy policy with minimum profit threshold"""
         if epsilon is None:
             epsilon = self.config.epsilon_end + (self.config.epsilon_start - self.config.epsilon_end) * math.exp(-1. * self.steps_done / self.config.epsilon_decay)
         
@@ -719,6 +633,17 @@ class DoubleDuelingDQN:
             with torch.no_grad():
                 state = state.unsqueeze(0).to(self.device)
                 q_values = self.q_network(state)
+                
+                # Apply minimum profit threshold: only trade if significantly better than holding
+                hold_q_value = q_values[0, 0]  # Q-value for holding (action 0)
+                
+                # Check if buy/sell actions meet minimum profit threshold
+                for action in [1, 2]:  # Buy and Sell
+                    if len(q_values[0]) > action:  # Ensure action exists
+                        profit_advantage = q_values[0, action] - hold_q_value
+                        if profit_advantage < self.config.min_profit_threshold:
+                            q_values[0, action] = -float('inf')  # Don't trade unless advantage is clear
+                
                 action = torch.argmax(q_values, dim=1).item()
             self.q_network.train()  # Set back to training mode
             return action
