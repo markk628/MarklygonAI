@@ -82,6 +82,7 @@ class TradingConfig:
     epsilon_start: float = 1.0
     epsilon_end: float = 0.05
     epsilon_decay: float = 100000
+    # Note: Epsilon decay is PAUSED during portfolio normalization warmup period
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -1339,8 +1340,15 @@ class TradingEnvironment:
             if not self.portfolio_normalizer.is_fitted:
                 self.portfolio_normalizer.collect_warmup_data(self.episode_portfolio_states)
             
+            # Check if this was the last warmup episode
+            was_warmup = not self.portfolio_normalizer.is_fitted
+            
             # Increment episode counter and potentially fit normalizer
             self.portfolio_normalizer.increment_episode()
+            
+            # If normalizer just became fitted, signal that buffer should be cleared
+            if was_warmup and self.portfolio_normalizer.is_fitted:
+                info['clear_replay_buffer'] = True
         
         return next_state, reward, done, info
 
@@ -1506,10 +1514,20 @@ class DoubleDuelingDQN:
             # Store transition
             self.memory.push(state, action, reward, next_state, done)
             
+            # Clear replay buffer if portfolio normalizer just became fitted (for data consistency)
+            if info.get('clear_replay_buffer', False):
+                print(f"🧹 Clearing replay buffer to ensure portfolio feature consistency...")
+                print(f"   Removed {len(self.memory)} experiences with unnormalized portfolio features")
+                self.memory = PrioritizedReplayBufferGPU(self.config.buffer_size, self.config, self.device)
+                print(f"   Replay buffer reset - starting fresh with normalized portfolio features")
+            
             # Update counters
             episode_reward += reward
             episode_steps += 1
-            self.steps_done += 1
+            
+            # Only increment steps_done (for epsilon decay) when actual training is happening
+            if (env.portfolio_normalizer is None or env.portfolio_normalizer.is_fitted):
+                self.steps_done += 1
             
             # Perform update every update_frequency steps
             if self.steps_done % self.config.update_frequency == 0:
@@ -1818,7 +1836,10 @@ def train_dqn(data_path: str,
         print(f"  Losing Trades: {metrics['losing_trades']}")
         print(f"  Invalid Actions: {metrics['invalid_actions']}")
         print(f"  Steps: {metrics['episode_steps']}")
-        print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
+        if train_env.portfolio_normalizer is not None and not train_env.portfolio_normalizer.is_fitted:
+            print(f"  Epsilon: {current_epsilon:.4f} (PAUSED during warmup)")
+        else:
+            print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
         
         # Log portfolio normalization status
         if train_env.portfolio_normalizer is not None:
@@ -2263,6 +2284,7 @@ class PortfolioStateNormalizer:
             # Clear warmup data to save memory
             self.warmup_data.clear()
             print("✅ Portfolio normalization ACTIVATED - Training will now resume!")
+            print("🧹 Replay buffer will be cleared to ensure data consistency...")
     
     def fit_from_sample_data(self, sample_portfolio_states: list):
         """Pre-fit normalizer using sample data (alternative to warmup)"""

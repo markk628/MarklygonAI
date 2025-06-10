@@ -4,944 +4,27 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import pandas as pd
-from enum import Enum
 from typing import Tuple, Optional, Dict
 import random
-from dataclasses import dataclass
 import math
 from datetime import datetime, time
+from enum import Enum
 from pathlib import Path
-
-# Add portfolio normalizer imports
-import pickle
 
 from src.config.config import (
     DEVICE,
-    DATA_DIR,
-    MODELS_DIR,
-    WINDOW_SIZE,
-    EVALUATE_INTERVAL,
-    INITIAL_BALANCE,
-    TRANSACTION_FEE_PERCENT,
-    MAX_POSITION_SIZE,
-    BATCH_SIZE,
-    REPLAY_BUFFER_SIZE,
-    UPDATE_TARGET_EVERY,
     EPSILON_EARLY_STOPPING_THRESHOLD,
     STOCK_FEATURES_V2,
     NUM_EPISODES,
     TRAIN_RATIO,
     VALID_RATIO,
-    TRAIN_INTERVAL,
+    EVALUATE_INTERVAL,
     MINUTES_PER_TRADING_DAY
 )
-from src.utils.utils import create_directory
-from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
-class PortfolioStateNormalizer:
-    """Normalizes portfolio states using statistics collected during warmup period"""
-    
-    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100):
-        self.warmup_episodes = warmup_episodes
-        self.update_frequency = update_frequency
-        self.episode_count = 0
-        
-        # Feature indices that need normalization (unbounded features)
-        self.normalize_features = [4]  # unrealized_pnl index
-        self.clip_features = [3]       # position_ratio index (clip to 0-2)
-        
-        # Statistics storage
-        self.feature_stats = {}
-        self.warmup_data = {idx: [] for idx in self.normalize_features}
-        self.is_fitted = False
-        
-    def collect_warmup_data(self, portfolio_states: list):
-        """Collect portfolio states during warmup period"""
-        if self.episode_count < self.warmup_episodes:
-            for state in portfolio_states:
-                for idx in self.normalize_features:
-                    if idx < len(state):
-                        self.warmup_data[idx].append(state[idx])
-    
-    def fit_normalizer(self):
-        """Fit normalizer using collected warmup data"""
-        if self.episode_count >= self.warmup_episodes and not self.is_fitted:
-            print(f"Fitting portfolio normalizer with {self.warmup_episodes} episodes of data...")
-            
-            for idx in self.normalize_features:
-                data = np.array(self.warmup_data[idx])
-                if len(data) > 0:
-                    # Use robust statistics (less sensitive to outliers)
-                    median = np.median(data)
-                    q25, q75 = np.percentile(data, [25, 75])
-                    iqr = q75 - q25
-                    
-                    # Handle edge case where IQR is zero
-                    if iqr < 1e-6:
-                        iqr = max(abs(median), 0.01)  # Fallback scaling
-                    
-                    self.feature_stats[idx] = {
-                        'median': median,
-                        'iqr': iqr,
-                        'q25': q25,
-                        'q75': q75,
-                        'min': np.min(data),
-                        'max': np.max(data)
-                    }
-                    
-                    print(f"Feature {idx} (unrealized_pnl) stats:")
-                    print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
-                    print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
-            
-            self.is_fitted = True
-            # Clear warmup data to save memory
-            self.warmup_data.clear()
-            print("✅ Portfolio normalization ACTIVATED - Training will now resume!")
-    
-    def fit_from_sample_data(self, sample_portfolio_states: list):
-        """Pre-fit normalizer using sample data (alternative to warmup)"""
-        if self.is_fitted:
-            return
-            
-        print(f"Pre-fitting portfolio normalizer with {len(sample_portfolio_states)} sample states...")
-        
-        for idx in self.normalize_features:
-            data = []
-            for state in sample_portfolio_states:
-                if idx < len(state):
-                    data.append(state[idx])
-            
-            if len(data) > 0:
-                data = np.array(data)
-                median = np.median(data)
-                q25, q75 = np.percentile(data, [25, 75])
-                iqr = q75 - q25
-                
-                if iqr < 1e-6:
-                    iqr = max(abs(median), 0.01)
-                
-                self.feature_stats[idx] = {
-                    'median': median,
-                    'iqr': iqr,
-                    'q25': q25,
-                    'q75': q75,
-                    'min': np.min(data),
-                    'max': np.max(data)
-                }
-                
-                print(f"Pre-fit feature {idx} (unrealized_pnl) stats:")
-                print(f"  Range: [{np.min(data):.3f}, {np.max(data):.3f}]")
-                print(f"  Median: {median:.3f}, IQR: {iqr:.3f}")
-        
-        self.is_fitted = True
-        print("✅ Portfolio normalizer PRE-FITTED - Training enabled from start!")
-            
-    def normalize_state(self, portfolio_state: np.ndarray) -> np.ndarray:
-        """Normalize a single portfolio state"""
-        if not self.is_fitted:
-            return portfolio_state  # Return unchanged during warmup
-            
-        state = portfolio_state.copy()
-        
-        # Normalize unbounded features using robust scaling
-        for idx in self.normalize_features:
-            if idx < len(state) and idx in self.feature_stats:
-                stats = self.feature_stats[idx]
-                # Robust scaling: (x - median) / IQR
-                state[idx] = (state[idx] - stats['median']) / stats['iqr']
-                # Clip extreme outliers to [-3, 3] (roughly 3 IQRs)
-                state[idx] = np.clip(state[idx], -3.0, 3.0)
-        
-        # Clip features that should be bounded
-        for idx in self.clip_features:
-            if idx < len(state):
-                state[idx] = np.clip(state[idx], 0.0, 2.0)  # Allow up to 200% position ratio
-        
-        return state
-    
-    def increment_episode(self):
-        """Call this after each episode"""
-        self.episode_count += 1
-        
-        # Fit normalizer after warmup period
-        if self.episode_count == self.warmup_episodes:
-            self.fit_normalizer()
-    
-    def save(self, path: str):
-        """Save normalizer state"""
-        with open(path, 'wb') as f:
-            pickle.dump({
-                'feature_stats': self.feature_stats,
-                'is_fitted': self.is_fitted,
-                'episode_count': self.episode_count,
-                'warmup_episodes': self.warmup_episodes
-            }, f)
-    
-    def load(self, path: str):
-        """Load normalizer state"""
-        try:
-            with open(path, 'rb') as f:
-                data = pickle.load(f)
-                self.feature_stats = data['feature_stats']
-                self.is_fitted = data['is_fitted']
-                self.episode_count = data['episode_count']
-                self.warmup_episodes = data.get('warmup_episodes', 50)
-            print(f"Loaded portfolio normalizer from {path}")
-        except FileNotFoundError:
-            print(f"No existing normalizer found at {path}, starting fresh")
-
-class ArchitectureType(Enum):
-    ORIGINAL = "original"
-    IMPROVED = "improved"
-    HYBRID = "hybrid"
-
-@dataclass
-class TradingConfig:
-    """Configuration for the DQN agent"""
-    # Environment parameters
-    initial_balance: float = INITIAL_BALANCE
-    transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
-    window_size: int = WINDOW_SIZE
-    num_stock_features: int = len(STOCK_FEATURES_V2)
-    num_portfolio_features: int = 12
-    num_features: int = len(STOCK_FEATURES_V2) + 12  # Stock features + portfolio features
-    num_actions: int = 3  # Hold, Buy, Sell
-    max_position_size: float = MAX_POSITION_SIZE
-    
-    # Network architecture selection
-    architecture_type: ArchitectureType = ArchitectureType.IMPROVED
-    
-    # Network parameters
-    hidden_size: int = 512
-    learning_rate: float = 0.0001
-    
-    # Training parameters
-    batch_size: int = BATCH_SIZE
-    gamma: float = 0.99
-    tau: float = 0.005
-    update_frequency: int = TRAIN_INTERVAL
-    target_update_frequency: int = UPDATE_TARGET_EVERY
-    
-    # Experience replay
-    buffer_size: int = REPLAY_BUFFER_SIZE
-    
-    # Exploration - Encourage active trading with strategic decisions
-    epsilon_start: float = 1.0
-    epsilon_end: float = 0.12  # Increased to encourage more exploration and activity
-    epsilon_decay: float = 100000  # Slower decay to maintain activity longer
-    
-    # Prioritized replay
-    use_prioritized_replay: bool = True
-    alpha: float = 0.6
-    beta_start: float = 0.4
-    beta_end: float = 1.0
-    per_epsilon: float = 0.001  # Add missing PER epsilon
-    
-    # Double and Dueling DQN
-    use_double_dqn: bool = True
-    use_dueling_dqn: bool = True
-    
-    # Enhanced architecture options (for improved/hybrid)
-    use_attention: bool = True
-    use_residual_connections: bool = True
-    transformer_layers: int = 2
-    cnn_scales: list = None  # [3, 5, 7] if None
-    
-    # Portfolio state normalization
-    use_portfolio_normalization: bool = True
-    portfolio_warmup_episodes: int = 50
-    portfolio_update_frequency: int = 100
-    
-    def __post_init__(self):
-        if self.cnn_scales is None:
-            self.cnn_scales = [3, 5, 7]
-
-
-class FinancialTransformerBlock(nn.Module):
-    """Transformer block optimized for financial time series"""
-    
-    def __init__(self, d_model: int, nhead: int, dropout: float = 0.1):
-        super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
-        
-        # Feed forward network with financial-aware design
-        self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_model * 4),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model * 4, d_model)
-        )
-    
-    def forward(self, x):
-        # Self-attention with residual connection
-        attn_out, _ = self.self_attn(x, x, x)
-        x = self.norm1(x + self.dropout(attn_out))
-        
-        # Feed forward with residual connection
-        ffn_out = self.ffn(x)
-        x = self.norm2(x + self.dropout(ffn_out))
-        
-        return x
-
-
-class ImprovedDuelingNetwork(nn.Module):
-    """Enhanced Dueling DQN with Transformer and financial-specific improvements"""
-    
-    def __init__(self, config: TradingConfig):
-        super(ImprovedDuelingNetwork, self).__init__()
-        self.config = config
-        
-        # Feature embedding for stock data
-        self.feature_embedding = nn.Linear(config.num_stock_features, 128)
-        
-        # Positional encoding for time awareness
-        self.pos_encoding = nn.Parameter(torch.randn(config.window_size, 128) * 0.02)
-        
-        # Multi-scale CNN branch (parallel processing at different scales)
-        self.multiscale_cnn = nn.ModuleList([
-            self._create_cnn_branch(128, [3, 5, 7][i], f'scale_{i}') 
-            for i in range(3)
-        ])
-        
-        # Transformer blocks for temporal modeling
-        self.transformer_blocks = nn.ModuleList([
-            FinancialTransformerBlock(128, nhead=8, dropout=0.1)
-            for _ in range(2)
-        ])
-        
-        # Attention pooling instead of max/average pooling
-        self.attention_pool = nn.MultiheadAttention(128, 4, batch_first=True)
-        self.pool_query = nn.Parameter(torch.randn(1, 128))
-        
-        # Portfolio branch
-        self.portfolio_branch = nn.Sequential(
-            nn.Linear(config.num_portfolio_features, 64),
-            nn.LayerNorm(64),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            
-            nn.Linear(64, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            
-            nn.Linear(128, 64),
-            nn.LayerNorm(64),
-            nn.GELU(),
-        )
-        
-        # Combined features: multiscale (128*3) + transformer (128) + portfolio (64) = 576
-        combined_size = 128 * 3 + 128 + 64
-        
-        # Shared layers with residual connections
-        self.shared_layers = nn.ModuleList([
-            nn.Linear(combined_size, config.hidden_size),
-            nn.Linear(config.hidden_size, config.hidden_size),
-            nn.Linear(config.hidden_size, config.hidden_size)
-        ])
-        
-        self.shared_norms = nn.ModuleList([
-            nn.LayerNorm(config.hidden_size) for _ in range(3)
-        ])
-        
-        # Value stream with improved architecture
-        self.value_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(config.hidden_size // 2, config.hidden_size // 4),
-            nn.GELU(),
-            nn.Linear(config.hidden_size // 4, 1)
-        )
-        
-        # Advantage stream with improved architecture
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(config.hidden_size // 2, config.hidden_size // 4),
-            nn.GELU(),
-            nn.Linear(config.hidden_size // 4, config.num_actions)
-        )
-        
-        # Initialize weights
-        self._initialize_weights()
-    
-    def _create_cnn_branch(self, in_channels, kernel_size, name):
-        """Create a single-scale CNN branch"""
-        padding = kernel_size // 2
-        return nn.Sequential(
-            nn.Conv1d(in_channels, 64, kernel_size=kernel_size, padding=padding),
-            nn.GroupNorm(4, 64),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            
-            nn.Conv1d(64, 128, kernel_size=3, padding=1),
-            nn.GroupNorm(8, 128),
-            nn.GELU(),
-            nn.AdaptiveAvgPool1d(1)  # Global average pooling
-        )
-    
-    def _initialize_weights(self):
-        """Improved weight initialization for financial networks"""
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                if module in [self.value_stream[-1], self.advantage_stream[-1]]:
-                    # Small initialization for output layers
-                    nn.init.uniform_(module.weight, -3e-4, 3e-4)
-                    nn.init.constant_(module.bias, 0)
-                else:
-                    # He initialization for hidden layers
-                    nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                    nn.init.constant_(module.bias, 0.01)
-            elif isinstance(module, nn.Conv1d):
-                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                nn.init.constant_(module.bias, 0.01)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size = x.size(0)
-        
-        # Split stock data and portfolio data
-        stock_data = x[:, :, :self.config.num_stock_features]
-        portfolio_data = x[:, 0, self.config.num_stock_features:]
-        
-        # ========== Stock Data Processing ==========
-        
-        # Feature embedding
-        embedded = self.feature_embedding(stock_data)  # (batch_size, window_size, 128)
-        
-        # Add positional encoding for time awareness
-        embedded = embedded + self.pos_encoding.unsqueeze(0)
-        
-        # Multi-scale CNN processing
-        multiscale_features = []
-        stock_data_cnn = embedded.transpose(1, 2)  # (batch_size, 128, window_size)
-        
-        for cnn_branch in self.multiscale_cnn:
-            features = cnn_branch(stock_data_cnn)  # (batch_size, 128, 1)
-            features = features.squeeze(-1)  # (batch_size, 128)
-            multiscale_features.append(features)
-        
-        # Transformer processing for temporal dependencies
-        transformer_out = embedded
-        for transformer_block in self.transformer_blocks:
-            transformer_out = transformer_block(transformer_out)
-        
-        # Attention pooling for transformer features
-        query = self.pool_query.expand(batch_size, -1, -1)  # (batch_size, 1, 128)
-        pooled_features, _ = self.attention_pool(query, transformer_out, transformer_out)
-        pooled_features = pooled_features.squeeze(1)  # (batch_size, 128)
-        
-        # ========== Portfolio Data Processing ==========
-        portfolio_features = self.portfolio_branch(portfolio_data)
-        
-        # ========== Feature Combination ==========
-        combined_features = torch.cat([
-            *multiscale_features,  # 3 x 128 = 384
-            pooled_features,       # 128
-            portfolio_features     # 64
-        ], dim=1)  # (batch_size, 576)
-        
-        # ========== Shared Processing with Residuals ==========
-        x = combined_features
-        for i, (linear, norm) in enumerate(zip(self.shared_layers, self.shared_norms)):
-            if i == 0:
-                # First layer (no residual)
-                x = F.gelu(norm(linear(x)))
-            else:
-                # Subsequent layers with residual connections
-                residual = x
-                x = linear(x)
-                if x.size() == residual.size():  # Only add residual if dimensions match
-                    x = x + residual
-                x = F.gelu(norm(x))
-        
-        # ========== Dueling Streams ==========
-        value = self.value_stream(x)
-        advantages = self.advantage_stream(x)
-        
-        # Dueling combination with improved numerical stability
-        q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
-        
-        return q_values
-
-
-class DuelingNetwork(ImprovedDuelingNetwork):
-    """Use improved architecture by default"""
-    pass
-
-
-class DuelingNetworkOriginal(nn.Module):
-    """Original Dueling DQN architecture"""
-    
-    def __init__(self, config: TradingConfig):
-        super(DuelingNetworkOriginal, self).__init__()
-        self.config = config
-        
-        # Stock data branch - 1D CNN for time series processing
-        # Input: (batch_size, window_size, self.config.num_stock_features)
-        self.stock_data_branch = nn.Sequential(
-            nn.Conv1d(in_channels=self.config.num_stock_features, out_channels=64, kernel_size=5, padding=2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Dropout(0.1), # prevents overfitting and curse of dimensionality
-            
-            nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Dropout(0.1),
-            
-            nn.Conv1d(in_channels=128, out_channels=256, kernel_size=3, padding=1),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool1d(1),
-        )
-        
-        # Portfolio state branch - Fully connected layers
-        # Input: (batch_size, self.config.num_portfolio_features) - portfolio features
-        self.portfolio_branch = nn.Sequential(
-            nn.Linear(self.config.num_portfolio_features, 64),
-            nn.LayerNorm(64),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            
-            nn.Linear(64, 128),
-            nn.LayerNorm(128),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            
-            nn.Linear(128, 64),
-            nn.LayerNorm(64),
-            nn.ReLU(),
-        )
-        
-        # Combined features: 256 (stock data branch output) + 64 (portfolio branch output) = 320
-        combined_size = 256 + 64
-        
-        # Shared layers after combining branches
-        self.shared_layers = nn.Sequential(
-            nn.Linear(combined_size, config.hidden_size),
-            nn.LayerNorm(config.hidden_size),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-        )
-        
-        # Value stream
-        self.value_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(config.hidden_size // 2, 1)
-        )
-        
-        # Advantage stream
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(config.hidden_size // 2, config.num_actions)
-        )
-        
-        # Initialize weights
-        self._initialize_weights()
-    
-    def _initialize_weights(self):
-        """Initialize network weights using He initialization for ReLU networks"""
-        # Initialize stock data branch
-        for layer in self.stock_data_branch:
-            if isinstance(layer, nn.Conv1d) or isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                nn.init.constant_(layer.bias, 0.01)
-        
-        # Initialize portfolio branch
-        for layer in self.portfolio_branch:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                nn.init.constant_(layer.bias, 0.01)
-        
-        # Initialize shared layers
-        for layer in self.shared_layers:
-            if isinstance(layer, nn.Linear):
-                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                nn.init.constant_(layer.bias, 0.01)
-        
-        # Initialize value stream
-        for layer in self.value_stream:
-            if isinstance(layer, nn.Linear):
-                if layer == self.value_stream[-1]:
-                    nn.init.uniform_(layer.weight, -3e-4, 3e-4)
-                    nn.init.constant_(layer.bias, 0)
-                else:
-                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                    nn.init.constant_(layer.bias, 0.01)
-        
-        # Initialize advantage stream
-        for layer in self.advantage_stream:
-            if isinstance(layer, nn.Linear):
-                if layer == self.advantage_stream[-1]:
-                    nn.init.uniform_(layer.weight, -3e-4, 3e-4)
-                    nn.init.constant_(layer.bias, 0)
-                else:
-                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                    nn.init.constant_(layer.bias, 0.01)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass combining value and advantage streams"""        
-        # Split stock data and portfolio data
-        stock_data = x[:, :, :self.config.num_stock_features]  # (batch_size, window_size, self.config.num_stock_features)
-        portfolio_data = x[:, 0, self.config.num_stock_features:]  # (batch_size, self.config.num_portfolio_features)
-        
-        # Process stock data through CNN
-        # Conv1d expects (batch_size, channels, window_size)
-        stock_data = stock_data.permute(0, 2, 1)  # (batch_size, 40, window_size)
-        stock_data_features = self.stock_data_branch(stock_data)  # (batch_size, 256, 1)
-        stock_data_features = stock_data_features.squeeze(-1)  # (batch_size, 256)
-        
-        # Process portfolio data through FC layers
-        portfolio_features = self.portfolio_branch(portfolio_data)  # (batch_size, 64)
-        
-        # Combine features
-        combined_features = torch.cat([stock_data_features, portfolio_features], dim=1)  # (batch_size, 320)
-        
-        # Process through shared layers
-        shared_features = self.shared_layers(combined_features)  # (batch_size, hidden_size)
-        
-        # Compute value and advantages
-        value = self.value_stream(shared_features)
-        advantages = self.advantage_stream(shared_features)
-        
-        # Combine using dueling formula: Q(s,a) = V(s) + A(s,a) - mean(A(s,a))
-        q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
-        
-        return q_values
-
-
-class HybridCNNLSTMNetwork(nn.Module):
-    """Hybrid CNN-LSTM network combining convolutional and recurrent processing"""
-    
-    def __init__(self, config: TradingConfig):
-        super(HybridCNNLSTMNetwork, self).__init__()
-        self.config = config
-        
-        # Multi-scale CNN for local pattern extraction
-        self.cnn_branches = nn.ModuleList([
-            self._create_cnn_branch(config.num_stock_features, kernel_size)
-            for kernel_size in config.cnn_scales
-        ])
-        
-        # Combine CNN outputs
-        cnn_output_size = len(config.cnn_scales) * 64
-        self.cnn_combiner = nn.Sequential(
-            nn.Linear(cnn_output_size, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Dropout(0.1)
-        )
-        
-        # LSTM for temporal sequence modeling
-        self.lstm = nn.LSTM(
-            input_size=128,
-            hidden_size=128,
-            num_layers=2,
-            batch_first=True,
-            dropout=0.1,
-            bidirectional=True
-        )
-        
-        # Attention mechanism for LSTM outputs
-        self.lstm_attention = nn.MultiheadAttention(256, 8, batch_first=True)
-        
-        # Portfolio branch
-        self.portfolio_branch = nn.Sequential(
-            nn.Linear(config.num_portfolio_features, 64),
-            nn.LayerNorm(64),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(64, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Linear(128, 64)
-        )
-        
-        # Combined processing
-        combined_size = 256 + 64  # LSTM output + portfolio
-        
-        self.shared_layers = nn.Sequential(
-            nn.Linear(combined_size, config.hidden_size),
-            nn.LayerNorm(config.hidden_size),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(config.hidden_size, config.hidden_size),
-            nn.LayerNorm(config.hidden_size),
-            nn.GELU()
-        )
-        
-        # Dueling streams
-        self.value_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.GELU(),
-            nn.Linear(config.hidden_size // 2, 1)
-        )
-        
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(config.hidden_size, config.hidden_size // 2),
-            nn.GELU(),
-            nn.Linear(config.hidden_size // 2, config.num_actions)
-        )
-        
-        self._initialize_weights()
-    
-    def _create_cnn_branch(self, in_channels, kernel_size):
-        """Create CNN branch for specific kernel size"""
-        padding = kernel_size // 2
-        return nn.Sequential(
-            nn.Conv1d(in_channels, 32, kernel_size=kernel_size, padding=padding),
-            nn.GroupNorm(4, 32),
-            nn.GELU(),
-            nn.Conv1d(32, 64, kernel_size=3, padding=1),
-            nn.GroupNorm(8, 64),
-            nn.GELU(),
-            nn.AdaptiveMaxPool1d(1)
-        )
-    
-    def _initialize_weights(self):
-        """Initialize weights"""
-        for module in self.modules():
-            if isinstance(module, (nn.Linear, nn.Conv1d)):
-                if hasattr(module, 'weight'):
-                    nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                if hasattr(module, 'bias') and module.bias is not None:
-                    nn.init.constant_(module.bias, 0.01)
-            elif isinstance(module, nn.LSTM):
-                for name, param in module.named_parameters():
-                    if 'weight' in name:
-                        nn.init.orthogonal_(param)
-                    elif 'bias' in name:
-                        nn.init.constant_(param, 0)
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len = x.size(0), x.size(1)
-        
-        # Split stock and portfolio data
-        stock_data = x[:, :, :self.config.num_stock_features]
-        portfolio_data = x[:, 0, self.config.num_stock_features:]
-        
-        # CNN processing for each timestep
-        cnn_outputs = []
-        for t in range(seq_len):
-            timestep_data = stock_data[:, t, :].unsqueeze(2)  # (batch, features, 1)
-            
-            # Multi-scale CNN
-            scale_features = []
-            for cnn_branch in self.cnn_branches:
-                features = cnn_branch(timestep_data)  # (batch, 64, 1) - timestep_data is already (batch, features, 1)
-                features = features.squeeze(-1)  # (batch, 64)
-                scale_features.append(features)
-            
-            # Combine scales
-            combined = torch.cat(scale_features, dim=1)  # (batch, 64 * num_scales)
-            combined = self.cnn_combiner(combined)  # (batch, 128)
-            cnn_outputs.append(combined)
-        
-        # Stack CNN outputs for LSTM
-        cnn_sequence = torch.stack(cnn_outputs, dim=1)  # (batch, seq_len, 128)
-        
-        # LSTM processing
-        lstm_out, _ = self.lstm(cnn_sequence)  # (batch, seq_len, 256)
-        
-        # Attention pooling
-        pooled_features, _ = self.lstm_attention(lstm_out, lstm_out, lstm_out)
-        pooled_features = pooled_features.mean(dim=1)  # (batch, 256)
-        
-        # Portfolio processing
-        portfolio_features = self.portfolio_branch(portfolio_data)  # (batch, 64)
-        
-        # Combine features
-        combined_features = torch.cat([pooled_features, portfolio_features], dim=1)
-        
-        # Shared processing
-        shared_features = self.shared_layers(combined_features)
-        
-        # Dueling streams
-        value = self.value_stream(shared_features)
-        advantages = self.advantage_stream(shared_features)
-        
-        # Dueling combination
-        q_values = value + advantages - advantages.mean(dim=1, keepdim=True)
-        
-        return q_values
-
-
-def analyze_trading_performance(results: dict) -> dict:
-    """
-    Analyze trading performance and provide recommendations for improvement
-    
-    Args:
-        results: Results from train_dqn or run_standalone_backtest
-        
-    Returns:
-        Dictionary with analysis and recommendations
-    """
-    multi_day_results = results['multi_day_test_results']
-    individual_days = multi_day_results['individual_days']
-    aggregate_stats = multi_day_results['aggregate_stats']
-    
-    # Calculate trading frequency analysis
-    total_trades = [day['total_trades'] for day in individual_days]
-    avg_trades_per_day = aggregate_stats['avg_trades']
-    
-    # Performance analysis
-    returns = [day['total_return'] for day in individual_days]
-    win_rate = aggregate_stats['win_rate']
-    
-    analysis = {
-        'trading_frequency': {
-            'avg_trades_per_day': avg_trades_per_day,
-            'status': 'low' if avg_trades_per_day < 5 else 'moderate' if avg_trades_per_day < 15 else 'high',
-            'recommendation': None
-        },
-        'performance': {
-            'win_rate': win_rate,
-            'avg_return': aggregate_stats['avg_return'],
-            'consistency': 1.0 - (aggregate_stats['std_return'] / abs(aggregate_stats['avg_return'])) if aggregate_stats['avg_return'] != 0 else 0,
-            'status': 'poor' if win_rate < 0.4 else 'fair' if win_rate < 0.6 else 'good'
-        }
-    }
-    
-    # Generate recommendations
-    recommendations = []
-    
-    if analysis['trading_frequency']['status'] == 'low':
-        recommendations.append({
-            'issue': 'Low Trading Frequency',
-            'description': f'Only {avg_trades_per_day:.1f} trades per day. Too conservative.',
-            'solutions': [
-                'Use create_aggressive_trading_config() for enhanced rewards',
-                'Increase epsilon_end to maintain more exploration',
-                'Reduce invalid action penalties',
-                'Add stronger undertrading penalties'
-            ]
-        })
-    
-    if analysis['performance']['status'] in ['poor', 'fair']:
-        recommendations.append({
-            'issue': 'Suboptimal Performance',
-            'description': f'Win rate: {win_rate:.1%}, Avg return: {aggregate_stats["avg_return"]:.1%}',
-            'solutions': [
-                'Increase trade incentive rewards',
-                'Reduce loss penalties to encourage more risk-taking',
-                'Implement momentum-based rewards',
-                'Enhance position holding logic'
-            ]
-        })
-    
-    if len([r for r in returns if r > 0]) <= len(returns) // 2:
-        recommendations.append({
-            'issue': 'Poor Consistency',
-            'description': 'More than half the days are losing money',
-            'solutions': [
-                'Increase learning rate for faster adaptation',
-                'Use more frequent network updates',
-                'Implement better market regime detection',
-                'Add time-of-day context rewards'
-            ]
-        })
-    
-    analysis['recommendations'] = recommendations
-    return analysis
-
-
-def print_trading_analysis(results: dict):
-    """Print a detailed analysis of trading performance with recommendations"""
-    analysis = analyze_trading_performance(results)
-    
-    print("\n" + "="*70)
-    print("🔍 TRADING PERFORMANCE ANALYSIS")
-    print("="*70)
-    
-    # Trading Frequency
-    freq = analysis['trading_frequency']
-    print(f"\n📊 Trading Frequency: {freq['avg_trades_per_day']:.1f} trades/day [{freq['status'].upper()}]")
-    
-    # Performance
-    perf = analysis['performance']
-    print(f"📈 Performance: {perf['win_rate']:.0%} win rate, {perf['avg_return']:.1%} avg return [{perf['status'].upper()}]")
-    print(f"🎯 Consistency Score: {perf['consistency']:.2f}")
-    
-    # Recommendations
-    if analysis['recommendations']:
-        print(f"\n💡 IMPROVEMENT RECOMMENDATIONS:")
-        for i, rec in enumerate(analysis['recommendations'], 1):
-            print(f"\n{i}. {rec['issue']}")
-            print(f"   Problem: {rec['description']}")
-            print("   Solutions:")
-            for solution in rec['solutions']:
-                print(f"   • {solution}")
-    else:
-        print(f"\n✅ Trading performance looks good! No major issues detected.")
-    
-    print("\n" + "="*70)
-
-
-def create_aggressive_trading_config(base_config: TradingConfig = None) -> TradingConfig:
-    """
-    Create a more aggressive trading configuration to encourage higher trading frequency
-    and better performance. Use this if your model is too conservative.
-    
-    Args:
-        base_config: Base configuration to modify, or None to use default
-        
-    Returns:
-        Enhanced TradingConfig for more active trading
-    """
-    if base_config is None:
-        config = TradingConfig()
-    else:
-        # Copy the base config
-        import copy
-        config = copy.deepcopy(base_config)
-    
-    # Balanced exploration for smart active trading  
-    config.epsilon_start = 1.0
-    config.epsilon_end = 0.10  # Moderate final epsilon for strategic decisions
-    config.epsilon_decay = 100000  # Balanced decay
-    
-    # Adjusted learning parameters for better exploration
-    config.learning_rate = 0.0003  # Slightly higher learning rate
-    config.tau = 0.01  # Faster target network updates
-    
-    # More frequent updates for faster learning
-    config.update_frequency = max(1, config.update_frequency // 2)  # 2x more frequent updates
-    
-    # Adjusted buffer parameters
-    config.alpha = 0.7  # Higher prioritization
-    config.beta_start = 0.5  # Higher importance sampling
-    
-    print("🚀 Created SMART AGGRESSIVE trading configuration:")
-    print(f"   • Balanced final epsilon: {config.epsilon_end}")
-    print(f"   • Strategic epsilon decay: {config.epsilon_decay}")
-    print(f"   • Higher learning rate: {config.learning_rate}")
-    print(f"   • More frequent updates: every {config.update_frequency} steps")
-    print(f"   • Technical analysis-based reward system")
-    print(f"   • Smart invalid action penalties")
-    print(f"   • Multi-indicator decision making (RSI, MACD, Momentum, Volume, etc.)")
-    
-    return config
-
-
-def create_network(config: TradingConfig) -> nn.Module:
-    """Factory function to create network based on config"""
-    if config.architecture_type == ArchitectureType.ORIGINAL:
-        return DuelingNetworkOriginal(config)
-    elif config.architecture_type == ArchitectureType.IMPROVED:
-        return ImprovedDuelingNetwork(config)
-    elif config.architecture_type == ArchitectureType.HYBRID:
-        return HybridCNNLSTMNetwork(config)
-    else:
-        raise ValueError(f"Unknown architecture type: {config.architecture_type}")
+from src.models.mark.dqn_v2.config import TradingConfig, ArchitectureType
+from src.models.mark.dqn_v2.normalization import PortfolioStateNormalizer
+from src.models.mark.dqn_v2.networks import create_network
 
 
 class PrioritizedReplayBufferGPU:
@@ -1056,7 +139,7 @@ class TradingEnvironment:
                  config: TradingConfig, 
                  mode: TradingMode = TradingMode.TRAIN, 
                  device: torch.device=DEVICE,
-                 minutes_per_day: int = None):
+                 minutes_per_day: int = MINUTES_PER_TRADING_DAY):
         self.data = data
         self.scaled_data = scaled_data
         self.config = config
@@ -1064,7 +147,7 @@ class TradingEnvironment:
         self.device = device
         
         # Set minutes per day based on parameter or use regular market hours as default
-        self.minutes_per_day = minutes_per_day if minutes_per_day is not None else MINUTES_PER_TRADING_DAY
+        self.minutes_per_day = minutes_per_day
         
         # Calculate daily episode boundaries
         self.total_days = len(data) // self.minutes_per_day
@@ -1158,7 +241,7 @@ class TradingEnvironment:
         if self.episode_steps_remaining < 10:  # Minimum reasonable episode length
             print(f"Warning: Very short episode {self.current_day}: only {self.episode_steps_remaining} steps")
         
-        # Reset episode portfolio state collection for warmup
+        # Initialize episode portfolio state collection (used during warmup phase)
         self.episode_portfolio_states = []
         
         return self._get_state()
@@ -1284,6 +367,7 @@ class TradingEnvironment:
         # Repeat portfolio state for each timestep and concatenate
         # This is needed for compatibility with the current state representation
         # The network will extract portfolio features from the first timestep
+        # Takes up more memory, but is faster than reconstructing the flattened stock data
         portfolio_state_repeated = portfolio_state.unsqueeze(0).repeat(self.config.window_size, 1)
         
         # Concatenate stock data and portfolio features
@@ -1307,109 +391,6 @@ class TradingEnvironment:
             return self.position == 0
         return False
     
-    def _get_technical_features(self) -> dict:
-        """Extract technical features for intelligent reward shaping"""
-        try:
-            current_row = self.data.iloc[self.current_step]
-            
-            # Momentum indicators
-            momentum_1m = current_row.get('momentum_1m', 0)
-            momentum_5m = current_row.get('momentum_5m', 0)
-            momentum_15m = current_row.get('momentum_15m', 0)
-            
-            # Technical analysis indicators
-            rsi_7m = current_row.get('rsi_7m', 50)  # Default to neutral
-            rsi_14m = current_row.get('rsi_14m', 50)
-            bb_percent_b = current_row.get('bb_percent_b', 0.5)  # Bollinger Band position
-            macd = current_row.get('macd', 0)
-            macd_signal = current_row.get('macd_signal', 0)
-            
-            # Volatility indicators  
-            atr_5m = current_row.get('atr_5m', 0)
-            volatility_5m = current_row.get('volatility_5m', 0)
-            
-            # Volume indicators
-            volume_ratio_5m = current_row.get('volume_ratio_5m', 1.0)
-            volume_spike_persistence = current_row.get('volume_spike_persistence', 0)
-            
-            # Price position indicators
-            price_to_ema_5 = current_row.get('price_to_ema_5', 1.0)
-            price_to_ema_15 = current_row.get('price_to_ema_15', 1.0)
-            
-            # Derived signals
-            momentum_aligned = (momentum_1m > 0 and momentum_5m > 0 and momentum_15m > 0)
-            momentum_conflicted = (momentum_1m * momentum_5m < 0) or (momentum_5m * momentum_15m < 0)
-            
-            rsi_oversold = rsi_7m < 30 or rsi_14m < 30
-            rsi_overbought = rsi_7m > 70 or rsi_14m > 70
-            rsi_neutral = 40 <= rsi_7m <= 60 and 40 <= rsi_14m <= 60
-            
-            macd_bullish = macd > macd_signal and macd > 0
-            macd_bearish = macd < macd_signal and macd < 0
-            
-            high_volume = volume_ratio_5m > 1.5 or volume_spike_persistence > 0
-            low_volume = volume_ratio_5m < 0.7
-            
-            price_above_emas = price_to_ema_5 > 1.0 and price_to_ema_15 > 1.0
-            price_below_emas = price_to_ema_5 < 1.0 and price_to_ema_15 < 1.0
-            
-            bb_upper_range = bb_percent_b > 0.8  # Near upper Bollinger Band
-            bb_lower_range = bb_percent_b < 0.2  # Near lower Bollinger Band
-            bb_middle_range = 0.3 <= bb_percent_b <= 0.7  # Middle range
-            
-            return {
-                # Raw indicators
-                'momentum_1m': momentum_1m,
-                'momentum_5m': momentum_5m, 
-                'momentum_15m': momentum_15m,
-                'rsi_7m': rsi_7m,
-                'rsi_14m': rsi_14m,
-                'bb_percent_b': bb_percent_b,
-                'macd': macd,
-                'macd_signal': macd_signal,
-                'atr_5m': atr_5m,
-                'volatility_5m': volatility_5m,
-                'volume_ratio_5m': volume_ratio_5m,
-                'volume_spike_persistence': volume_spike_persistence,
-                'price_to_ema_5': price_to_ema_5,
-                'price_to_ema_15': price_to_ema_15,
-                
-                # Derived trading signals
-                'momentum_aligned': momentum_aligned,
-                'momentum_conflicted': momentum_conflicted,
-                'rsi_oversold': rsi_oversold,
-                'rsi_overbought': rsi_overbought,
-                'rsi_neutral': rsi_neutral,
-                'macd_bullish': macd_bullish,
-                'macd_bearish': macd_bearish,
-                'high_volume': high_volume,
-                'low_volume': low_volume,
-                'price_above_emas': price_above_emas,
-                'price_below_emas': price_below_emas,
-                'bb_upper_range': bb_upper_range,
-                'bb_lower_range': bb_lower_range,
-                'bb_middle_range': bb_middle_range,
-            }
-            
-        except Exception as e:
-            # Fallback to neutral values if feature extraction fails
-            return {
-                'momentum_aligned': False,
-                'momentum_conflicted': False,
-                'rsi_oversold': False,
-                'rsi_overbought': False,
-                'rsi_neutral': True,
-                'macd_bullish': False,
-                'macd_bearish': False,
-                'high_volume': False,
-                'low_volume': False,
-                'price_above_emas': False,
-                'price_below_emas': False,
-                'bb_upper_range': False,
-                'bb_lower_range': False,
-                'bb_middle_range': True,
-            }
-    
     def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
         """Execute action and return next state, reward, done, info"""
             
@@ -1422,9 +403,6 @@ class TradingEnvironment:
         minutes_into_day = (self.current_step - self.episode_start) % self.minutes_per_day
         is_near_close = minutes_into_day >= (self.minutes_per_day - 30)  # Last 30 minutes
         
-        # Get technical features
-        tech_features = self._get_technical_features()
-        
         if invalid_action:
             self.invalid_actions += 1
             self.consecutive_invalid_actions += 1
@@ -1432,7 +410,7 @@ class TradingEnvironment:
             penalty = 0.012 + (self.consecutive_invalid_actions * 0.006)
             reward = -min(penalty, 0.04)  # Moderate increase in penalty
         else:
-            self.consecutive_invalid_actions = 0  # Reset on valid action
+            self.consecutive_invalid_actions = 0 
             
             if action == 1:  # Buy
                 position_value = self.balance * self.config.max_position_size
@@ -1446,61 +424,12 @@ class TradingEnvironment:
                 trade_executed = True
                 self.last_action = 1
                 
-                # Base reward for entering position
-                reward = 0.012  # Slightly reduced base reward
-                
-                # Momentum Analysis
-                if tech_features['momentum_aligned']:
-                    reward += 0.015  # Strong bonus for aligned momentum
-                elif tech_features['momentum_conflicted']:
-                    reward -= 0.008  # Penalty for conflicted momentum
-                
-                # RSI Analysis (buy oversold, avoid overbought)
-                if tech_features['rsi_oversold']:
-                    reward += 0.010  # Good entry on oversold
-                elif tech_features['rsi_overbought']:
-                    reward -= 0.012  # Avoid buying overbought
-                elif tech_features['rsi_neutral']:
-                    reward += 0.003  # Small bonus for neutral RSI
-                
-                # MACD Analysis
-                if tech_features['macd_bullish']:
-                    reward += 0.008  # MACD bullish signal
-                elif tech_features['macd_bearish']:
-                    reward -= 0.006  # Avoid buying on bearish MACD
-                
-                # Volume Analysis (confirm moves with volume)
-                if tech_features['high_volume']:
-                    reward += 0.005  # Volume confirms move
-                elif tech_features['low_volume']:
-                    reward -= 0.003  # Low volume = weak signal
-                
-                # Price Position Analysis
-                if tech_features['price_above_emas']:
-                    reward += 0.004  # Trend following
-                elif tech_features['price_below_emas']:
-                    reward -= 0.002  # Against trend
-                
-                # Bollinger Band Analysis
-                if tech_features['bb_lower_range']:
-                    reward += 0.006  # Buy near lower band (oversold)
-                elif tech_features['bb_upper_range']:
-                    reward -= 0.008  # Avoid buying near upper band
-                elif tech_features['bb_middle_range']:
-                    reward += 0.002  # Neutral zone
-                
-                # Market condition bonus
-                if (tech_features['momentum_aligned'] and 
-                    tech_features['macd_bullish'] and 
-                    tech_features['high_volume']):
-                    reward += 0.012  # Perfect storm bonus
+                # Simple entry reward 
+                reward = 0.005
                 
                 # Time-based entry bonus
                 if not is_near_close:
-                    reward += 0.004  # Time bonus
-                    
-                # Base activity bonus
-                reward += 0.003
+                    reward += 0.003  # Avoid late entries
                     
             elif action == 2:  # Sell
                 revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
@@ -1513,55 +442,20 @@ class TradingEnvironment:
                 self.total_trades += 1
                 self.last_action = 2
                 
-                # Calculate holding time bonus/penalty
+                # Calculate holding time factor
                 holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 1
                 holding_time_factor = min(holding_time / 30, 1.0)  # Normalize to 30 minutes
                 
                 if profit > 0:
                     self.winning_trades += 1
                     self.total_profit += profit
-                    # Base reward for profitable trades
+                    # Reward based on actual profit achieved
                     profit_percentage = profit / cost_basis
-                    reward = profit_percentage * 25 * (0.5 + 0.5 * holding_time_factor)
-                    
-                    # Technical analysis exit bonuses
-                    # RSI Analysis (sell overbought is good)
-                    if tech_features['rsi_overbought']:
-                        reward += 0.012  # Great timing - sell overbought
-                    elif tech_features['rsi_oversold']:
-                        reward -= 0.004  # Poor timing - selling oversold
-                    
-                    # MACD Analysis (sell on bearish signals)
-                    if tech_features['macd_bearish']:
-                        reward += 0.008  # Good timing - MACD turning bearish
-                    elif tech_features['macd_bullish']:
-                        reward -= 0.003  # Might be early exit
-                    
-                    # Momentum Analysis (sell when momentum turns)
-                    if tech_features['momentum_conflicted']:
-                        reward += 0.010  # Good timing - momentum turning
-                    elif tech_features['momentum_aligned'] and tech_features['momentum_1m'] > 0:
-                        reward -= 0.005  # Selling into strong momentum
-                    
-                    # Bollinger Band Analysis
-                    if tech_features['bb_upper_range']:
-                        reward += 0.008  # Good exit near upper band
-                    elif tech_features['bb_lower_range']:
-                        reward -= 0.006  # Poor exit near lower band
-                    
-                    # Volume confirmation
-                    if tech_features['high_volume']:
-                        reward += 0.004  # Volume confirms exit
-                    
-                    # Perfect exit timing bonus
-                    if (tech_features['rsi_overbought'] and 
-                        tech_features['macd_bearish'] and 
-                        tech_features['bb_upper_range']):
-                        reward += 0.015  # Perfect exit conditions
+                    reward = profit_percentage * 30 * (0.5 + 0.5 * holding_time_factor)
                     
                     # Time-based exit bonus
                     if is_near_close:
-                        reward += 0.005
+                        reward += 0.005  # Good to close positions before market close
                     
                     # Activity bonus
                     reward += 0.005
@@ -1571,21 +465,13 @@ class TradingEnvironment:
                     self.total_loss += abs(profit)
                     loss_percentage = abs(profit) / cost_basis
                     stop_loss_factor = 1.0 - holding_time_factor
-                    reward = -loss_percentage * 10 * (0.3 + 0.7 * stop_loss_factor)
+                    reward = -loss_percentage * 15 * (0.3 + 0.7 * stop_loss_factor)
                     
-                    # Technical analysis for loss mitigation
-                    # Reward good stop-loss decisions based on technicals
-                    if tech_features['momentum_conflicted'] or tech_features['macd_bearish']:
-                        reward += 0.008  # Good stop-loss on technical breakdown
-                    
-                    if tech_features['rsi_oversold'] and loss_percentage < 0.02:
-                        reward += 0.005  # Cut losses near oversold (might bounce)
-                    
-                    # Quick stop-loss rewards
+                    # Quick stop-loss rewards (good risk management)
                     if holding_time <= 10 and loss_percentage < 0.01:
-                        reward += 0.006  # Quick small loss - good risk management
+                        reward += 0.008  # Quick small loss - good risk management
                     elif holding_time <= 5:
-                        reward += 0.003
+                        reward += 0.004
                     
                     # Small action bonus
                     reward += 0.002
@@ -1596,35 +482,20 @@ class TradingEnvironment:
                 self.last_action = 0
                 
                 if self.position > 0:
-                    # Base P&L holding logic
+                    # P&L-based holding logic
                     unrealized_pnl = ((current_price - self.entry_price) / self.entry_price)
                     
-                    # Technical analysis for holding decisions
                     if unrealized_pnl > 0:  # Profitable position
-                        # Base reward for profitable holding
-                        if unrealized_pnl > 0.01:
-                            reward = 0.003 * unrealized_pnl  # Hold big winners
+                        # Base reward for holding winners
+                        if unrealized_pnl > 0.02:
+                            reward = 0.008 * unrealized_pnl  # Hold big winners
+                        elif unrealized_pnl > 0.01:
+                            reward = 0.004 * unrealized_pnl  # Hold decent winners
                         else:
-                            reward = 0.001 * unrealized_pnl  # Hold small winners
-                        
-                        # Technical confirmation for holding winners
-                        if tech_features['momentum_aligned'] and tech_features['macd_bullish']:
-                            reward += 0.004  # Strong technical support for holding
-                        elif tech_features['rsi_overbought'] or tech_features['bb_upper_range']:
-                            reward -= 0.008  # Should consider taking profits
-                        elif tech_features['momentum_conflicted']:
-                            reward -= 0.005  # Momentum turning, consider exit
+                            reward = 0.002 * unrealized_pnl  # Hold small winners
                             
                     else:  # Losing position
-                        reward = -0.002 * abs(unrealized_pnl)  # Penalty for holding losers
-                        
-                        # Technical analysis for holding losers
-                        if tech_features['rsi_oversold'] and unrealized_pnl > -0.02:
-                            reward += 0.003  # Might be oversold bounce opportunity
-                        elif tech_features['momentum_conflicted'] or tech_features['macd_bearish']:
-                            reward -= 0.006  # Technical breakdown, should exit
-                        elif tech_features['bb_lower_range'] and unrealized_pnl > -0.01:
-                            reward += 0.002  # Near support, might hold
+                        reward = -0.004 * abs(unrealized_pnl)  # Penalty for holding losers
                     
                     # Time-based holding penalties (encourage active management)
                     holding_time = self.current_step - self.position_entry_step if self.position_entry_step >= 0 else 0
@@ -1635,10 +506,10 @@ class TradingEnvironment:
                     elif holding_time > 30:
                         reward -= 0.002
                 else:
-                    # Technical analysis-based cash holding decisions
+                    # Cash holding logic - encourage appropriate activity
                     minutes_since_start = self.current_step - self.episode_start
                     
-                    # Base inactivity penalties (but consider technical conditions)
+                    # Base inactivity penalties
                     base_penalty = 0
                     
                     if minutes_since_start > 15 and self.total_trades == 0:
@@ -1653,44 +524,12 @@ class TradingEnvironment:
                         elif avg_time_per_trade > 40:
                             base_penalty = -0.012
                     
-                    # Sometimes cash is smart (reduce penalties)
-                    if (tech_features['rsi_overbought'] and 
-                        tech_features['bb_upper_range'] and 
-                        tech_features['momentum_conflicted']):
-                        base_penalty *= 0.5  # Reduce penalty - market might be topping
-                        reward += 0.002  # Small bonus for avoiding overbought market
-                    
-                    elif (tech_features['momentum_aligned'] and 
-                          tech_features['macd_bullish'] and 
-                          tech_features['rsi_neutral']):
-                        base_penalty *= 1.5  # Increase penalty - missing good setup
-                        reward -= 0.003  # Penalty for missing bullish setup
-                    
-                    elif tech_features['high_volume'] and tech_features['momentum_aligned']:
-                        base_penalty *= 1.3  # Increase penalty - missing volume breakout
-                        reward -= 0.002
-                    
-                    # Apply the modified penalty
+                    # Apply the penalty
                     reward += base_penalty
                     
                     # Additional long-term inactivity penalty
                     if minutes_since_start > 60:
                         reward -= 0.004
-                    
-                    # Context-based rewards with technical confirmation
-                    if self.current_step > self.episode_start + 5:
-                        recent_return = (current_price - self.data.iloc[self.current_step - 5]['close']) / self.data.iloc[self.current_step - 5]['close']
-                        
-                        if recent_return < -0.005:  # Price dropped
-                            if tech_features['rsi_oversold']:
-                                reward += 0.001  # Good timing - avoid falling market
-                            else:
-                                reward += 0.0003  # Small reward for avoiding loss
-                        elif recent_return > 0.005:  # Price rose
-                            if tech_features['momentum_aligned']:
-                                reward -= 0.002  # Penalty for missing strong move
-                            else:
-                                reward -= 0.0005  # Small penalty for missing opportunity
             
             # Portfolio-level rewards
             current_portfolio_value = self.balance + (self.position * current_price)
@@ -1825,15 +664,6 @@ class TradingEnvironment:
             'final_reward': reward  # Track the final reward for analysis
         }
         
-        # Handle portfolio normalizer episode completion
-        if done and self.portfolio_normalizer is not None:
-            # Collect episode data for warmup
-            if not self.portfolio_normalizer.is_fitted:
-                self.portfolio_normalizer.collect_warmup_data(self.episode_portfolio_states)
-            
-            # Increment episode counter and potentially fit normalizer
-            self.portfolio_normalizer.increment_episode()
-        
         return next_state, reward, done, info
 
 
@@ -1900,11 +730,7 @@ class DoubleDuelingDQN:
         if len(self.memory) < self.config.batch_size:
             return {}
         
-        # Skip training during portfolio normalization warmup period
-        if hasattr(self, '_env_ref') and self._env_ref is not None:
-            if (self._env_ref.portfolio_normalizer is not None and 
-                not self._env_ref.portfolio_normalizer.is_fitted):
-                return {'skipped': True, 'reason': 'portfolio_warmup'}
+
         
         try:
             # Calculate current beta for importance sampling
@@ -1976,8 +802,6 @@ class DoubleDuelingDQN:
     
     def train_episode(self, env: TradingEnvironment) -> Dict[str, float]:
         """Train for one episode"""
-        # Set environment reference for warmup checking
-        self._env_ref = env
         
         state = env.reset()
         episode_reward = 0
@@ -2006,8 +830,8 @@ class DoubleDuelingDQN:
             # Perform update every update_frequency steps
             if self.steps_done % self.config.update_frequency == 0:
                 update_info = self.update()
-                # Track metrics if update occurred (and wasn't skipped)
-                if update_info and 'skipped' not in update_info:
+                # Track metrics if update occurred
+                if update_info:
                     for key in ['loss', 'mean_q', 'mean_td_error']:
                         if key in update_info:
                             update_metrics[key].append(update_info[key])
@@ -2080,6 +904,8 @@ class DoubleDuelingDQN:
             portfolio_normalizer.load(normalizer_path)
 
 
+# TODO: probably not needed
+# feature engineering v2 handles this
 def filter_to_regular_hours(df):
     """Filter dataframe to regular market hours using UTC timestamps
     
@@ -2133,206 +959,6 @@ def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_ke
     end_date = pd.to_datetime(df['timestamp'].iloc[-1]).to_pydatetime()
         
     return df[cols_to_keep], start_date, end_date
-
-def save_backtest_results_to_db(model_type: ModelType,
-                                ticker: str,
-                                info: dict[str, float],
-                                preprocessor_path: Optional[str] = None) -> tuple[int, str, str]:
-    backtest_date = info['backtest_date']
-    return_rate = info['return_rate']
-    
-    with app.app_context():
-        db.create_all()
-        model = MarklygonModel(
-            model=model_type,
-            ticker=ticker
-        )
-        db.session.add(model)
-        db.session.flush()
-        
-        model_id = model.id
-        # Create directory for this model - use absolute path
-        model_dir = str(MODELS_DIR / 'dqn_v2' / str(model_id))
-        create_directory(model_dir)
-        
-        # Set model path within the model's directory - use absolute path
-        model_path = str(Path(model_dir) / 'model.pth')
-        model.model_path = model_path
-
-        backtest = BacktestHistory(
-            model=model,
-            backtest_date=backtest_date,
-            start_date=info['start_date'],
-            end_date=info['end_date'],
-            initial_balance=info['initial_balance'],
-            final_balance=info['final_balance'],
-            net_profit=info['net_profit'],
-            total_trades=info['total_trades'],
-            winning_trades=info['winning_trades'],
-            losing_trades=info['losing_trades'],
-            return_rate=return_rate,
-            max_drawdown=abs(info['max_drawdown']),
-            sharpe_ratio=info['sharpe_ratio'],
-            invalid_actions=info['invalid_actions'],
-            preprocessor_path=preprocessor_path
-        )
-
-        db.session.add(backtest)
-        db.session.commit()
-    return model_id, model_path, model_dir
-
-
-def create_model_in_db(model_type: ModelType, ticker: str) -> tuple[int, str, str]:
-    """
-    Create a model entry in the database and return model info
-    
-    Returns:
-        tuple: (model_id, model_path, model_dir)
-    """
-    with app.app_context():
-        db.create_all()
-        model = MarklygonModel(
-            model=model_type,
-            ticker=ticker
-        )
-        db.session.add(model)
-        db.session.flush()
-        
-        model_id = model.id
-        # Create directory for this model - use absolute path
-        model_dir = str(MODELS_DIR / 'dqn_v2' / str(model_id))
-        create_directory(model_dir)
-        
-        # Set model path within the model's directory - use absolute path
-        model_path = str(Path(model_dir) / 'model.pth')
-        model.model_path = model_path
-        
-        db.session.commit()
-    
-    return model_id, model_path, model_dir
-
-
-def save_backtest_to_existing_model(model_id: int, 
-                                   info: dict[str, float], 
-                                   preprocessor_path: Optional[str] = None) -> int:
-    """
-    Save a backtest result to an existing model
-    
-    Args:
-        model_id: ID of existing model
-        info: Backtest information dictionary
-        preprocessor_path: Optional path to preprocessor
-        
-    Returns:
-        backtest_id: ID of created backtest entry
-    """
-    backtest_date = info['backtest_date']
-    return_rate = info['return_rate']
-    
-    with app.app_context():
-        # Get the existing model
-        model = MarklygonModel.query.get(model_id)
-        if not model:
-            raise ValueError(f"Model with ID {model_id} not found")
-        
-        backtest = BacktestHistory(
-            model=model,
-            backtest_date=backtest_date,
-            start_date=info['start_date'],
-            end_date=info['end_date'],
-            initial_balance=info['initial_balance'],
-            final_balance=info['final_balance'],
-            net_profit=info['net_profit'],
-            total_trades=info['total_trades'],
-            winning_trades=info['winning_trades'],
-            losing_trades=info['losing_trades'],
-            return_rate=return_rate,
-            max_drawdown=abs(info['max_drawdown']),
-            sharpe_ratio=info['sharpe_ratio'],
-            invalid_actions=info['invalid_actions'],
-            preprocessor_path=preprocessor_path
-        )
-
-        db.session.add(backtest)
-        db.session.commit()
-        
-        return backtest.id
-
-
-def save_multi_day_backtest_to_db(model_type: ModelType,
-                                 ticker: str,
-                                 multi_day_results: dict,
-                                 start_date,
-                                 end_date,
-                                 initial_balance: float,
-                                 preprocessor_path: Optional[str] = None) -> tuple[int, str, str, list[int]]:
-    """
-    Save multi-day backtest results: one model with multiple backtest entries
-    
-    Args:
-        model_type: Type of model (e.g., ModelType.DQN)
-        ticker: Stock ticker symbol
-        multi_day_results: Results from multi-day testing
-        start_date: Start date of testing period
-        end_date: End date of testing period  
-        initial_balance: Initial trading balance
-        preprocessor_path: Optional path to preprocessor
-        
-    Returns:
-        tuple: (model_id, model_path, model_dir, backtest_ids)
-    """
-    from datetime import datetime, timezone
-    
-    # Create the model first
-    model_id, model_path, model_dir = create_model_in_db(model_type, ticker)
-    
-    individual_days = multi_day_results['individual_days']
-    aggregate_stats = multi_day_results['aggregate_stats']
-    
-    backtest_ids = []
-    
-    # Save aggregate summary backtest
-    aggregate_info = {
-        'backtest_date': datetime.now(timezone.utc),
-        'start_date': start_date,
-        'end_date': end_date,
-        'initial_balance': initial_balance,
-        'final_balance': aggregate_stats['avg_final_value'],
-        'net_profit': aggregate_stats['avg_final_value'] - initial_balance,
-        'total_trades': int(aggregate_stats['avg_trades']),
-        'winning_trades': int(aggregate_stats['avg_winning_trades']),
-        'losing_trades': int(aggregate_stats['avg_losing_trades']),
-        'return_rate': aggregate_stats['avg_return'], 
-        'max_drawdown': aggregate_stats['avg_max_drawdown'],
-        'sharpe_ratio': aggregate_stats['avg_sharpe_ratio'],
-        'invalid_actions': int(aggregate_stats['avg_invalid_actions']),
-    }
-    
-    aggregate_backtest_id = save_backtest_to_existing_model(model_id, aggregate_info, preprocessor_path)
-    backtest_ids.append(aggregate_backtest_id)
-    
-    # Save individual day backtests
-    for i, day_result in enumerate(individual_days, 1):
-        day_info = {
-            'backtest_date': datetime.now(timezone.utc),
-            'start_date': start_date,
-            'end_date': end_date,
-            'initial_balance': initial_balance,
-            'final_balance': day_result['final_value'],
-            'net_profit': day_result['final_value'] - initial_balance,
-            'total_trades': day_result['total_trades'],
-            'winning_trades': day_result['winning_trades'],
-            'losing_trades': day_result['losing_trades'],
-            'return_rate': day_result['total_return'], 
-            'max_drawdown': day_result['max_drawdown'],
-            'sharpe_ratio': day_result['sharpe_ratio'],
-            'invalid_actions': day_result['invalid_actions'],
-        }
-        
-        day_backtest_id = save_backtest_to_existing_model(model_id, day_info)
-        backtest_ids.append(day_backtest_id)
-    
-    return model_id, model_path, model_dir, backtest_ids
 
 def train_dqn(data_path: str,
               cutoff: pd.Timestamp,
@@ -2440,6 +1066,51 @@ def train_dqn(data_path: str,
     
     print("Starting training...")
     
+    # Phase 1: Portfolio State Warmup (if needed)
+    if train_env.portfolio_normalizer is not None and not train_env.portfolio_normalizer.is_fitted:
+        warmup_episodes = train_env.portfolio_normalizer.warmup_episodes
+        print(f"\n{'='*60}")
+        print(f"PORTFOLIO NORMALIZATION WARMUP PHASE")
+        print(f"{'='*60}")
+        print(f"Collecting portfolio states for {warmup_episodes} episodes...")
+        print("(No training will occur during this phase)")
+        
+        for warmup_ep in range(warmup_episodes):
+            # Simple episode for portfolio state collection only
+            state = train_env.reset()
+            episode_portfolio_states = []
+            
+            while True:
+                # Random action during warmup (pure exploration)
+                action = random.randrange(config.num_actions)
+                next_state, reward, done, info = train_env.step(action)
+                
+                # Collect portfolio states
+                if hasattr(train_env, 'episode_portfolio_states'):
+                    episode_portfolio_states.extend(train_env.episode_portfolio_states)
+                
+                state = next_state
+                if done:
+                    break
+            
+            # Add collected states to normalizer
+            if episode_portfolio_states:
+                train_env.portfolio_normalizer.collect_warmup_data(episode_portfolio_states)
+            train_env.portfolio_normalizer.increment_episode()
+            
+            # Progress update
+            if (warmup_ep + 1) % 10 == 0 or warmup_ep == warmup_episodes - 1:
+                progress = (warmup_ep + 1) / warmup_episodes
+                print(f"  Warmup progress: {warmup_ep + 1}/{warmup_episodes} ({progress*100:.1f}%)")
+        
+        print(f"\n✅ Portfolio state collection complete!")
+        print(f"🧠 Fitting portfolio normalizer...")
+        # The normalizer should now be fitted automatically
+        print(f"✅ Ready to start training with normalized portfolio features!")
+        print(f"\n{'='*60}")
+        print(f"TRAINING PHASE")
+        print(f"{'='*60}")
+    
     for episode in range(num_episodes):
         # Train one episode
         metrics = agent.train_episode(train_env)
@@ -2464,23 +1135,13 @@ def train_dqn(data_path: str,
         print(f"  Steps: {metrics['episode_steps']}")
         print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
         
-        # Log portfolio normalization status
+        # Portfolio normalizer status (should always be active in training phase)
         if train_env.portfolio_normalizer is not None:
-            if train_env.portfolio_normalizer.is_fitted:
-                print(f"  Portfolio Normalizer: ✅ ACTIVE (training enabled)")
-            else:
-                progress = train_env.portfolio_normalizer.episode_count / train_env.portfolio_normalizer.warmup_episodes
-                print(f"  Portfolio Normalizer: 🔥 WARMUP ({progress*100:.1f}%) - ⚠️  TRAINING PAUSED")
+            print(f"  Portfolio Normalizer: ✅ ACTIVE")
         
-        # Validation (skip during portfolio normalization warmup)
+        # Validation
         if (episode + 1) % validation_frequency == 0:
-            if train_env.portfolio_normalizer is None or train_env.portfolio_normalizer.is_fitted:
-                print("\nRunning validation...")
-            else:
-                print(f"\n⚠️  Validation SKIPPED (episode {episode+1}) - Portfolio normalization warmup in progress")
-        
-        if ((episode + 1) % validation_frequency == 0 and 
-            (train_env.portfolio_normalizer is None or train_env.portfolio_normalizer.is_fitted)):
+            print("\nRunning validation...")
             
             # Run validation episode
             val_state = val_env.reset()
@@ -2561,13 +1222,9 @@ def train_dqn(data_path: str,
             agent.save(checkpoint_path, train_env.portfolio_normalizer)
             print(f"Saved checkpoint at episode {episode}")
             
-            # Log portfolio normalization status
+            # Portfolio normalizer status  
             if train_env.portfolio_normalizer is not None:
-                if train_env.portfolio_normalizer.is_fitted:
-                    print(f"  Portfolio normalizer: ✅ ACTIVE (training enabled)")
-                else:
-                    progress = train_env.portfolio_normalizer.episode_count / train_env.portfolio_normalizer.warmup_episodes
-                    print(f"  Portfolio normalizer: 🔥 WARMUP ({progress*100:.1f}%) - ⚠️  TRAINING PAUSED")
+                print(f"  Portfolio normalizer: ✅ ACTIVE")
     
     # Multi-day test evaluation
     print("\n" + "="*50)
@@ -2582,6 +1239,7 @@ def train_dqn(data_path: str,
     all_portfolio_values = []
     all_price_histories = []
     all_action_histories = []
+    all_invalid_action_masks = []
     
     for i, day_idx in enumerate(test_days):
         print(f"\nRunning backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
@@ -2591,6 +1249,7 @@ def train_dqn(data_path: str,
         test_reward = 0
         test_done = False
         test_action_history = []
+        test_invalid_action_mask = []
         test_portfolio_values = [config.initial_balance]
         test_price_history = []
         
@@ -2600,8 +1259,9 @@ def train_dqn(data_path: str,
             test_reward += test_r
             test_state = test_next_state
             
-            # Track for plotting
+            # Track for plotting - store all actions and validity info
             test_action_history.append(test_action)
+            test_invalid_action_mask.append(test_info['invalid_action'])
             current_value = test_info['balance'] + (test_info['position'] * test_info['current_price'])
             test_portfolio_values.append(current_value)
             test_price_history.append(test_info['current_price'])
@@ -2646,6 +1306,7 @@ def train_dqn(data_path: str,
         all_portfolio_values.append(test_portfolio_values)
         all_price_histories.append(test_price_history)
         all_action_histories.append(test_action_history)
+        all_invalid_action_masks.append(test_invalid_action_mask)
         
         # Print day results
         print(f"  Day {day_idx + 1} Results:")
@@ -2698,6 +1359,7 @@ def train_dqn(data_path: str,
             'portfolio_values': all_portfolio_values,
             'price_histories': all_price_histories,
             'action_histories': all_action_histories,
+            'invalid_action_masks': all_invalid_action_masks,
             'aggregate_stats': {
                 'avg_return': np.mean(returns),
                 'std_return': np.std(returns),
@@ -2731,7 +1393,7 @@ def train_dqn(data_path: str,
         print("Plot generation failed, but training results are still available")
     
     # Automatically analyze performance and provide recommendations
-    print_trading_analysis(results)
+    # print_trading_analysis(results)
     
     return results
 
@@ -2879,6 +1541,7 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
     all_portfolio_values = []
     all_price_histories = []
     all_action_histories = []
+    all_invalid_action_masks = []
     
     for i, day_idx in enumerate(test_days):
         print(f"\nRunning backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
@@ -2888,6 +1551,7 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
         test_reward = 0
         test_done = False
         test_action_history = []
+        test_invalid_action_mask = []
         test_portfolio_values = [agent.config.initial_balance]
         test_price_history = []
         
@@ -2897,8 +1561,9 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
             test_reward += test_r
             test_state = test_next_state
             
-            # Track for plotting
+            # Track for plotting - store all actions and validity info
             test_action_history.append(test_action)
+            test_invalid_action_mask.append(test_info['invalid_action'])
             current_value = test_info['balance'] + (test_info['position'] * test_info['current_price'])
             test_portfolio_values.append(current_value)
             test_price_history.append(test_info['current_price'])
@@ -3008,220 +1673,3 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
         plot_multi_day_backtests(results, save_path=save_plot_path)
     
     return results
-
-
-if __name__ == "__main__":
-    # Example of how to use different architectures
-    def test_architectures():
-        """Test different DQN architectures for financial time series"""
-        from src.config.config import DATA_DIR
-        
-        print("="*80)
-        print("DQN ARCHITECTURE COMPARISON FOR FINANCIAL TIME SERIES")
-        print("="*80)
-        
-        # Test configurations
-        architectures = [
-            {
-                "name": "Original CNN",
-                "config": TradingConfig(
-                    architecture_type=ArchitectureType.ORIGINAL,
-                    hidden_size=512,
-                    learning_rate=1e-4
-                )
-            },
-            {
-                "name": "Improved Transformer + Multi-scale CNN",
-                "config": TradingConfig(
-                    architecture_type=ArchitectureType.IMPROVED,
-                    hidden_size=512,
-                    learning_rate=1e-4,
-                    transformer_layers=2,
-                    use_attention=True,
-                    cnn_scales=[3, 5, 7]
-                )
-            },
-            {
-                "name": "Hybrid CNN + LSTM",
-                "config": TradingConfig(
-                    architecture_type=ArchitectureType.HYBRID,
-                    hidden_size=512,
-                    learning_rate=8e-5,  # Slightly lower for LSTM stability
-                    cnn_scales=[3, 5, 7]
-                )
-            }
-        ]
-        
-        for arch in architectures:
-            print(f"\n{'='*60}")
-            print(f"TESTING: {arch['name']}")
-            print(f"{'='*60}")
-            
-            config = arch['config']
-            print(f"Configuration:")
-            print(f"  Architecture: {config.architecture_type.value}")
-            print(f"  Hidden Size: {config.hidden_size}")
-            print(f"  Learning Rate: {config.learning_rate}")
-            print(f"  Batch Size: {config.batch_size}")
-            print(f"  Buffer Size: {config.buffer_size:,}")
-            
-            # Create network to show architecture details
-            try:
-                network = create_network(config)
-                total_params = sum(p.numel() for p in network.parameters())
-                trainable_params = sum(p.numel() for p in network.parameters() if p.requires_grad)
-                
-                print(f"\nNetwork Details:")
-                print(f"  Total Parameters: {total_params:,}")
-                print(f"  Trainable Parameters: {trainable_params:,}")
-                print(f"  Memory Estimate: ~{total_params * 4 / 1024 / 1024:.1f} MB")
-                
-                # Show model structure
-                print(f"\nArchitecture Summary:")
-                if config.architecture_type == ArchitectureType.ORIGINAL:
-                    print("  • Standard 1D CNN with BatchNorm")
-                    print("  • ReLU activations")
-                    print("  • Max pooling")
-                    print("  • Simple dueling streams")
-                    
-                elif config.architecture_type == ArchitectureType.IMPROVED:
-                    print("  • Multi-scale CNN (3, 5, 7 kernel sizes)")
-                    print("  • Transformer blocks with self-attention")
-                    print("  • GELU activations (better for financial data)")
-                    print("  • GroupNorm instead of BatchNorm")
-                    print("  • Positional encoding for time awareness")
-                    print("  • Attention pooling")
-                    print("  • Residual connections in shared layers")
-                    
-                elif config.architecture_type == ArchitectureType.HYBRID:
-                    print("  • Multi-scale CNN for local patterns")
-                    print("  • Bidirectional LSTM for temporal dependencies")
-                    print("  • Attention mechanism for LSTM outputs")
-                    print("  • GELU activations")
-                    print("  • GroupNorm for stability")
-                
-                print(f"\nBest Use Cases:")
-                if config.architecture_type == ArchitectureType.ORIGINAL:
-                    print("  ✓ Baseline model")
-                    print("  ✓ Quick prototyping") 
-                    print("  ✓ Limited computational resources")
-                    print("  ✓ Simple pattern recognition")
-                    
-                elif config.architecture_type == ArchitectureType.IMPROVED:
-                    print("  ✓ Complex temporal relationships")
-                    print("  ✓ Long-range dependencies")
-                    print("  ✓ Multi-timeframe analysis")
-                    print("  ✓ When you have sufficient data")
-                    print("  ✓ Production deployment with good hardware")
-                    
-                elif config.architecture_type == ArchitectureType.HYBRID:
-                    print("  ✓ Best of both worlds (CNN + RNN)")
-                    print("  ✓ Sequential pattern recognition")
-                    print("  ✓ Trend following strategies")
-                    print("  ✓ Medium computational requirements")
-                
-                print(f"\nExpected Performance Characteristics:")
-                if config.architecture_type == ArchitectureType.ORIGINAL:
-                    print("  • Training Speed: Fast")
-                    print("  • Memory Usage: Low")
-                    print("  • Pattern Recognition: Basic")
-                    print("  • Overfitting Risk: Medium")
-                    
-                elif config.architecture_type == ArchitectureType.IMPROVED:
-                    print("  • Training Speed: Moderate")
-                    print("  • Memory Usage: High")
-                    print("  • Pattern Recognition: Advanced")
-                    print("  • Overfitting Risk: Low (with proper regularization)")
-                    
-                elif config.architecture_type == ArchitectureType.HYBRID:
-                    print("  • Training Speed: Moderate")
-                    print("  • Memory Usage: Medium-High")
-                    print("  • Pattern Recognition: Good")
-                    print("  • Overfitting Risk: Medium")
-                
-                del network  # Free memory
-                
-            except Exception as e:
-                print(f"  Error creating network: {e}")
-        
-        print(f"\n{'='*80}")
-        print("TRAINING RECOMMENDATIONS")
-        print(f"{'='*80}")
-        print("For minute-level financial data (regular trading hours):")
-        print("\n1. START with 'improved' architecture for best performance")
-        print("   - Has attention mechanisms for temporal dependencies")
-        print("   - Multi-scale feature extraction")
-        print("   - Better activations for financial data")
-        
-        print("\n2. USE 'hybrid' if you want CNN+LSTM combination")
-        print("   - Good balance of performance and efficiency")
-        print("   - Excellent for trend-following strategies")
-        
-        print("\n3. FALLBACK to 'original' for:")
-        print("   - Limited computational resources")
-        print("   - Quick experiments")
-        print("   - Baseline comparisons")
-        
-        print("\n4. HYPERPARAMETER TIPS:")
-        print("   - Learning Rate: 1e-4 to 5e-5 for financial data")
-        print("   - Batch Size: 32-128 (larger for more stable gradients)")
-        print("   - Buffer Size: 500K+ for good experience diversity")
-        print("   - Window Size: 20 minutes works well for intraday")
-        print("   - Use preprocessing (robust scaling + winsorizing)")
-        
-        print("\n5. TRAINING BEST PRACTICES:")
-        print("   - Use early stopping with patience")
-        print("   - Monitor both training and validation metrics")
-        print("   - Save model checkpoints regularly")
-        print("   - Start with shorter episodes, increase gradually")
-        print("   - Use prioritized experience replay")
-        
-        print(f"\n{'='*80}")
-        print("Ready to train! Use:")
-        print("config = TradingConfig(architecture_type='improved')")
-        print("agent = DoubleDuelingDQN(config)")
-        print(f"{'='*80}")
-    
-    # Run the demonstration
-    test_architectures()
-    
-    # Uncomment to train with ENHANCED AGGRESSIVE TRADING:
-    # 
-    # # Create aggressive configuration for more active trading
-    # aggressive_config = create_aggressive_trading_config()
-    # 
-    # results = train_dqn(
-    #     data_path=f"{DATA_DIR}/feature_engineered/TSLA.csv",
-    #     cutoff=pd.Timestamp('2020-01-01', tz='UTC'),
-    #     num_episodes=100,
-    #     use_preprocessing=True,
-    #     scaling_method='robust',
-    #     outlier_method='winsorize',
-    #     architecture_type=ArchitectureType.IMPROVED
-    # )
-    # 
-    # # The model will now use:
-    # # ✅ Enhanced reward system (5x higher trade incentives)
-    # # ✅ Reduced invalid action penalties  
-    # # ✅ Stronger undertrading penalties
-    # # ✅ Higher exploration (epsilon_end=0.15 vs 0.05)
-    # # ✅ More frequent learning updates
-    # 
-    # # Plot the multi-day backtest results
-    # plot_multi_day_backtests(results, save_path="aggressive_trading_backtest.png")
-    # 
-    # print("🎯 Expected improvements:")
-    # print("   • 5-15 trades per day with smart timing")
-    # print("   • Better win rates through technical analysis")
-    # print("   • Quality over quantity trading approach")
-    # print("   • Context-aware entry and exit decisions")
-    # print("   • Reduced invalid actions with strategic trading")
-    # 
-    # # Or run a standalone backtest with a trained model:
-    # # backtest_results = run_standalone_backtest(
-    # #     agent=results['agent'], 
-    # #     test_env=test_env, 
-    # #     num_days=6, 
-    # #     plot_results=True,
-    # #     save_plot_path="standalone_backtest.png"
-    # # )
