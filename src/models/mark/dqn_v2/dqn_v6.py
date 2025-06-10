@@ -30,7 +30,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import deque
 from datetime import datetime
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from pathlib import Path
 
 from src.config.config import DEVICE, MINUTES_PER_TRADING_DAY
@@ -575,6 +575,26 @@ class EnhancedEnvironment:
         
         return temporal_state.astype(np.float32)
     
+    def _get_valid_actions(self) -> List[int]:
+        """Get list of valid actions in current state"""
+        valid_actions = [0]  # Hold is always valid
+        
+        # Check if buy is valid
+        if self.position == 0:  # No position held
+            current_price = self.data.iloc[self.current_step]['close']
+            position_value = self.balance * self.config.max_position_size
+            shares_to_buy = position_value / current_price
+            cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
+            
+            if cost <= self.balance:  # Sufficient cash
+                valid_actions.append(1)  # Buy
+        
+        # Check if sell is valid
+        if self.position > 0:  # Holding position
+            valid_actions.append(2)  # Sell
+            
+        return valid_actions
+    
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
         """Execute action and return next state, reward, done, info"""
         if self.current_step >= len(self.data):
@@ -583,38 +603,48 @@ class EnhancedEnvironment:
         current_price = self.data.iloc[self.current_step]['close']
         reward = 0.0
         trade_executed = False
+        invalid_action = False
         
-        # Execute action (same logic as before)
-        if action == 1 and self.position == 0:  # Buy (only if no position)
-            position_value = self.balance * self.config.max_position_size
-            shares_to_buy = position_value / current_price
-            cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
-            
-            if cost <= self.balance:
+        # Check action validity
+        valid_actions = self._get_valid_actions()
+        
+        if action not in valid_actions:
+            # Invalid action - give negative reward and skip execution
+            invalid_action = True
+            reward = -0.01  # Small penalty for invalid action
+        else:
+            # Execute valid action
+            if action == 1:  # Buy
+                position_value = self.balance * self.config.max_position_size
+                shares_to_buy = position_value / current_price
+                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
+                
                 self.position = shares_to_buy
                 self.balance -= cost
                 self.entry_price = current_price
                 trade_executed = True
                 self.total_trades += 1
+                    
+            elif action == 2:  # Sell
+                revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
+                cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
+                profit = revenue - cost_basis
                 
-        elif action == 2 and self.position > 0:  # Sell (only if holding position)
-            revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
-            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
-            profit = revenue - cost_basis
-            
-            self.balance += revenue
-            self.position = 0.0
-            trade_executed = True
-            self.total_trades += 1
-            
-            # Track P&L
-            if profit > 0:
-                self.total_profit += profit
-            else:
-                self.total_loss += abs(profit)
+                self.balance += revenue
+                self.position = 0.0
+                trade_executed = True
+                self.total_trades += 1
                 
-            # Simple reward: actual profit/loss
-            reward = profit / self.config.initial_balance  # Normalize by initial balance
+                # Track P&L
+                if profit > 0:
+                    self.total_profit += profit
+                else:
+                    self.total_loss += abs(profit)
+                    
+                # Simple reward: actual profit/loss
+                reward = profit / self.config.initial_balance  # Normalize by initial balance
+            
+            # action == 0 (Hold) does nothing but is valid
         
         # Move to next step
         self.current_step += 1
@@ -649,6 +679,8 @@ class EnhancedEnvironment:
             'current_price': current_price,
             'portfolio_value': current_value,
             'trade_executed': trade_executed,
+            'invalid_action': invalid_action,
+            'valid_actions': valid_actions,
             'total_trades': self.total_trades,
             'total_profit': self.total_profit,
             'total_loss': self.total_loss,
@@ -723,22 +755,34 @@ class EnhancedDQN:
             print(f"  Temporal window: {config.temporal_window}")
             print(f"  Input channels: {config.input_channels}")
     
-    def select_action(self, state: np.ndarray, epsilon: Optional[float] = None) -> int:
-        """Select action using epsilon-greedy policy"""
+    def select_action(self, state: np.ndarray, valid_actions: Optional[List[int]] = None, epsilon: Optional[float] = None) -> int:
+        """Select action using epsilon-greedy policy with action masking"""
         if epsilon is None:
             epsilon = self.config.epsilon_end + (self.config.epsilon_start - self.config.epsilon_end) * \
                      math.exp(-1. * self.steps_done / self.config.epsilon_decay)
+        
+        # Default to all actions if not provided
+        if valid_actions is None:
+            valid_actions = list(range(self.config.num_actions))
         
         if random.random() > epsilon:
             self.q_network.eval()  # Set to eval mode for inference
             with torch.no_grad():
                 state_tensor = torch.tensor(state, device=self.device, dtype=torch.float32).unsqueeze(0)
-                q_values = self.q_network(state_tensor)
-                action = q_values.max(1)[1].item()
+                q_values = self.q_network(state_tensor).squeeze(0)  # (action_size,)
+                
+                # Mask invalid actions by setting their Q-values to very negative
+                masked_q_values = q_values.clone()
+                for action in range(self.config.num_actions):
+                    if action not in valid_actions:
+                        masked_q_values[action] = -float('inf')
+                
+                action = masked_q_values.argmax().item()
             self.q_network.train()  # Set back to train mode
             return action
         else:
-            return random.randrange(self.config.num_actions)
+            # Random action selection from valid actions only
+            return random.choice(valid_actions)
     
     def update(self) -> Optional[float]:
         """Perform one training step with PER"""
@@ -792,11 +836,19 @@ class EnhancedDQN:
         total_reward = 0.0
         episode_loss = 0.0
         loss_count = 0
+        invalid_actions = 0
         
         while True:
-            # Select and execute action
-            action = self.select_action(state)
+            # Get valid actions for current state
+            valid_actions = env._get_valid_actions()
+            
+            # Select and execute action with action masking
+            action = self.select_action(state, valid_actions)
             next_state, reward, done, info = env.step(action)
+            
+            # Track invalid actions (should be 0 with proper masking)
+            if info['invalid_action']:
+                invalid_actions += 1
             
             # Store experience
             self.memory.push(state, action, reward, next_state, done)
@@ -819,6 +871,7 @@ class EnhancedDQN:
             'episode_reward': total_reward,
             'episode_return': info['return'],
             'total_trades': info['total_trades'],
+            'invalid_actions': invalid_actions,
             'final_value': info['portfolio_value'],
             'avg_loss': avg_loss,
             'epsilon': self.config.epsilon_end + (self.config.epsilon_start - self.config.epsilon_end) * 
@@ -876,6 +929,7 @@ def train_enhanced_dqn(data_path: str,
     episode_rewards = []
     episode_returns = []
     episode_trades = []
+    episode_invalid_actions = []
     
     print(f"\nStarting training...")
     for episode in range(num_episodes):
@@ -884,19 +938,22 @@ def train_enhanced_dqn(data_path: str,
         episode_rewards.append(results['episode_reward'])
         episode_returns.append(results['episode_return'])
         episode_trades.append(results['total_trades'])
+        episode_invalid_actions.append(results['invalid_actions'])
         
         # Print progress
         if episode % 20 == 0:
             avg_reward = np.mean(episode_rewards[-20:])
             avg_return = np.mean(episode_returns[-20:])
             avg_trades = np.mean(episode_trades[-20:])
+            avg_invalid = np.mean(episode_invalid_actions[-20:])
             
+            invalid_str = f" | Invalid: {avg_invalid:.1f}" if avg_invalid > 0 else ""
             print(f"Episode {episode:3d} | "
                   f"Reward: {avg_reward:6.3f} | "
                   f"Return: {avg_return:6.1%} | "
                   f"Trades: {avg_trades:4.1f} | "
                   f"ε: {results['epsilon']:.3f} | "
-                  f"Buffer: {len(agent.memory):,}")
+                  f"Buffer: {len(agent.memory):,}{invalid_str}")
     
     # Final results
     print("\n" + "="*60)
@@ -906,11 +963,20 @@ def train_enhanced_dqn(data_path: str,
     final_avg_reward = np.mean(episode_rewards[-20:])
     final_avg_return = np.mean(episode_returns[-20:])
     final_avg_trades = np.mean(episode_trades[-20:])
+    final_avg_invalid = np.mean(episode_invalid_actions[-20:])
+    total_invalid = sum(episode_invalid_actions)
     
     print(f"Final 20-episode averages:")
     print(f"  Reward: {final_avg_reward:.3f}")
     print(f"  Return: {final_avg_return:.1%}")
     print(f"  Trades: {final_avg_trades:.1f}")
+    print(f"  Invalid Actions: {final_avg_invalid:.1f}")
+    
+    if total_invalid > 0:
+        print(f"\n⚠️  Total invalid actions across all episodes: {total_invalid}")
+        print("   (Should be 0 with proper action masking)")
+    else:
+        print("\n✅ No invalid actions - action masking working perfectly!")
     
     # Save model if requested
     if save_path:
@@ -931,6 +997,8 @@ def train_enhanced_dqn(data_path: str,
         'episode_rewards': episode_rewards,
         'episode_returns': episode_returns,
         'episode_trades': episode_trades,
+        'episode_invalid_actions': episode_invalid_actions,
+        'total_invalid_actions': total_invalid,
         'config': config
     }
 
@@ -942,7 +1010,7 @@ def train_enhanced_dqn(data_path: str,
 def backtest_enhanced_dqn(agent: EnhancedDQN, 
                          data: pd.DataFrame, 
                          num_days: int = 5) -> Dict:
-    """Enhanced backtesting function"""
+    """Enhanced backtesting function with action masking"""
     
     print(f"\nBacktesting on {num_days} random days...")
     
@@ -956,14 +1024,23 @@ def backtest_enhanced_dqn(agent: EnhancedDQN,
         state = env.reset()
         portfolio_values = [config.initial_balance]
         actions = []
+        valid_actions_history = []
         prices = []
+        invalid_actions = 0
         
         while True:
-            action = agent.select_action(state, epsilon=0.0)  # No exploration
+            # Get valid actions and select with masking
+            valid_actions = env._get_valid_actions()
+            action = agent.select_action(state, valid_actions, epsilon=0.0)  # No exploration
             state, reward, done, info = env.step(action)
+            
+            # Track invalid actions (should be 0 with proper masking)
+            if info['invalid_action']:
+                invalid_actions += 1
             
             portfolio_values.append(info['portfolio_value'])
             actions.append(action)
+            valid_actions_history.append(valid_actions.copy())
             prices.append(info['current_price'])
             
             if done:
@@ -976,19 +1053,26 @@ def backtest_enhanced_dqn(agent: EnhancedDQN,
             'final_value': info['portfolio_value'],
             'return': day_return,
             'trades': info['total_trades'],
+            'invalid_actions': invalid_actions,
             'portfolio_values': portfolio_values,
             'actions': actions,
+            'valid_actions_history': valid_actions_history,
             'prices': prices
         })
         
-        print(f"Day {day + 1}: Return {day_return:6.1%}, Trades: {info['total_trades']}, Final: ${info['portfolio_value']:,.0f}")
+        invalid_str = f", Invalid: {invalid_actions}" if invalid_actions > 0 else ""
+        print(f"Day {day + 1}: Return {day_return:6.1%}, Trades: {info['total_trades']}, Final: ${info['portfolio_value']:,.0f}{invalid_str}")
     
     avg_return = np.mean([r['return'] for r in results])
+    total_invalid = sum([r['invalid_actions'] for r in results])
     print(f"\nAverage return: {avg_return:.1%}")
+    if total_invalid > 0:
+        print(f"Total invalid actions: {total_invalid} (should be 0 with action masking)")
     
     return {
         'results': results,
         'avg_return': avg_return,
+        'total_invalid_actions': total_invalid,
         'agent': agent
     }
 
