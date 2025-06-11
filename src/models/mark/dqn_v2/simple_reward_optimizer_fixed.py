@@ -79,15 +79,31 @@ def test_parameters_with_warmup(invalid_penalty: float,
             print(f"      📊 Initial episode count: {env.portfolio_normalizer.episode_count}")
             
             for warmup_ep in range(warmup_episodes):
-                # Train episode but don't track performance
-                _ = agent.train_episode(env)
+                state = env.reset()
+                episode_portfolio_states = []
+                
+                while True:
+                    import random
+                    action = random.randrange(config.num_actions)
+                    next_state, reward, done, info = env.step(action)
+                    
+                    # Collect portfolio states (following dqn_v5.py pattern)
+                    if hasattr(env, 'episode_portfolio_states'):
+                        episode_portfolio_states.extend(env.episode_portfolio_states)
+                    
+                    state = next_state
+                    if done:
+                        break
+                
+                if episode_portfolio_states:
+                    env.portfolio_normalizer.collect_warmup_data(episode_portfolio_states)
                 
                 # CRITICAL: Increment episode counter for normalizer
                 env.portfolio_normalizer.increment_episode()
                 
-                # Debug: Show episode count progress
-                if (warmup_ep + 1) % 10 == 0 or warmup_ep < 5:
-                    print(f"      📈 Episode {warmup_ep + 1}: normalizer.episode_count = {env.portfolio_normalizer.episode_count}")
+                # Debug: Show episode count progress and data collection
+                if (warmup_ep + 1) % 10 == 0:
+                    print(f"      📈 Episode {warmup_ep + 1}: normalizer.episode_count = {env.portfolio_normalizer.episode_count}, states_collected = {len(episode_portfolio_states)}")
                 
                 # Check if normalizer is fitted after each episode
                 if env.portfolio_normalizer.is_fitted:
