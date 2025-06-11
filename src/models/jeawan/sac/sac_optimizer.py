@@ -58,7 +58,7 @@ def test_sac_parameters(
     # Training data
     train_data: pd.DataFrame,
     scaled_train_data: pd.DataFrame,
-    num_episodes: int = 100
+    num_episodes: int = 300
 ) -> Dict[str, float]:
     """Test SAC configuration with core hyperparameters (no architecture tuning)"""
     
@@ -96,6 +96,44 @@ def test_sac_parameters(
         # Create environment and agent
         env = SACTradingEnvironment(train_data, scaled_train_data, config, mode=TradingMode.TRAIN)
         agent = SAC(config)
+        
+        # Phase 1: Portfolio State Warmup (if needed) - IDENTICAL TO MAIN TRAINING
+        if env.portfolio_normalizer is not None and not env.portfolio_normalizer.is_fitted:
+            warmup_episodes = env.portfolio_normalizer.warmup_episodes
+            print(f"    📊 PORTFOLIO NORMALIZATION WARMUP PHASE")
+            print(f"    Collecting portfolio states for {warmup_episodes} episodes...")
+            print("    (No training will occur during this phase)")
+            
+            for warmup_ep in range(warmup_episodes):
+                state = env.reset()
+                episode_portfolio_states = []
+                
+                while True:
+                    # Random action during warmup (pure exploration for SAC)
+                    action = np.random.uniform(-1, 1)  # SAC continuous action space
+                    next_state, reward, done, info = env.step(action)
+                    
+                    # Collect portfolio states
+                    if hasattr(env, 'episode_portfolio_states'):
+                        episode_portfolio_states.extend(env.episode_portfolio_states)
+                    
+                    state = next_state
+                    if done:
+                        break
+                
+                # Add collected states to normalizer
+                if episode_portfolio_states:
+                    env.portfolio_normalizer.collect_warmup_data(episode_portfolio_states)
+                env.portfolio_normalizer.increment_episode()
+                
+                # Progress update
+                if (warmup_ep + 1) % 10 == 0 or warmup_ep == warmup_episodes - 1:
+                    progress = (warmup_ep + 1) / warmup_episodes
+                    print(f"      Warmup progress: {warmup_ep + 1}/{warmup_episodes} ({progress*100:.1f}%)")
+            
+            print(f"    ✅ Portfolio state collection complete!")
+            print(f"    🧠 Fitting portfolio normalizer...")
+            print(f"    ✅ Ready to start SAC optimization with normalized portfolio features!")
         
         # Track results
         returns = []
@@ -219,7 +257,7 @@ def run_sac_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 4
         alpha_lr = trial.suggest_float('alpha_learning_rate', 1e-5, 1e-3, log=True)
         
         # SAC parameters
-        initial_alpha = trial.suggest_float('initial_alpha', 0.01, 0.5)
+        initial_alpha = trial.suggest_float('initial_alpha', 0.2, 1.0)
         target_entropy_multiplier = trial.suggest_float('target_entropy_multiplier', 0.5, 2.0)
         tau = trial.suggest_float('tau', 0.001, 0.02)
         gamma = trial.suggest_float('gamma', 0.95, 0.999)
@@ -236,9 +274,9 @@ def run_sac_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 4
         max_position_size = trial.suggest_float('max_position_size', 0.5, 2.0)
         
         # Reward system parameters
-        portfolio_scaling = trial.suggest_float('portfolio_scaling', 0.01, 0.3)
-        invalid_penalty = trial.suggest_float('invalid_penalty', 0.05, 0.5)
-        min_trade_amount = trial.suggest_float('min_trade_amount', 0.005, 0.05)
+        portfolio_scaling = trial.suggest_float('portfolio_scaling', 2.0, 10.0)
+        invalid_penalty = trial.suggest_float('invalid_penalty', 0.0001, 0.005)
+        min_trade_amount = trial.suggest_float('min_trade_amount', 0.0001, 0.005)
         
         print(f"\n🔍 Trial {trial.number + 1}/{n_trials}")
         print(f"   Learning rates: Actor {actor_lr:.2e}, Critic {critic_lr:.2e}, Alpha {alpha_lr:.2e}")
@@ -270,7 +308,7 @@ def run_sac_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 4
             min_trade_amount=min_trade_amount,
             train_data=train_data,
             scaled_train_data=scaled_train_data,
-            num_episodes=100
+            num_episodes=300
         )
         
         score = results['score']

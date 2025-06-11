@@ -80,9 +80,9 @@ class SACConfig:
     buffer_size: int = REPLAY_BUFFER_SIZE
     
     # SAC specific parameters
-    target_entropy: float = -1.0  # Will be set automatically based on action dim
-    alpha_auto_tune: bool = True
-    initial_alpha: float = 0.1
+    target_entropy: float = -0.5  # Less conservative than -1.0 for more active trading
+    alpha_auto_tune: bool = True  # Re-enabled for proper SAC learning
+    initial_alpha: float = 0.1  # Starting value, will be auto-tuned
     
     # Portfolio state normalization
     use_portfolio_normalization: bool = True
@@ -90,11 +90,11 @@ class SACConfig:
     portfolio_update_frequency: int = 100
     
     # Trading parameters
-    min_trade_amount: float = 0.01  # Minimum 1% position size for trades
+    min_trade_amount: float = 0.001  # Minimum 0.1% position size for trades (reduced from 1%)
     
     # Reward parameters (optimizable)
-    portfolio_scaling: float = 0.1
-    invalid_penalty: float = 0.1
+    portfolio_scaling: float = 1.0  # Increased from 0.1 to make trading more rewarding
+    invalid_penalty: float = 0.01  # Reduced penalty for invalid actions
     
     # PER parameters
     per_alpha: float = 0.6  # Prioritization strength
@@ -103,9 +103,10 @@ class SACConfig:
     per_epsilon: float = 0.001  # Small constant for numerical stability
     
     def __post_init__(self):
-        # Set target entropy automatically
+        # Set target entropy automatically for 1D action space
+        # Less conservative than -1.0 to encourage more active trading
         if self.target_entropy == -1.0:
-            self.target_entropy = -1.0  # For 1D action space
+            self.target_entropy = -0.5  # For 1D action space, more active than standard -1.0
 
 
 class PrioritizedReplayBufferGPU:
@@ -297,8 +298,9 @@ class Actor(nn.Module):
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 if module in [self.action_mean, self.action_log_std]:
-                    nn.init.uniform_(module.weight, -3e-3, 3e-3)
-                    nn.init.uniform_(module.bias, -3e-3, 3e-3)
+                    # More aggressive initialization for larger initial actions
+                    nn.init.uniform_(module.weight, -0.1, 0.1)  # Increased from 3e-3
+                    nn.init.uniform_(module.bias, -0.05, 0.05)  # Increased from 3e-3
                 else:
                     nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
                     nn.init.constant_(module.bias, 0.01)
@@ -351,7 +353,7 @@ class Actor(nn.Module):
         # Action distribution parameters
         mean = self.action_mean(shared_out)
         log_std = self.action_log_std(shared_out)
-        log_std = torch.clamp(log_std, min=-20, max=2)  # Prevent extreme values
+        log_std = torch.clamp(log_std, min=-10, max=3)  # Increased max from 2 to 3 for higher variance
         
         return mean, log_std
     
@@ -743,9 +745,13 @@ class SACTradingEnvironment:
         # Positive: buy with proportion of available cash
         # Near zero: hold
         
-        # Apply minimum trade threshold
-        if abs(action_value) < self.config.min_trade_amount:
-            # Hold action - always valid
+        # TEMPORARILY REMOVED: Apply minimum trade threshold for more active learning
+        # if abs(action_value) < self.config.min_trade_amount:
+        #     # Hold action - always valid
+        #     return False, False
+        
+        # Only skip truly zero actions (for exact zero from tanh saturation)
+        if abs(action_value) < 1e-6:
             return False, False
         
         if action_value > 0:  # Buy action
