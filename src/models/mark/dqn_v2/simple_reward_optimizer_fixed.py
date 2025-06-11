@@ -76,10 +76,18 @@ def test_parameters_with_warmup(invalid_penalty: float,
             
             warmup_episodes = env.portfolio_normalizer.warmup_episodes
             print(f"      🔥 Warmup Phase: {warmup_episodes} episodes (not tracked)")
+            print(f"      📊 Initial episode count: {env.portfolio_normalizer.episode_count}")
             
             for warmup_ep in range(warmup_episodes):
                 # Train episode but don't track performance
                 _ = agent.train_episode(env)
+                
+                # CRITICAL: Increment episode counter for normalizer
+                env.portfolio_normalizer.increment_episode()
+                
+                # Debug: Show episode count progress
+                if (warmup_ep + 1) % 10 == 0 or warmup_ep < 5:
+                    print(f"      📈 Episode {warmup_ep + 1}: normalizer.episode_count = {env.portfolio_normalizer.episode_count}")
                 
                 # Check if normalizer is fitted after each episode
                 if env.portfolio_normalizer.is_fitted:
@@ -87,7 +95,19 @@ def test_parameters_with_warmup(invalid_penalty: float,
                     print(f"      ✅ Normalizer fitted after {actual_warmup} episodes")
                     break
             
-            print(f"      🚀 Starting evaluation phase...")
+            # Verify normalizer is now fitted
+            if env.portfolio_normalizer.is_fitted:
+                print(f"      🚀 Starting evaluation phase...")
+            else:
+                print(f"      ❌ ERROR: Normalizer not fitted after warmup!")
+                return {
+                    'avg_return': -0.1, 
+                    'win_rate': 0.0, 
+                    'avg_invalid_actions': 100,
+                    'avg_trades': 0,
+                    'warmup_episodes': warmup_episodes,
+                    'score': -10
+                }
         else:
             print(f"      ⚡ No warmup needed, starting evaluation...")
         
