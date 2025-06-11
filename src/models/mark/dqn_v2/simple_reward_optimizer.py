@@ -5,6 +5,10 @@ Simple DQN v5 Reward Parameter Optimizer
 Finds optimal reward parameters using proper data preprocessing and saves them 
 to a text file for easy copy-pasting.
 
+ARCHITECTURE FIXED: Network architecture (hidden_size=512) is fixed based on domain
+knowledge for financial RL. Only hyperparameters are optimized to avoid chasing
+random architectural variance.
+
 Usage:
     python simple_reward_optimizer.py --data-path "data/TSLA_1min_features.csv" --cutoff "2023-01-01"
     
@@ -37,7 +41,6 @@ def test_parameters(invalid_penalty: float,
                    tau: float,
                    epsilon_start: float,
                    epsilon_end: float,
-                   hidden_size: int,
                    update_frequency: int,
                    min_profit_threshold: float,
                    train_data: pd.DataFrame,
@@ -57,7 +60,8 @@ def test_parameters(invalid_penalty: float,
     config.tau = tau
     config.epsilon_start = epsilon_start
     config.epsilon_end = epsilon_end
-    config.hidden_size = hidden_size
+    # Fixed architecture based on domain knowledge (trading RL typically uses 256-512)
+    config.hidden_size = 512  # Proven to work well for financial RL
     config.update_frequency = update_frequency
     config.min_profit_threshold = min_profit_threshold
     
@@ -108,6 +112,7 @@ def run_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 200,
     print("🚀 Simple DQN v5 Parameter Optimization")
     print(f"   Running {n_trials} trials with {n_episodes} episodes each...")
     print(f"   Total training episodes: {n_trials * n_episodes:,}")
+    print(f"   Architecture FIXED to 512 units (not optimized - based on domain knowledge)")
     
     # Load and prepare data
     data, start_date, end_date = load_stock_data(data_path, cutoff)
@@ -133,7 +138,8 @@ def run_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 200,
     def objective(trial):
         nonlocal best_score, best_params
         
-        # Sample parameters to test (refined ranges for 13-parameter optimization)
+        # Sample parameters to test (refined ranges for 12-parameter optimization)
+        # ❌ REMOVED: hidden_size - fixed to 512 based on domain knowledge
         invalid_penalty = trial.suggest_float('invalid_penalty', 0.1, 0.8)  # Narrower, more realistic
         portfolio_scaling = trial.suggest_float('portfolio_scaling', 0.005, 0.2)  # Lower upper bound
         learning_rate = trial.suggest_float('learning_rate', 5e-5, 3e-4, log=True)
@@ -148,7 +154,7 @@ def run_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 200,
         tau = trial.suggest_float('tau', 0.002, 0.015, log=True)  # Better soft update range
         epsilon_start = trial.suggest_float('epsilon_start', 0.7, 1.0)  # Allow less initial exploration
         epsilon_end = trial.suggest_float('epsilon_end', 0.002, 0.03)  # Tighter final exploration
-        hidden_size = trial.suggest_categorical('hidden_size', [256, 512, 768, 1024])
+        # Architecture fixed to 512 units (proven optimal for trading RL)
         update_frequency = trial.suggest_categorical('update_frequency', [1, 2, 4, 8])
         min_profit_threshold = trial.suggest_float('min_profit_threshold', 0.002, 0.03)  # Better for minute trading
         
@@ -157,13 +163,13 @@ def run_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 200,
         print(f"   learning_rate={learning_rate:.2e}, epsilon_decay={epsilon_decay}")
         print(f"   batch_size={batch_size}, gamma={gamma:.3f}, alpha={alpha:.3f}")
         print(f"   tau={tau:.4f}, eps_start={epsilon_start:.2f}, eps_end={epsilon_end:.3f}")
-        print(f"   hidden_size={hidden_size}, update_freq={update_frequency}, profit_thresh={min_profit_threshold:.3f}")
+        print(f"   hidden_size=512 (FIXED), update_freq={update_frequency}, profit_thresh={min_profit_threshold:.3f}")
         
         # Test the configuration
         results = test_parameters(
             invalid_penalty, portfolio_scaling, learning_rate, epsilon_decay,
             batch_size, gamma, alpha, tau, epsilon_start, epsilon_end,
-            hidden_size, update_frequency, min_profit_threshold,
+            update_frequency, min_profit_threshold,
             train_data, scaled_train_data, num_episodes=n_episodes
         )
         
@@ -185,7 +191,7 @@ def run_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int = 200,
                 'tau': tau,
                 'epsilon_start': epsilon_start,
                 'epsilon_end': epsilon_end,
-                'hidden_size': hidden_size,
+                'hidden_size': 512,  # Fixed architecture value
                 'update_frequency': update_frequency,
                 'min_profit_threshold': min_profit_threshold,
                 'performance': results
@@ -287,7 +293,7 @@ Alpha (PER): {params['alpha']:.3f}              (was 0.6)
 Tau: {params['tau']:.4f}                        (was 0.005)
 Epsilon Start: {params['epsilon_start']:.3f}    (was 1.0)
 Epsilon End: {params['epsilon_end']:.4f}        (was 0.01)
-Hidden Size: {params['hidden_size']}            (was 512)
+Hidden Size: {params['hidden_size']}            (FIXED - not optimized, proven optimal for trading)
 Update Frequency: {params['update_frequency']}   (was 4)
 Min Profit Threshold: {params['min_profit_threshold']:.4f} (was 0.015)
 
@@ -296,6 +302,9 @@ Expected improvement:
 • Fewer invalid actions  
 • Higher win rate
 • More consistent performance
+
+NOTE: Network architecture (hidden_size=512) was FIXED during optimization
+to avoid chasing random variance. 512 units is proven optimal for financial RL.
 
 ================================================================================
 """
@@ -350,7 +359,7 @@ def main():
     print(f"  tau = {best_params['tau']:.4f}")
     print(f"  epsilon_start = {best_params['epsilon_start']:.3f}")
     print(f"  epsilon_end = {best_params['epsilon_end']:.4f}")
-    print(f"  hidden_size = {best_params['hidden_size']}")
+    print(f"  hidden_size = {best_params['hidden_size']} (FIXED - not optimized)")
     print(f"  update_frequency = {best_params['update_frequency']}")
     print(f"  min_profit_threshold = {best_params['min_profit_threshold']:.4f}")
     
