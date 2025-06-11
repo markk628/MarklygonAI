@@ -37,7 +37,7 @@ class TradingConfig:
     
     # Network parameters
     hidden_size: int = 512
-    learning_rate: float = 0.0001
+    learning_rate: float = 2.37e-04
     
     # Training parameters
     batch_size: int = BATCH_SIZE
@@ -52,7 +52,7 @@ class TradingConfig:
     # Exploration
     epsilon_start: float = 1.0
     epsilon_end: float = 0.01  # Lower minimum exploration for trading
-    epsilon_decay: float = 2000  # Much faster decay to reduce random trading losses
+    epsilon_decay: float = 2924  # Much faster decay to reduce random trading losses
     
     # Prioritized replay
     use_prioritized_replay: bool = True
@@ -87,8 +87,8 @@ class TradingConfig:
     min_hold_time_steps: int = 5  # Minimum steps to hold position before selling (thoughtful exits)
     
     # Optimizable reward parameters (can be tuned via Optuna)
-    portfolio_scaling: float = 0.1  # Scaling factor for portfolio value changes
-    invalid_penalty: float = 0.1   # Penalty for invalid actions
+    portfolio_scaling: float = 0.010  # Scaling factor for portfolio value changes
+    invalid_penalty: float = 0.497   # Penalty for invalid actions
     
     def __post_init__(self):
         if self.cnn_scales is None:
