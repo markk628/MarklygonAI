@@ -36,6 +36,7 @@ from typing import Dict, Tuple, Optional, List
 from pathlib import Path
 
 from src.config.config import DEVICE, MINUTES_PER_TRADING_DAY
+from src.models.mark.dqn_v2.data_preprocessor_v2 import preprocess_financial_data
 
 
 # =============================================================================
@@ -464,21 +465,26 @@ class TemporalCNNQNetwork(nn.Module):
 class EnhancedEnvironment:
     """Enhanced environment supporting both single-row and temporal features"""
     
-    def __init__(self, data: pd.DataFrame, config: EnhancedTradingConfig):
-        self.data = data
+    def __init__(self, original_data: pd.DataFrame, scaled_data: pd.DataFrame, config: EnhancedTradingConfig):
+        self.original_data = original_data  # Original prices for trading
+        self.scaled_data = scaled_data      # Scaled features for state representation
         self.config = config
         
-        # Validate required features
+        # Validate required features in original data (need 'close' for trading)
+        if 'close' not in original_data.columns:
+            raise ValueError("Original data must contain 'close' column for trading")
+        
+        # Validate required features for state representation
         if config.architecture == "mlp":
             required_features = MINIMAL_FEATURES  # Need 'close' for price, but use ACTUAL_FEATURES for state
         else:
             required_features = TEMPORAL_FEATURES
-        missing_features = [f for f in required_features if f not in data.columns]
+        missing_features = [f for f in required_features if f not in scaled_data.columns]
         if missing_features:
-            raise ValueError(f"Missing required features: {missing_features}")
+            raise ValueError(f"Missing required features in scaled data: {missing_features}")
         
         # Episode parameters
-        self.total_steps = len(data) 
+        self.total_steps = len(original_data) 
         self.episode_length = MINUTES_PER_TRADING_DAY  # One trading day
         
         # State tracking
@@ -518,8 +524,8 @@ class EnhancedEnvironment:
         return self._get_state()
     
     def _get_state(self) -> np.ndarray:
-        """Get current state representation"""
-        if self.current_step >= len(self.data):
+        """Get current state representation using scaled data"""
+        if self.current_step >= len(self.scaled_data):
             # Return neutral state if out of bounds
             if self.config.architecture == "mlp":
                 return np.zeros(self.config.state_size)
@@ -532,11 +538,11 @@ class EnhancedEnvironment:
             return self._get_temporal_state()
     
     def _get_single_row_state(self) -> np.ndarray:
-        """Get single-row state (like original v6)"""
-        row = self.data.iloc[self.current_step]
-        current_price = row['close']
+        """Get single-row state using scaled data (like original v6)"""
+        row = self.scaled_data.iloc[self.current_step]  # Use scaled data for state
+        current_price = self.original_data.iloc[self.current_step]['close']  # Use original price for portfolio calculations
         
-        # Extract actual features (excluding 'close')
+        # Extract actual features (excluding 'close') from scaled data
         features = []
         for feature in ACTUAL_FEATURES:
             value = row.get(feature, 0.0)
@@ -544,7 +550,7 @@ class EnhancedEnvironment:
                 value = 0.0
             features.append(float(value))
         
-        # Add position information
+        # Add position information using original prices
         current_value = self.balance + (self.position * current_price)
         position_ratio = (self.position * current_price) / current_value if current_value > 0 else 0.0
         cash_ratio = self.balance / current_value if current_value > 0 else 1.0
@@ -554,19 +560,19 @@ class EnhancedEnvironment:
         return np.array(features, dtype=np.float32)
     
     def _get_temporal_state(self) -> np.ndarray:
-        """Get temporal window state for CNN/Mamba with portfolio info"""
-        # Get temporal window
+        """Get temporal window state for CNN/Mamba using scaled data with original portfolio info"""
+        # Get temporal window from scaled data
         start_idx = max(0, self.current_step - self.config.temporal_window + 1)
         end_idx = self.current_step + 1
         
-        # Extract temporal features
-        window_data = self.data.iloc[start_idx:end_idx]
+        # Extract temporal features from scaled data
+        window_data = self.scaled_data.iloc[start_idx:end_idx]
         
         # Create 2D array (features x time) - now includes portfolio channels
         num_features = len(TEMPORAL_FEATURES) + 2  # +2 for position_ratio and cash_ratio
         temporal_state = np.zeros((num_features, self.config.temporal_window))
         
-        # Fill temporal features
+        # Fill temporal features from scaled data
         for i, feature in enumerate(TEMPORAL_FEATURES):
             if feature in window_data.columns:
                 values = window_data[feature].fillna(0.0).values
@@ -577,8 +583,8 @@ class EnhancedEnvironment:
                     values = padded_values
                 temporal_state[i] = values
         
-        # Add portfolio information (constant across time dimension)
-        current_price = self.data.iloc[self.current_step]['close']
+        # Add portfolio information using original prices (constant across time dimension)
+        current_price = self.original_data.iloc[self.current_step]['close']  # Original price for portfolio
         current_value = self.balance + (self.position * current_price)
         position_ratio = (self.position * current_price) / current_value if current_value > 0 else 0.0
         cash_ratio = self.balance / current_value if current_value > 0 else 1.0
@@ -590,12 +596,12 @@ class EnhancedEnvironment:
         return temporal_state.astype(np.float32)
     
     def _get_valid_actions(self) -> List[int]:
-        """Get list of valid actions in current state"""
+        """Get list of valid actions in current state using original prices"""
         valid_actions = [0]  # Hold is always valid
         
         # Check if buy is valid
         if self.position == 0:  # No position held
-            current_price = self.data.iloc[self.current_step]['close']
+            current_price = self.original_data.iloc[self.current_step]['close']  # Use original price
             position_value = self.balance * self.config.max_position_size
             shares_to_buy = position_value / current_price
             cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
@@ -610,7 +616,7 @@ class EnhancedEnvironment:
         return valid_actions
     
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, Dict]:
-        """Execute action and return next state, reward, done, info
+        """Execute action using original prices for trading and return next state
         
         SIMPLIFIED REWARD SYSTEM - Pure P&L Focus:
         - Buy: Small transaction cost penalty
@@ -620,10 +626,10 @@ class EnhancedEnvironment:
         
         This ensures rewards align directly with actual trading returns.
         """
-        if self.current_step >= len(self.data):
+        if self.current_step >= len(self.original_data):
             return self._get_state(), 0.0, True, {}
             
-        current_price = self.data.iloc[self.current_step]['close']
+        current_price = self.original_data.iloc[self.current_step]['close']  # Use original price for trading
         reward = 0.0
         trade_executed = False
         invalid_action = False
@@ -636,7 +642,7 @@ class EnhancedEnvironment:
             invalid_action = True
             reward = -0.01  # Small penalty for invalid action
         else:
-            # Execute valid action
+            # Execute valid action using original prices
             if action == 1:  # Buy
                 position_value = self.balance * self.config.max_position_size
                 shares_to_buy = position_value / current_price
@@ -677,7 +683,7 @@ class EnhancedEnvironment:
             elif action == 0:  # Hold
                 self.consecutive_holds += 1
                 
-                # For holding, reward is based on portfolio performance change
+                # For holding, reward is based on portfolio performance change using original prices
                 current_portfolio_value = self.balance + (self.position * current_price)
                 
                 if not hasattr(self, 'last_portfolio_value'):
@@ -693,9 +699,9 @@ class EnhancedEnvironment:
         self.current_step += 1
         done = self.current_step >= self.episode_end
         
-        # Force close position at end of episode
+        # Force close position at end of episode using original prices
         if done and self.position > 0:
-            final_price = self.data.iloc[min(self.current_step, len(self.data) - 1)]['close']
+            final_price = self.original_data.iloc[min(self.current_step, len(self.original_data) - 1)]['close']
             revenue = self.position * final_price * (1 - self.config.transaction_fee_percent)
             cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
             final_profit = revenue - cost_basis
@@ -711,15 +717,15 @@ class EnhancedEnvironment:
             else:
                 self.total_loss += abs(final_profit)
         
-        # Get next state
+        # Get next state (uses scaled data)
         next_state = self._get_state()
         
-        # Info for tracking
+        # Info for tracking (uses original prices)
         current_value = self.balance + (self.position * current_price)
         info = {
             'balance': self.balance,
             'position': self.position,
-            'current_price': current_price,
+            'current_price': current_price,  # Original price
             'portfolio_value': current_value,
             'trade_executed': trade_executed,
             'invalid_action': invalid_action,
@@ -950,21 +956,31 @@ def train_enhanced_dqn(data_path: str,
     
     # Load data
     print(f"Loading data from {data_path}")
-    data = pd.read_csv(data_path)
-    print(f"Data shape: {data.shape}")
+    original_data = pd.read_csv(data_path)
+    print(f"Original data shape: {original_data.shape}")
     
     # Validate features
     if architecture == "mlp":
         required_features = MINIMAL_FEATURES  # Need 'close' for price, but use ACTUAL_FEATURES for state
     else:
         required_features = TEMPORAL_FEATURES
-    missing_features = [f for f in required_features if f not in data.columns]
+    missing_features = [f for f in required_features if f not in original_data.columns]
     if missing_features:
         raise ValueError(f"Missing features in data: {missing_features}")
     
-    # Create config and environment
+    # Apply data preprocessing for fair comparison (like DQN v5)
+    print(f"Applying data preprocessing (robust scaling + winsorization)...")
+    _, scaled_data, _, _ = preprocess_financial_data(
+        train_data=original_data,
+        scaling_method='robust',
+        outlier_method='winsorize',
+        save_preprocessor=False
+    )
+    print(f"Preprocessing complete. Original data for trading, scaled data for state representation.")
+    
+    # Create config and environment - pass both original and scaled data
     config = EnhancedTradingConfig(architecture, temporal_window)
-    env = EnhancedEnvironment(data, config)
+    env = EnhancedEnvironment(original_data, scaled_data, config)  # Original for trading, scaled for state
     agent = EnhancedDQN(config)
     
     print(f"Training setup:")
@@ -977,6 +993,7 @@ def train_enhanced_dqn(data_path: str,
         print(f"  State features: {ACTUAL_FEATURES} + [position_ratio, cash_ratio]")
     print(f"  Total parameters: {sum(p.numel() for p in agent.q_network.parameters()):,}")
     print(f"  PER buffer size: {config.buffer_size:,}")
+    print(f"  🔧 FIXED: Using original prices for trading, scaled features for state")
     
     # Training loop
     episode_rewards = []
@@ -1080,6 +1097,8 @@ def train_enhanced_dqn(data_path: str,
     return {
         'agent': agent,
         'env': env,
+        'original_data': original_data,  # Include original data for backtesting
+        'scaled_data': scaled_data,      # Include scaled data for backtesting
         'episode_rewards': episode_rewards,
         'episode_returns': episode_returns,
         'episode_trades': episode_trades,
@@ -1142,14 +1161,15 @@ def buy_and_hold_baseline(data: pd.DataFrame,
 
 
 def backtest_enhanced_dqn(agent: EnhancedDQN, 
-                         data: pd.DataFrame, 
+                         original_data: pd.DataFrame,
+                         scaled_data: pd.DataFrame, 
                          num_days: int = 5) -> Dict:
-    """Enhanced backtesting function with action masking"""
+    """Enhanced backtesting function with action masking using original prices for trading"""
     
     print(f"\nBacktesting on {num_days} random days...")
     
     config = agent.config
-    env = EnhancedEnvironment(data, config)
+    env = EnhancedEnvironment(original_data, scaled_data, config)  # Pass both datasets
     
     results = []
     
@@ -1175,7 +1195,7 @@ def backtest_enhanced_dqn(agent: EnhancedDQN,
             portfolio_values.append(info['portfolio_value'])
             actions.append(action)
             valid_actions_history.append(valid_actions.copy())
-            prices.append(info['current_price'])
+            prices.append(info['current_price'])  # Now using original prices
             
             if done:
                 break
@@ -1235,12 +1255,21 @@ def comprehensive_architecture_comparison(data_path: str,
     all_results = {arch: {'training_returns': [], 'backtest_returns': [], 'trading_frequencies': [], 
                          'agents': [], 'total_invalid_actions': []} for arch in architectures}
     
-    # Load data once
-    data = pd.read_csv(data_path)
+    # Load and preprocess data once for consistent comparison
+    print("Loading and preprocessing data for all architectures...")
+    original_data = pd.read_csv(data_path)
+    _, scaled_data, _, _ = preprocess_financial_data(
+        train_data=original_data,
+        scaling_method='robust',
+        outlier_method='winsorize',
+        save_preprocessor=False
+    )
+    print(f"Data preprocessed: {original_data.shape} -> scaled for fair comparison")
+    print(f"🔧 FIXED: Using original prices for trading, scaled features for state representation")
     
-    # Run buy-and-hold baseline once
+    # Run buy-and-hold baseline once (use original data for baseline)
     print("\n💰 Running Buy-and-Hold Baseline...")
-    baseline = buy_and_hold_baseline(data, num_days=num_backtest_days)
+    baseline = buy_and_hold_baseline(original_data, num_days=num_backtest_days)  # Original data for baseline
     baseline_return = baseline['avg_return']
     
     # Run multiple sessions
@@ -1274,10 +1303,13 @@ def comprehensive_architecture_comparison(data_path: str,
             all_results[arch]['total_invalid_actions'].append(total_invalid)
             all_results[arch]['agents'].append(arch_results['agent'])
             
-            # Backtest this session
+            # Backtest this session (use both original and scaled data)
             print(f"🔍 Backtesting {arch_names[arch]} (Session {session + 1})...")
             backtest_results = backtest_enhanced_dqn(
-                arch_results['agent'], data, num_days=num_backtest_days
+                arch_results['agent'], 
+                arch_results['original_data'],  # Pass original data
+                arch_results['scaled_data'],    # Pass scaled data
+                num_days=num_backtest_days
             )
             
             all_results[arch]['backtest_returns'].append(backtest_results['avg_return'])
@@ -1371,6 +1403,18 @@ def compare_all_architectures(data_path: str,
     print("⚠️  Consider using comprehensive_architecture_comparison() for better statistics")
     print("="*80)
     
+    # Load and preprocess data for fair comparison
+    print("Loading and preprocessing data...")
+    original_data = pd.read_csv(data_path)
+    _, scaled_data, _, _ = preprocess_financial_data(
+        train_data=original_data,
+        scaling_method='robust',
+        outlier_method='winsorize',
+        save_preprocessor=False
+    )
+    print(f"Data preprocessed for fair architecture comparison")
+    print(f"🔧 FIXED: Using original prices for trading, scaled features for state representation")
+    
     results = {}
     architectures = ["mlp", "cnn", "mamba"]
     arch_names = {"mlp": "Dueling MLP", "cnn": "Dueling CNN", "mamba": "Dueling Mamba SSM"}
@@ -1430,6 +1474,18 @@ def compare_architectures(data_path: str,
     print("="*80)
     print("DUELING ARCHITECTURE COMPARISON: MLP vs CNN")
     print("="*80)
+    
+    # Load and preprocess data for fair comparison
+    print("Loading and preprocessing data...")
+    original_data = pd.read_csv(data_path)
+    _, scaled_data, _, _ = preprocess_financial_data(
+        train_data=original_data,
+        scaling_method='robust',
+        outlier_method='winsorize',
+        save_preprocessor=False
+    )
+    print(f"Data preprocessed for fair architecture comparison")
+    print(f"🔧 FIXED: Using original prices for trading, scaled features for state representation")
     
     results = {}
     

@@ -123,7 +123,7 @@ class PaperTradingBot:
         
         # Store config from the model
         if self.model_type == "DQN":
-            from src.models.mark.dqn_v2.dqn_v2 import TradingConfig
+            from src.models.mark.dqn_v2.config import TradingConfig
             self.config = TradingConfig()
         else:
             raise NotImplementedError(f"Model type {self.model_type} not supported yet")
@@ -169,7 +169,7 @@ class PaperTradingBot:
         try:
             if self.model_type == "DQN":
                 # Import DQN v2 classes - fixed import path
-                from src.models.mark.dqn_v2.dqn_v2 import DoubleDuelingDQN, TradingConfig
+                from src.models.mark.dqn_v2.dqn_v5 import DoubleDuelingDQN, TradingConfig
                 
                 config = TradingConfig()
                 self.agent = DoubleDuelingDQN(config, device=DEVICE)
@@ -753,7 +753,11 @@ class PaperTradingBot:
                                 total_cost <= self.balance) else 0.0
                 can_sell = 1.0 if self.position > 0 else 0.0
                 
-                # ✅ Portfolio features: Current situation only (12 features)
+                # Add invalid action frequency context (matching DQN v5)
+                recent_invalid_rate = self.invalid_actions / max(self.step_count, 1)
+                normalized_invalid_rate = min(recent_invalid_rate, 1.0)  # Cap at 100%
+                
+                # ✅ Portfolio features: Current situation only (13 features - FIXED to match DQN v5)
                 portfolio_features = np.array([
                     # Core current metrics (4)
                     normalized_balance,           # Current cash available
@@ -771,9 +775,10 @@ class PaperTradingBot:
                     midday_session,
                     afternoon_session,
                     
-                    # Current action validity (2)
+                    # Current action validity (3) - FIXED: Added normalized_invalid_rate
                     can_buy,                     # Can execute buy now
-                    can_sell                     # Can execute sell now
+                    can_sell,                    # Can execute sell now  
+                    normalized_invalid_rate      # Recent invalid action frequency (helps learn patterns)
                 ])
                 
                 # Ensure all values are finite and increment step count
@@ -789,9 +794,9 @@ class PaperTradingBot:
                 
                 # Log final state details
                 logger.info(f"Final state tensor created:")
-                logger.info(f"  Shape: {state.shape} (expected: [{WINDOW_SIZE}, {expected_stock_features + 12}])")
+                logger.info(f"  Shape: {state.shape} (expected: [{WINDOW_SIZE}, {expected_stock_features + 13}])")
                 logger.info(f"  Stock features: {expected_stock_features}")
-                logger.info(f"  Portfolio features: 12")
+                logger.info(f"  Portfolio features: 13")
                 logger.info(f"  Total features per timestep: {state.shape[1]}")
                 
                 # Check for any data quality issues
@@ -829,7 +834,7 @@ class PaperTradingBot:
         logger.info("Sample state values:")
         logger.info(f"  First timestep stock features (first 6): {state_np[0, :6]}")
         logger.info(f"  Last timestep stock features (first 6): {state_np[-1, :6]}")
-        logger.info(f"  Portfolio features: {state_np[0, -12:]}")  # Last 12 features are portfolio
+        logger.info(f"  Portfolio features: {state_np[0, -13:]}")  # Last 13 features are portfolio
         
         with torch.no_grad():
             if self.model_type == "DQN":
