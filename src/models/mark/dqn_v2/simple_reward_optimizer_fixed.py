@@ -116,11 +116,20 @@ def test_parameters_with_warmup(invalid_penalty: float,
                 print(f"      🚀 Starting evaluation phase...")
             else:
                 print(f"      ❌ ERROR: Normalizer not fitted after warmup!")
+                # Calculate error Sharpe ratio same way as main method
+                error_portfolio_values = [config.initial_balance * 0.9] * 10  # Simulate losing portfolio
+                error_portfolio_volatility = np.std(error_portfolio_values) / np.mean(error_portfolio_values)
+                if error_portfolio_volatility > 1e-8:
+                    error_sharpe = -0.1 / error_portfolio_volatility 
+                else:
+                    error_sharpe = -0.1 * 10
+                
                 return {
                     'avg_return': -0.1, 
                     'win_rate': 0.0, 
                     'avg_invalid_actions': 100,
                     'avg_trades': 0,
+                    'sharpe_ratio': error_sharpe,
                     'warmup_episodes': warmup_episodes,
                     'score': -10
                 }
@@ -129,6 +138,7 @@ def test_parameters_with_warmup(invalid_penalty: float,
         
         # 🎯 PHASE 2: EVALUATION (track performance after warmup)
         returns = []
+        portfolio_values = []
         invalid_actions_list = []
         trades_list = []
         
@@ -138,6 +148,7 @@ def test_parameters_with_warmup(invalid_penalty: float,
             
             metrics = agent.train_episode(env)
             returns.append(metrics['total_return'])
+            portfolio_values.append(metrics['final_value'])  # Track portfolio values for Sharpe calculation
             invalid_actions_list.append(metrics['invalid_actions'])
             # Track trades if available
             if 'total_trades' in metrics:
@@ -149,9 +160,20 @@ def test_parameters_with_warmup(invalid_penalty: float,
         avg_invalid = np.mean(invalid_actions_list)
         avg_trades = np.mean(trades_list) if trades_list else 0
         
-        # Enhanced scoring function
+        # Calculate Sharpe ratio (risk-adjusted return) - identical to dqn_v5.py method
+        if len(returns) > 0:
+            portfolio_volatility = np.std(portfolio_values) / np.mean(portfolio_values)
+            if portfolio_volatility > 1e-8:
+                sharpe_ratio = avg_return / portfolio_volatility
+            else:
+                sharpe_ratio = avg_return * 10
+        else:
+            sharpe_ratio = 0.0
+        
+        # Enhanced scoring function with Sharpe ratio
         score = (
-            avg_return * 4.0 +                    # Primary: actual returns
+            avg_return * 3.0 +                    # Primary: actual returns (reduced weight)
+            sharpe_ratio * 1.5 +                  # NEW: risk-adjusted return metric
             win_rate * 2.0 +                      # Secondary: consistency  
             -(avg_invalid / 100) * 3.0 +          # Strong penalty: invalid actions
             -abs(avg_trades - 15) * 0.02          # Minor penalty: target ~15 trades/day
@@ -162,17 +184,28 @@ def test_parameters_with_warmup(invalid_penalty: float,
             'win_rate': win_rate,
             'avg_invalid_actions': avg_invalid,
             'avg_trades': avg_trades,
+            'sharpe_ratio': sharpe_ratio,
             'warmup_episodes': warmup_episodes,
             'score': score
         }
         
     except Exception as e:
         print(f"      ❌ Error testing config: {e}")
+        
+        # Calculate error Sharpe ratio same way as main method
+        error_portfolio_values = [config.initial_balance * 0.9] * 10  # Simulate losing portfolio
+        error_portfolio_volatility = np.std(error_portfolio_values) / np.mean(error_portfolio_values)
+        if error_portfolio_volatility > 1e-8:
+            error_sharpe = -0.1 / error_portfolio_volatility 
+        else:
+            error_sharpe = -0.1 * 10
+        
         return {
             'avg_return': -0.1, 
             'win_rate': 0.0, 
             'avg_invalid_actions': 100,
             'avg_trades': 0,
+            'sharpe_ratio': error_sharpe,
             'warmup_episodes': 0,
             'score': -10
         }
@@ -190,6 +223,7 @@ def run_fixed_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int =
     print(f"   Warmup: Handled separately (not counted in performance)")
     print(f"   Total episodes: {n_trials * n_episodes:,} (+ warmup)")
     print(f"   Architecture: 512 units (fixed, proven optimal)")
+    print(f"   📊 RISK-ADJUSTED: Scoring includes Sharpe ratio")
     print(f"   🎯 FAIR COMPARISON: New normalization gets proper warmup")
     
     # Load and prepare data
@@ -251,7 +285,7 @@ def run_fixed_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int =
         warmup = results['warmup_episodes']
         warmup_str = f" (warmup: {warmup})" if warmup > 0 else ""
         
-        print(f"   → Return: {results['avg_return']:.2%}, Win: {results['win_rate']:.1%}")
+        print(f"   → Return: {results['avg_return']:.2%}, Win: {results['win_rate']:.1%}, Sharpe: {results['sharpe_ratio']:.2f}")
         print(f"   → Invalid: {results['avg_invalid_actions']:.0f}, Trades: {results['avg_trades']:.1f}")
         print(f"   → Score: {score:.3f}{warmup_str}")
         
@@ -303,6 +337,7 @@ Preprocessing: {scaling_method} scaling, {outlier_method} outliers
 🎯 PERFORMANCE ACHIEVED (POST-WARMUP):
    Average Return: {perf['avg_return']:.2%} per episode
    Win Rate: {perf['win_rate']:.1%} of episodes  
+   Sharpe Ratio: {perf['sharpe_ratio']:.2f} (risk-adjusted return)
    Invalid Actions: {perf['avg_invalid_actions']:.0f} per episode
    Avg Trades/Day: {perf['avg_trades']:.1f}
    Warmup Episodes: {perf['warmup_episodes']} (not counted in metrics)
@@ -405,7 +440,8 @@ REPLACE WITH:
 🔧 TECHNICAL IMPROVEMENTS:
 • Warmup phase detection and handling
 • Separate evaluation phase tracking
-• Enhanced scoring function with trade frequency
+• Enhanced scoring function with Sharpe ratio and trade frequency
+• Risk-adjusted optimization (not just raw returns)
 • Consistent baseline across all trials
 • Adaptive normalization gets fair chance
 
@@ -473,6 +509,7 @@ def main():
     print(f"Best Performance (Post-Warmup):")
     print(f"  Return: {perf['avg_return']:.2%}")
     print(f"  Win Rate: {perf['win_rate']:.1%}")
+    print(f"  Sharpe Ratio: {perf['sharpe_ratio']:.2f}")
     print(f"  Invalid Actions: {perf['avg_invalid_actions']:.0f}")
     print(f"  Avg Trades: {perf['avg_trades']:.1f}")
     print(f"  Warmup Episodes: {perf['warmup_episodes']}")
@@ -489,6 +526,10 @@ def main():
     # Performance analysis
     if perf['avg_return'] > 0:
         print(f"\n✅ Positive returns achieved! Adaptive normalization working well.")
+    if perf['sharpe_ratio'] > 1.0:
+        print(f"✅ Excellent risk-adjusted performance! Sharpe ratio > 1.0")
+    elif perf['sharpe_ratio'] > 0.5:
+        print(f"✅ Good risk-adjusted performance! Sharpe ratio > 0.5")
     if perf['avg_invalid_actions'] < 5:
         print(f"✅ Low invalid actions! Good parameter optimization.")
     if 10 <= perf['avg_trades'] <= 25:
