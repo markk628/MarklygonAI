@@ -321,15 +321,8 @@ class TradingEnvironment:
         
         # Position timing features
         position_holding_time = (self.current_step - self.position_entry_step) if self.position_entry_step >= 0 else 0
-        normalized_holding_time = min(position_holding_time / 60, 1.0)  # Normalize to 1 hour max
         
-        # Enhanced portfolio features for intraday trading
-        initial_balance = self.config.initial_balance
-        normalized_balance = self.balance / initial_balance if initial_balance > 0 else 0
-        normalized_position = self.position * current_price / initial_balance if initial_balance > 0 else 0
-        normalized_portfolio_value = portfolio_value / initial_balance if initial_balance > 0 else 0
-        
-        # Position ratio and risk metrics
+        # Position ratio and risk metrics (this one gets clipped by normalizer, not normalized)
         position_ratio = self.position * current_price / portfolio_value if portfolio_value > 0 else 0
         
         # Action validity flags (match execution logic exactly)
@@ -342,32 +335,37 @@ class TradingEnvironment:
                           total_cost <= self.balance) else 0.0
         can_sell = 1.0 if self.position > 0 else 0.0
         
-        # Add invalid action frequency context (help agent learn patterns)
-        recent_invalid_rate = self.invalid_actions / max(self.current_step - self.episode_start + 1, 1)
-        normalized_invalid_rate = min(recent_invalid_rate, 1.0)  # Cap at 100%
-        
-        # Portfolio features
+        # Portfolio features - SENDING RAW VALUES TO NORMALIZER
+        # Feature indices mapping:
+        # 0=balance, 1=position_value, 2=portfolio_value, 3=position_ratio, 
+        # 4=unrealized_pnl, 5=position_holding_time, 6=time_of_day, 
+        # 7=morning_session, 8=midday_session, 9=afternoon_session, 
+        # 10=can_buy, 11=can_sell, 12=invalid_actions
         portfolio_features = [
-            # Core current metrics (4)
-            normalized_balance,           # Current cash available
-            normalized_position,          # Current stock holdings
-            normalized_portfolio_value,   # Current total value
-            position_ratio,               # Current position size ratio
+            # Features 0-2: RAW monetary values (will be normalized by PortfolioStateNormalizer)
+            self.balance,                 # 0: Raw balance - let normalizer handle scaling
+            self.position * current_price,# 1: Raw position value - let normalizer handle scaling  
+            portfolio_value,              # 2: Raw portfolio value - let normalizer handle scaling
+            position_ratio,               # 3: Position ratio (will be clipped 0-2 by normalizer)
             
-            # Current position status (2)
-            self.unrealized_pnl,          # Current position P&L
-            normalized_holding_time,      # How long holding current position
+            # Feature 4: RAW unrealized P&L (will be normalized)
+            self.unrealized_pnl,          # 4: Raw unrealized P&L - let normalizer handle scaling
             
-            # Current timing context (4)
-            time_of_day_normalized,       # Where in trading day
-            morning_session,              # Current market session
-            midday_session,
-            afternoon_session,
+            # Feature 5: RAW holding time (will be normalized)
+            float(position_holding_time), # 5: Raw holding time in steps - let normalizer handle scaling
             
-            # Current action validity (3)
-            can_buy,                      # Can execute buy now
-            can_sell,                     # Can execute sell now
-            normalized_invalid_rate       # Recent invalid action frequency (helps learn patterns)
+            # Features 6-9: Already normalized timing features (0-1, no processing needed)
+            time_of_day_normalized,       # 6: Time of day (already 0-1)
+            morning_session,              # 7: Morning session binary flag
+            midday_session,               # 8: Midday session binary flag  
+            afternoon_session,            # 9: Afternoon session binary flag
+            
+            # Features 10-11: Binary action validity flags (already 0-1, no processing needed)
+            can_buy,                      # 10: Can execute buy (binary)
+            can_sell,                     # 11: Can execute sell (binary)
+            
+            # Feature 12: RAW invalid actions count (will be normalized)
+            float(self.invalid_actions)   # 12: Raw invalid actions count - let normalizer handle scaling
         ]
         
         # Replace any non-finite values with 0
