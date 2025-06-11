@@ -4,3 +4,4 @@ __pycache__/
 /src/config/apikeys.py
 /logs
 /src/config/database_values.py
+/src/config/flask.py

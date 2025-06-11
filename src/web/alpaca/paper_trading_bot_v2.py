@@ -265,29 +265,62 @@ class PaperTradingBot:
                 db.session.commit()
     
     def _save_trade(self, trade_type: TradeType, amount: float, price: float, shares: float):
-        """Save trade to database"""
-        with app.app_context():
-            # Get the current user's portfolio
-            # For now, we'll use the first portfolio. In production, you'd link this to the logged-in user
-            portfolio = Portfolio.query.first()
-            
-            if not portfolio:
-                logger.warning("No portfolio found, creating trade without portfolio link")
-                portfolio_id = 1
-            else:
+        """Save trade to database with proper error handling"""
+        try:
+            with app.app_context():
+                # Get or create a portfolio for this trading bot
+                portfolio = Portfolio.query.first()
+                
+                if not portfolio:
+                    logger.warning("No portfolio found, creating default portfolio for trading bot")
+                    # Create a default portfolio if none exists
+                    portfolio = Portfolio(
+                        name=f"Paper Trading Bot Portfolio",
+                        initial_balance=Decimal(str(self.initial_balance)),
+                        current_balance=Decimal(str(self.balance))
+                    )
+                    db.session.add(portfolio)
+                    db.session.flush()  # Get the ID without committing
+                    logger.info(f"Created portfolio with ID: {portfolio.id}")
+                
                 portfolio_id = portfolio.id
-            
-            trade = TradeHistory(
-                portfolio_id=portfolio_id,
-                trading_session_id=self.session_id,
-                trade_type=trade_type,
-                amount=Decimal(str(amount)),
-                price=Decimal(str(price)),
-                shares=Decimal(str(shares))
-            )
-            db.session.add(trade)
-            db.session.commit()
-    
+                
+                # Verify trading session exists
+                session = TradingSession.query.get(self.session_id)
+                if not session:
+                    logger.error(f"Trading session {self.session_id} not found! Cannot save trade.")
+                    return
+                
+                # Create trade record
+                trade = TradeHistory(
+                    portfolio_id=portfolio_id,
+                    trading_session_id=self.session_id,
+                    trade_type=trade_type,
+                    amount=Decimal(str(amount)),
+                    price=Decimal(str(price)),
+                    shares=Decimal(str(shares))
+                )
+                
+                db.session.add(trade)
+                db.session.commit()
+                
+                logger.info(f"✅ Trade saved to database:")
+                logger.info(f"   Trade ID: {trade.id}")
+                logger.info(f"   Type: {trade_type.value}")
+                logger.info(f"   Amount: ${amount:.2f}")
+                logger.info(f"   Price: ${price:.2f}")
+                logger.info(f"   Shares: {shares}")
+                logger.info(f"   Portfolio ID: {portfolio_id}")
+                logger.info(f"   Session ID: {self.session_id}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to save trade to database: {e}")
+            logger.error(f"   Trade details: {trade_type.value}, ${amount:.2f}, ${price:.2f}, {shares} shares")
+            # Rollback any partial transaction
+            try:
+                db.session.rollback()
+            except:
+                pass    
     def _is_market_open(self, check_time: datetime = None) -> bool:
         """Check if US stock market is open at given time"""
         if check_time is None:
