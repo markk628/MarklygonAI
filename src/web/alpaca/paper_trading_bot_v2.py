@@ -37,7 +37,17 @@ if not logger.handlers:
 logger.info("Paper Trading Bot module loaded")
 
 class PaperTradingBot:
-    """Paper trading bot using Polygon for data and Alpaca for execution"""
+    """
+    Paper trading bot using Polygon for data and Alpaca for execution
+    
+    Features:
+    - Real-time data streaming from Polygon WebSocket
+    - Automatic position management and risk controls
+    - Market hours enforcement (9:30 AM - 4:00 PM EST)
+    - Automatic position closing before market close to prevent overnight risk
+    - Gap filling for missing data points
+    - Comprehensive logging and trade tracking
+    """
     
     # Constants for better maintainability
     MIN_PRICE = 0.01  # Minimum valid price (1 cent)
@@ -45,12 +55,15 @@ class PaperTradingBot:
     GAP_CHECK_INTERVAL = 65  # Seconds between gap checks
     MAX_GAP_FILL_MINUTES = 5  # Maximum minutes to forward fill
     TRADE_EXECUTION_TIMEOUT = 30  # Seconds to wait for trade execution
+    MARKET_CLOSE_WARNING_MINUTES = 15  # Minutes before market close to start warning
+    FORCE_CLOSE_MINUTES = 5  # Minutes before market close to force close positions
     
-    def __init__(self, model_id: int, initial_balance: float, max_position_size: float = 0.7):
+    def __init__(self, model_id: int, initial_balance: float, max_position_size: float = 0.7, portfolio_id: int = None):
         self.model_id = model_id
         self.initial_balance = initial_balance
         self.balance = initial_balance
         self.max_position_size = max_position_size
+        self.portfolio_id = portfolio_id
         self.position = 0
         self.entry_price = 0
         self.current_price = 0
@@ -101,6 +114,9 @@ class PaperTradingBot:
         
         # Gap filling setup
         self._initialize_gap_filling()
+        
+        # Initialize daily snapshot tracking
+        self.last_snapshot_date = None  # Track the last day we captured a snapshot
     
     def _load_model_and_config(self):
         """Load model configuration and setup"""
@@ -268,20 +284,16 @@ class PaperTradingBot:
         """Save trade to database with proper error handling"""
         try:
             with app.app_context():
-                # Get or create a portfolio for this trading bot
-                portfolio = Portfolio.query.first()
+                # Use the specific portfolio ID passed to the constructor
+                if not self.portfolio_id:
+                    logger.error("No portfolio ID provided to trading bot! Cannot save trade.")
+                    return
                 
+                # Verify the portfolio exists
+                portfolio = Portfolio.query.get(self.portfolio_id)
                 if not portfolio:
-                    logger.warning("No portfolio found, creating default portfolio for trading bot")
-                    # Create a default portfolio if none exists
-                    portfolio = Portfolio(
-                        name=f"Paper Trading Bot Portfolio",
-                        initial_balance=Decimal(str(self.initial_balance)),
-                        current_balance=Decimal(str(self.balance))
-                    )
-                    db.session.add(portfolio)
-                    db.session.flush()  # Get the ID without committing
-                    logger.info(f"Created portfolio with ID: {portfolio.id}")
+                    logger.error(f"Portfolio {self.portfolio_id} not found! Cannot save trade.")
+                    return
                 
                 portfolio_id = portfolio.id
                 
@@ -344,8 +356,105 @@ class PaperTradingBot:
         
         return market_open_time <= et_time <= market_close_time
     
+    def _is_approaching_market_close(self, check_time: datetime = None, warning_minutes: int = None) -> tuple[bool, int]:
+        """
+        Check if we're approaching market close
+        Returns: (is_approaching, minutes_until_close)
+        """
+        if check_time is None:
+            check_time = datetime.now(timezone.utc)
+        
+        if warning_minutes is None:
+            warning_minutes = self.MARKET_CLOSE_WARNING_MINUTES
+        
+        try:
+            # Try to use pytz for proper timezone handling
+            import pytz
+            et = pytz.timezone('US/Eastern')
+            et_time = check_time.astimezone(et)
+        except ImportError:
+            # Fallback to simple UTC offset (doesn't handle DST properly)
+            et_time = check_time.astimezone(timezone(timedelta(hours=-5)))
+        
+        # Skip if not a trading day
+        if et_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
+            return False, 0
+        
+        market_close_time = et_time.replace(hour=16, minute=0, second=0, microsecond=0)
+        time_until_close = (market_close_time - et_time).total_seconds() / 60  # Minutes
+        
+        # If market is already closed or will close soon
+        if time_until_close <= 0:
+            return False, 0
+        
+        is_approaching = time_until_close <= warning_minutes
+        return is_approaching, int(time_until_close)
+    
+    def _force_close_position(self, reason: str = "Market closing soon"):
+        """Force close any open position"""
+        if self.position <= 0:
+            logger.info(f"No position to close ({reason})")
+            return True
+        
+        logger.warning(f"🚨 FORCE CLOSING POSITION: {reason}")
+        logger.info(f"   Current position: {self.position} shares at ${self.current_price:.2f}")
+        
+        try:
+            # Force sell using action 2 (SELL)
+            logger.info(f"Executing forced SELL for market close protection...")
+            self._execute_action(2)
+            
+            # Verify position was closed
+            if self.position <= 0:
+                logger.info(f"✅ Position successfully closed due to: {reason}")
+                return True
+            else:
+                logger.error(f"❌ Failed to close position - still holding {self.position} shares")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error during forced position close: {e}")
+            return False
+            
+    def _capture_daily_snapshot(self):
+        """Capture a daily portfolio snapshot at the end of trading day"""
+        if not self.portfolio_id:
+            logger.warning("No portfolio ID provided to trading bot - cannot capture snapshot")
+            return False
+            
+        try:
+            with app.app_context():
+                # Import the capture function from app.py
+                from src.web.app import capture_portfolio_snapshot
+                
+                # Check if we already captured a snapshot today
+                current_date = datetime.now(timezone.utc).date()
+                
+                if self.last_snapshot_date == current_date:
+                    logger.info(f"Portfolio snapshot already captured today ({current_date})")
+                    return True
+                
+                # Capture the snapshot
+                logger.info(f"📸 Capturing daily portfolio snapshot for portfolio {self.portfolio_id}...")
+                success = capture_portfolio_snapshot(self.portfolio_id)
+                
+                if success:
+                    self.last_snapshot_date = current_date
+                    logger.info(f"✅ Daily portfolio snapshot captured successfully for {current_date}")
+                    return True
+                else:
+                    logger.error(f"❌ Failed to capture daily portfolio snapshot")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"❌ Error capturing daily portfolio snapshot: {e}")
+            return False
+    
     def _check_and_fill_gaps(self):
-        """Check for gaps in data and forward fill if necessary"""
+        """Check for gaps in data and forward fill if necessary, also monitor for market close"""
+        market_close_warning_logged = False
+        last_close_check_minute = -1
+        
         while not self.gap_filler_stop_event.is_set():
             try:
                 # Wait for specified interval (slightly more than a minute to account for delays)
@@ -354,9 +463,47 @@ class PaperTradingBot:
                 if self.gap_filler_stop_event.is_set():
                     break
                 
+                current_time = datetime.now(timezone.utc)
+                
+                # 🚨 PRIORITY 1: Check for approaching market close
+                is_approaching, minutes_until_close = self._is_approaching_market_close(current_time)
+                current_minute = int(minutes_until_close)
+                
+                if is_approaching and self.position > 0:
+                    # Log warning once per minute to avoid spam
+                    if current_minute != last_close_check_minute:
+                        if minutes_until_close <= self.FORCE_CLOSE_MINUTES:
+                            logger.warning(f"🚨 CRITICAL: {minutes_until_close} minutes until market close - FORCE CLOSING POSITION!")
+                            success = self._force_close_position(f"Force close - {minutes_until_close} minutes until market close")
+                            if success:
+                                logger.info(f"✅ Position closed successfully with {minutes_until_close} minutes to spare")
+                                # Capture daily portfolio snapshot after position is closed
+                                self._capture_daily_snapshot()
+                            else:
+                                logger.error(f"❌ Failed to close position - {minutes_until_close} minutes until close!")
+                        elif not market_close_warning_logged or current_minute != last_close_check_minute:
+                            logger.warning(f"⚠️ WARNING: {minutes_until_close} minutes until market close - holding position")
+                            logger.info(f"   Position will be force-closed in {minutes_until_close - self.FORCE_CLOSE_MINUTES} minutes if not closed by model")
+                            market_close_warning_logged = True
+                        
+                        last_close_check_minute = current_minute
+                
+                # Check if market is closing soon but no position to close
+                elif is_approaching and self.position <= 0 and minutes_until_close <= self.FORCE_CLOSE_MINUTES:
+                    # Capture daily snapshot even when no position is held
+                    if current_minute != last_close_check_minute:
+                        logger.info(f"📸 Market closing in {minutes_until_close} minutes - capturing daily snapshot (no position held)")
+                        self._capture_daily_snapshot()
+                        last_close_check_minute = current_minute
+                
+                # Reset warning flag when not approaching close
+                if not is_approaching:
+                    market_close_warning_logged = False
+                    last_close_check_minute = -1
+                
+                # Continue with existing gap filling logic
                 # Check if we have received any data
                 if self.last_data_timestamp and self.last_data_point:
-                    current_time = datetime.now(timezone.utc)
                     time_since_last_data = (current_time - self.last_data_timestamp).total_seconds()
                     
                     # Only check for gaps during market hours
@@ -905,6 +1052,14 @@ class PaperTradingBot:
                 logger.info(f"Action {action} would have been executed but market hours restriction prevented it")
                 return
             
+            # Additional safety check - don't open new positions too close to market close
+            is_approaching, minutes_until_close = self._is_approaching_market_close(current_time)
+            if action == 1 and is_approaching:  # Trying to BUY when approaching close
+                logger.warning(f"⚠️ BUY action blocked - {minutes_until_close} minutes until market close")
+                logger.info(f"   Preventing new position opening close to market close (safety measure)")
+                self.invalid_actions += 1
+                return
+            
             # DQN actions: 0=Hold, 1=Buy, 2=Sell
             action_names = {0: "HOLD", 1: "BUY", 2: "SELL"}
             logger.info(f"Model decision: {action_names.get(action, 'UNKNOWN')} (action={action})")
@@ -1042,11 +1197,27 @@ class PaperTradingBot:
         
         # Log market hours information
         current_time = datetime.now(timezone.utc)
-        logger.info(f"🕐 TRADING HOURS RESTRICTION:")
+        logger.info(f"🕐 TRADING HOURS & RISK MANAGEMENT:")
         logger.info(f"   Trading decisions will ONLY be made during regular market hours (9:30 AM - 4:00 PM EST)")
         logger.info(f"   Data collection will continue 24/7 for buffer maintenance")
+        logger.info(f"   📢 AUTOMATIC POSITION CLOSING:")
+        logger.info(f"      - Warning starts {self.MARKET_CLOSE_WARNING_MINUTES} minutes before market close")
+        logger.info(f"      - Positions will be FORCE-CLOSED {self.FORCE_CLOSE_MINUTES} minutes before market close")
+        logger.info(f"      - This protects against overnight risk and ensures position closure")
         logger.info(f"   Current time: {current_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         logger.info(f"   Market status: {'🟢 OPEN' if self._is_market_open(current_time) else '🔴 CLOSED'}")
+        
+        # Check if we're starting close to market close
+        is_approaching, minutes_until_close = self._is_approaching_market_close(current_time)
+        if is_approaching:
+            logger.warning(f"⚠️ STARTING CLOSE TO MARKET CLOSE: {minutes_until_close} minutes remaining")
+            if minutes_until_close <= self.FORCE_CLOSE_MINUTES:
+                logger.warning(f"🚨 CRITICAL: Bot starting within force-close window!")
+                logger.warning(f"   Any positions opened may be immediately closed!")
+        elif self._is_market_open(current_time):
+            is_approaching_warning, minutes_until_warning = self._is_approaching_market_close(current_time, self.MARKET_CLOSE_WARNING_MINUTES)
+            if minutes_until_warning > 0:
+                logger.info(f"✅ Safe trading window: {minutes_until_warning} minutes until close warnings begin")
         
         # Start gap filler thread
         logger.info("Starting gap filler thread...")
@@ -1077,11 +1248,15 @@ class PaperTradingBot:
         
         # Close any open positions
         if self.position > 0:
-            logger.info(f"Closing open position of {self.position} shares...")
+            logger.info(f"Closing open position of {self.position} shares during bot shutdown...")
             try:
-                self._execute_action(2)  # Sell
+                # Use force close method for more robust handling during shutdown
+                success = self._force_close_position("Bot shutdown")
+                if not success:
+                    logger.warning("Force close failed, attempting regular sell action...")
+                    self._execute_action(2)  # Sell
             except Exception as e:
-                logger.error(f"Error closing position: {e}")
+                logger.error(f"Error closing position during shutdown: {e}")
         
         # Update final session state
         try:

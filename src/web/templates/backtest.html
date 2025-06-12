@@ -82,7 +82,10 @@
         <!-- Performance Chart -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">모델별 성과 비교</h2>
+                <div>
+                    <h2 class="text-2xl font-bold obsidian-text">모델별 성과 비교</h2>
+                    <p class="text-sm text-gray-400 mt-1">상위 5개 모델 (평균 수익률 기준)</p>
+                </div>
                 <svg class="icon-lg text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                 </svg>
@@ -93,7 +96,10 @@
         <!-- Detailed Results Table -->
         <div class="obsidian-card rounded-lg p-6 border border-gray-800">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold obsidian-text">상세 백테스트 결과</h2>
+                <div>
+                    <h2 class="text-2xl font-bold obsidian-text">상세 백테스트 결과</h2>
+                    <p class="text-sm text-gray-400 mt-1">각 모델의 평균 성과 (요약 결과)</p>
+                </div>
                 <div class="flex items-center space-x-4">
                     <select class="obsidian-input px-3 py-2 rounded-lg text-sm" id="model-filter">
                         <option value="">모든 모델</option>
@@ -156,6 +162,33 @@ let performanceChart = null;
 let riskChart = null;
 let distributionChart = null;
 
+// Filter to show only summary/average results (first row for each model)
+function filterSummaryResults(results) {
+    // Group results by model_id
+    const modelGroups = {};
+    results.forEach(result => {
+        if (!modelGroups[result.model_id]) {
+            modelGroups[result.model_id] = [];
+        }
+        modelGroups[result.model_id].push(result);
+    });
+    
+    // Sort each group by ID (ascending) and take the first (summary) row
+    const summaryResults = [];
+    Object.values(modelGroups).forEach(group => {
+        // Sort by ID to ensure the first row is the summary/average
+        group.sort((a, b) => a.id - b.id);
+        // Take only the first row (the summary/average row)
+        summaryResults.push(group[0]);
+    });
+    
+    // Sort summary results by model_id for consistent display
+    summaryResults.sort((a, b) => a.model_id - b.model_id);
+    
+    console.log(`Filtered ${results.length} total results to ${summaryResults.length} summary results`);
+    return summaryResults;
+}
+
 // Load data when page loads
 document.addEventListener('DOMContentLoaded', function() {
     loadBacktestData();
@@ -167,7 +200,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadBacktestData() {
     try {
-        const response = await fetch('/api/backtest-results');
+        // Query specifically for average/summary backtest results
+        const response = await fetch('/api/backtest-results/summary');
         const data = await response.json();
         allBacktestResults = data.backtest_results;
         
@@ -187,6 +221,25 @@ async function loadBacktestData() {
         
     } catch (error) {
         console.error('Error loading backtest data:', error);
+        // Fallback to regular endpoint if summary endpoint doesn't exist yet
+        try {
+            const fallbackResponse = await fetch('/api/backtest-results');
+            const fallbackData = await fallbackResponse.json();
+            allBacktestResults = fallbackData.backtest_results;
+            
+            // Filter to show only summary/average rows as fallback
+            const summaryResults = filterSummaryResults(allBacktestResults);
+            allBacktestResults = summaryResults;
+            
+            updateSummaryCards(allBacktestResults);
+            populateFilters(allBacktestResults);
+            displayResults(allBacktestResults);
+            updatePerformanceChart(allBacktestResults);
+            updateRiskChart(allBacktestResults);
+            updateDistributionChart(allBacktestResults);
+        } catch (fallbackError) {
+            console.error('Error loading fallback backtest data:', fallbackError);
+        }
     }
 }
 
@@ -194,19 +247,20 @@ function updateSummaryCards(results) {
     // Total results
     document.getElementById('total-results').textContent = results.length;
     
-    // Average return
+    // Average return (convert decimal to percentage)
     const avgReturn = results.reduce((sum, r) => sum + r.return_rate, 0) / results.length;
+    const avgReturnPercent = avgReturn * 100; // Convert decimal to percentage
     const avgReturnElement = document.getElementById('avg-return');
-    avgReturnElement.textContent = `${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}%`;
-    avgReturnElement.className = `text-2xl font-bold ${avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}`;
+    avgReturnElement.textContent = `${avgReturnPercent >= 0 ? '+' : ''}${avgReturnPercent.toFixed(2)}%`;
+    avgReturnElement.className = `text-2xl font-bold ${avgReturnPercent >= 0 ? 'text-green-400' : 'text-red-400'}`;
     
     // Average Sharpe ratio
     const avgSharpe = results.reduce((sum, r) => sum + r.sharpe_ratio, 0) / results.length;
     document.getElementById('avg-sharpe').textContent = avgSharpe.toFixed(2);
     
-    // Average max drawdown
+    // Average max drawdown (convert decimal to percentage)
     const avgDrawdown = results.reduce((sum, r) => sum + r.max_drawdown, 0) / results.length;
-    document.getElementById('avg-drawdown').textContent = `${avgDrawdown.toFixed(2)}%`;
+    document.getElementById('avg-drawdown').textContent = `-${(avgDrawdown * 100).toFixed(2)}%`;
 }
 
 function populateFilters(results) {
@@ -237,6 +291,7 @@ function filterResults() {
     const modelFilter = document.getElementById('model-filter').value;
     const tickerFilter = document.getElementById('ticker-filter').value;
     
+    // Apply user filters to the already-summarized results
     let filteredResults = allBacktestResults;
     
     if (modelFilter) {
@@ -285,15 +340,19 @@ function displayResults(results) {
                     <div class="w-8 h-8 obsidian-card rounded-full flex items-center justify-center mr-3">
                         <span class="text-xs font-bold text-purple-400">${result.model_type[0]}</span>
                     </div>
-                    <span class="font-medium">${result.model_name}</span>
+                    <div>
+                        <span class="font-medium">${result.model_name}</span>
+                        <span class="ml-2 px-2 py-1 text-xs rounded-full bg-gray-700 text-gray-300">ID: ${result.model_id}</span>
+                        <span class="ml-2 px-2 py-1 text-xs rounded-full bg-blue-900 text-blue-300">평균</span>
+                    </div>
                 </div>
             </td>
             <td class="px-4 py-3">${result.ticker}</td>
             <td class="px-4 py-3 text-right ${result.return_rate >= 0 ? 'text-green-400' : 'text-red-400'} font-bold">
-                ${result.return_rate >= 0 ? '+' : ''}${result.return_rate.toFixed(2)}%
+                ${result.return_rate >= 0 ? '+' : ''}${(result.return_rate * 100).toFixed(2)}%
             </td>
             <td class="px-4 py-3 text-right">${result.sharpe_ratio.toFixed(2)}</td>
-            <td class="px-4 py-3 text-right text-red-400">${result.max_drawdown.toFixed(2)}%</td>
+            <td class="px-4 py-3 text-right text-red-400">-${(result.max_drawdown * 100).toFixed(2)}%</td>
             <td class="px-4 py-3 text-right">${result.win_rate.toFixed(1)}%</td>
             <td class="px-4 py-3 text-right">${result.total_trades}</td>
             <td class="px-4 py-3 text-center">
@@ -308,20 +367,18 @@ function displayResults(results) {
 function updatePerformanceChart(results) {
     const ctx = document.getElementById('performanceChart').getContext('2d');
     
-    // Group by model and calculate average returns
-    const modelPerformance = {};
-    results.forEach(result => {
-        if (!modelPerformance[result.model_name]) {
-            modelPerformance[result.model_name] = [];
-        }
-        modelPerformance[result.model_name].push(result.return_rate);
-    });
+    // Since we're already using summary results, each result represents one model's average
+    // Sort by return rate and take top 5
+    const sortedResults = [...results]
+        .sort((a, b) => b.return_rate - a.return_rate) // Sort by return rate descending
+        .slice(0, 5); // Take top 5
     
-    const labels = Object.keys(modelPerformance);
-    const data = labels.map(model => {
-        const returns = modelPerformance[model];
-        return returns.reduce((sum, r) => sum + r, 0) / returns.length;
-    });
+    const labels = sortedResults.map(result => 
+        `${result.model_name} (ID: ${result.model_id})`
+    );
+    const data = sortedResults.map(result => 
+        result.return_rate * 100 // Convert decimal to percentage
+    );
     
     if (performanceChart) {
         performanceChart.destroy();
@@ -332,7 +389,7 @@ function updatePerformanceChart(results) {
         data: {
             labels: labels,
             datasets: [{
-                label: '평균 수익률 (%)',
+                label: '평균 수익률 (%) - Top 5',
                 data: data,
                 backgroundColor: data.map(value => value >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'),
                 borderColor: data.map(value => value >= 0 ? '#10b981' : '#ef4444'),
@@ -402,10 +459,10 @@ function updateRiskChart(results) {
         const avgWinRate = data.winRates.reduce((a, b) => a + b, 0) / data.winRates.length;
         
         // Normalize values to 0-100 scale
-        const normalizedReturn = Math.min(100, Math.max(0, avgReturn * 2));
+        const normalizedReturn = Math.min(100, Math.max(0, avgReturn * 200)); // avgReturn is decimal, so *200 for percentage scale
         const normalizedSharpe = Math.min(100, avgSharpe * 25);
-        const normalizedDrawdown = Math.min(100, 100 - avgDrawdown * 2);
-        const normalizedWinRate = avgWinRate;
+        const normalizedDrawdown = Math.min(100, 100 - Math.abs(avgDrawdown) * 200); // Use absolute value for proper scaling
+        const normalizedWinRate = avgWinRate; // Win rate is already a percentage
         
         return {
             label: model,

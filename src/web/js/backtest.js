@@ -243,8 +243,12 @@ class BacktestManager {
 
         switch (type) {
             case 'percentage':
-                const formattedPercent = MarklygonAI.formatPercentage(value / 100);
+                const formattedPercent = MarklygonAI.formatPercentage(value); // value is already a decimal
                 const colorClass = value >= 0 ? 'text-green-600' : 'text-red-600';
+                // Special handling for max_drawdown to add negative sign
+                if (row && row.max_drawdown !== undefined && value === row.max_drawdown) {
+                    return `<span class="${colorClass} font-medium">-${(value * 100).toFixed(2)}%</span>`;
+                }
                 return `<span class="${colorClass} font-medium">${formattedPercent}</span>`;
                 
             case 'number':
@@ -327,13 +331,13 @@ class BacktestManager {
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Return Rate</label>
                                 <p class="mt-1 text-sm font-semibold ${result.return_rate >= 0 ? 'text-green-600' : 'text-red-600'}">
-                                    ${MarklygonAI.formatPercentage(result.return_rate / 100)}
+                                    ${MarklygonAI.formatPercentage(result.return_rate)}
                                 </p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Max Drawdown</label>
                                 <p class="mt-1 text-sm font-semibold text-red-600">
-                                    ${MarklygonAI.formatPercentage(result.max_drawdown / 100)}
+                                    -${(result.max_drawdown * 100).toFixed(2)}%
                                 </p>
                             </div>
                             <div>
@@ -342,7 +346,7 @@ class BacktestManager {
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Win Rate</label>
-                                <p class="mt-1 text-sm text-gray-900">${MarklygonAI.formatPercentage(result.win_rate / 100)}</p>
+                                <p class="mt-1 text-sm text-gray-900">${result.win_rate.toFixed(1)}%</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Total Trades</label>
