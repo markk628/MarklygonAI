@@ -324,10 +324,17 @@ class BasicTradingEnvironment(BaseTradingEnvironment):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        print(f"BasicTradingEnvironment initialized:")
-        print(f"  Minutes per day: {self.minutes_per_day}")
-        print(f"  Total trading days: {self.total_days}")
-        print(f"  Trading logic: Simple buy-sell cycles")
+        
+        # Only print initialization message if this is the actual class being instantiated
+        # (not when called via inheritance from WeightedAverage or LotBased)
+        # Only print for TRAIN mode to avoid spam when creating multiple environments
+        is_train_mode = (hasattr(self.mode, 'value') and self.mode.value == 'train') or str(self.mode) == TradingMode.TRAIN
+        if type(self).__name__ == 'BasicTradingEnvironment' and is_train_mode:
+            print(f"BasicTradingEnvironment initialized:")
+            print(f"  Minutes per day: {self.minutes_per_day}")
+            print(f"  Total trading days: {self.total_days}")
+            print(f"  Trading logic: Simple buy-sell cycles")
+        
         self.reset()
         
     def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
@@ -846,22 +853,60 @@ class LotBasedTradingEnvironment(BasicTradingEnvironment):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        print(f"LotBasedTradingEnvironment initialized:")
-        print(f"  Trading logic: Individual lot tracking")
-        print(f"  Max lots: {self.config.max_lots}")
-        print(f"  Lot method: {self.config.lot_method}")
-        print(f"  Expected trades per episode: 10-50+ lot completions")
+        
+        # Print specific initialization message for this environment type
+        # Only print for TRAIN mode to avoid spam when creating multiple environments
+        is_train_mode = (hasattr(self.mode, 'value') and self.mode.value == 'train') or str(self.mode) == TradingMode.TRAIN
+        if type(self).__name__ == 'LotBasedTradingEnvironment' and is_train_mode:
+            print(f"LotBasedTradingEnvironment initialized:")
+            print(f"  Minutes per day: {self.minutes_per_day}")
+            print(f"  Total trading days: {self.total_days}")
+            print(f"  Trading logic: Individual lot tracking")
+            print(f"  Max lots: {self.config.max_lots}")
+            print(f"  Lot method: {self.config.lot_method}")
+            print(f"  Expected trades per episode: 10-50+ lot completions")
         
     def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
         """Reset environment with lot-based tracking"""
-        result = super().reset(day_idx)
+        # Initialize lots BEFORE calling parent reset (which calls _get_state)
         self.lots: List[TradingLot] = []  # List of trading lots
+        result = super().reset(day_idx)
         return result
     
     @property
     def total_position(self) -> float:
         """Calculate total position across all lots"""
         return sum(lot.shares for lot in self.lots)
+    
+    @property 
+    def position(self) -> float:
+        """Compatibility property for parent class - returns total position"""
+        return self.total_position
+    
+    @position.setter
+    def position(self, value: float):
+        """Compatibility setter - ignore direct position setting for lot-based environment"""
+        # In lot-based environment, position is managed through lots, not directly
+        pass
+    
+    @property
+    def entry_price(self) -> float:
+        """Compatibility property for parent class - returns weighted average entry price"""
+        if not self.lots:
+            return 0.0
+        total_cost = sum(lot.cost_basis for lot in self.lots)
+        total_shares = sum(lot.shares for lot in self.lots)
+        if total_shares > 0:
+            # Calculate average price from cost basis (remove transaction fees)
+            avg_cost_per_share = total_cost / total_shares
+            return avg_cost_per_share / (1 + self.config.transaction_fee_percent)
+        return 0.0
+    
+    @entry_price.setter
+    def entry_price(self, value: float):
+        """Compatibility setter - ignore direct entry price setting for lot-based environment"""
+        # In lot-based environment, entry prices are managed per lot
+        pass
     
     @property
     def weighted_avg_cost_basis(self) -> float:
