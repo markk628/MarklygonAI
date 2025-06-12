@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.models.mark.dqn_v2.dqn_v5 import train_dqn
+# from src.models.mark.dqn_v2.dqn_v5 import train_dqn
+from src.models.mark.dqn_v2.dqn_v7 import train_enhanced_dqn
 from src.models.mark.dqn_v2.database import save_multi_day_backtest_to_db
 from src.models.mark.dqn_v2.visualization import plot_training_results, plot_backtest_results, plot_multi_day_comparison
 from src.config.config import CUTOFF_TIMESTAMP, DATA_DIR, MODELS_DIR, RESULTS_DIR, EVALUATE_INTERVAL, INITIAL_BALANCE
@@ -30,12 +31,23 @@ def main():
     preprocessor_path = models_dir / f'preprocessor_{ticker}.pkl'
     
     # Train the agent with validation
-    print(f"Starting DQN training for {ticker}...")
+    print(f"Starting Enhanced DQN training for {ticker}...")
     print("="*50)
     
     cutoff = pd.Timestamp(CUTOFF_TIMESTAMP, tz='UTC')
     
-    training_results = train_dqn(
+    # training_results = train_dqn(
+    #     data_path=data_path,
+    #     cutoff=cutoff,
+    #     save_interval=50,
+    #     early_stopping_patience=10,
+    #     use_preprocessing=True,  # Enable preprocessing
+    #     scaling_method='robust',  # Best for financial data
+    #     outlier_method='winsorize',  # Handle outliers
+    #     preprocessor_save_path=str(preprocessor_path)
+    # )
+    
+    training_results = train_enhanced_dqn(
         data_path=data_path,
         cutoff=cutoff,
         save_interval=50,

@@ -518,22 +518,57 @@ let portfolioChart = null;
 function updatePortfolioChartWithAlpaca(alpacaData) {
     const ctx = document.getElementById('portfolioChart').getContext('2d');
     
-    // Calculate total portfolio value (cash + market value of positions)
-    const cashBalance = alpacaData.account.cash;
-    const positionsValue = alpacaData.positions.reduce((sum, p) => sum + p.market_value, 0);
-    const currentTotalValue = cashBalance + positionsValue;
-    // Generate 5-day historical data (in production, this would come from stored daily snapshots)
+    // Try to load portfolio snapshots first
+    loadPortfolioSnapshots()
+        .then(snapshotData => {
+            if (snapshotData && snapshotData.snapshots && snapshotData.snapshots.length > 0) {
+                // Use real historical data from snapshots
+                const snapshots = snapshotData.snapshots;
+                const labels = snapshots.map(s => new Date(s.date).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
+                const values = snapshots.map(s => s.portfolio_value);
+                
+                createPortfolioChart(ctx, labels, values, '실제 포트폴리오 성과');
+            } else {
+                // Fallback to current value + sample data
+                createFallbackPortfolioChart(ctx, alpacaData);
+            }
+        })
+        .catch(error => {
+            console.log('Could not load portfolio snapshots, using fallback data:', error);
+            createFallbackPortfolioChart(ctx, alpacaData);
+        });
+}
+
+async function loadPortfolioSnapshots() {
+    try {
+        const response = await fetch('/api/portfolio-snapshots');
+        return await response.json();
+    } catch (error) {
+        throw error;
+    }
+}
+
+function createFallbackPortfolioChart(ctx, alpacaData) {
+    // Use initial portfolio value as baseline (default $100,000)
+    const initialPortfolioValue = 100000;
+    
+    // Generate historical data using initial value
     const labels = [];
     const values = [];
     const today = new Date();
     
-    for (let i = 4; i >= 0; i--) {
+    for (let i = 6; i >= 0; i--) {
         const date = new Date(today);
         date.setDate(date.getDate() - i);
         labels.push(date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }));
-        values.push(currentTotalValue);
+        // Use initial portfolio value for all historical points
+        values.push(initialPortfolioValue);
     }
     
+    createPortfolioChart(ctx, labels, values, '포트폴리오 성과 (초기값)');
+}
+
+function createPortfolioChart(ctx, labels, values, label) {
     if (portfolioChart) {
         portfolioChart.destroy();
     }
@@ -543,7 +578,7 @@ function updatePortfolioChartWithAlpaca(alpacaData) {
         data: {
             labels: labels,
             datasets: [{
-                label: '총 포트폴리오 가치 (5일)',
+                label: label,
                 data: values,
                 borderColor: '#8b5cf6',
                 backgroundColor: 'rgba(139, 92, 246, 0.1)',

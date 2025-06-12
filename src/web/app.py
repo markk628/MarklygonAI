@@ -18,17 +18,8 @@ from src.config.config import DATABASE_WEB
 from src.utils.database import DatabaseManager
 from src.web.extensions import *
 
-# Initialize the database
-# db.init_app(app)
-
-# Initialize extensions
+# Initialize extensions - will be configured later
 login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-@login_manager.user_loader
-def load_user(user_id):
-    return Profile.query.get(int(user_id))
 
 @app.context_processor
 def inject_global_stats():
@@ -107,6 +98,29 @@ def register():
         profile.password = password  
         
         db.session.add(profile)
+        db.session.flush()  # Get the profile ID without committing
+        
+        # Create a default portfolio for the new user
+        portfolio = Portfolio(
+            name=f"{username}'s Portfolio",
+            profile_id=profile.id,
+            initial_balance=100000,  # Default starting balance
+            current_balance=100000,
+            is_live_trading=True
+        )
+        db.session.add(portfolio)
+        db.session.flush()  # Get the portfolio ID without committing
+        
+        # Create initial portfolio snapshot
+        initial_snapshot = PortfolioSnapshot(
+            portfolio_id=portfolio.id,
+            snapshot_date=datetime.now(timezone.utc),
+            balance=100000.0,
+            position_value=0.0,
+            stock_quantity=0.0,
+            portfolio_value=100000.0
+        )
+        db.session.add(initial_snapshot)
         db.session.commit()
         
         login_user(profile)
@@ -390,6 +404,60 @@ def api_backtest_results():
     
     return jsonify(backtest_data)
 
+@app.route('/api/backtest-results/summary')
+@login_required
+def api_backtest_results_summary():
+    """Fetch only the average/summary backtest results (first row for each model)"""
+    from sqlalchemy import func, and_
+    
+    # Get the first (lowest ID) backtest for each model, which contains the average results
+    subquery = db.session.query(
+        BacktestHistory.model_id,
+        func.min(BacktestHistory.id).label('min_id')
+    ).group_by(BacktestHistory.model_id).subquery()
+    
+    # Join to get the actual backtest records and model information
+    summary_backtests = db.session.query(BacktestHistory, MarklygonModel)\
+        .join(MarklygonModel, BacktestHistory.model_id == MarklygonModel.id)\
+        .join(subquery, and_(
+            BacktestHistory.model_id == subquery.c.model_id,
+            BacktestHistory.id == subquery.c.min_id
+        ))\
+        .order_by(BacktestHistory.model_id)\
+        .all()
+    
+    backtest_data = {
+        'backtest_results': []
+    }
+    
+    for backtest, model in summary_backtests:
+        result = {
+            'id': backtest.id,  # Include backtest ID for identification
+            'backtest_id': backtest.id,
+            'model_id': backtest.model_id,  # Use actual model_id instead of formatted string
+            'model_name': f'{model.model.value} - {model.ticker}',
+            'model_type': model.model.value,
+            'ticker': model.ticker,
+            'company_name': get_company_name(model.ticker),
+            'backtest_date': backtest.backtest_date.isoformat(),
+            'start_date': backtest.start_date.isoformat(),
+            'end_date': backtest.end_date.isoformat(),
+            'initial_balance': float(backtest.initial_balance),
+            'final_balance': float(backtest.final_balance),
+            'net_profit': float(backtest.net_profit),
+            'return_rate': float(backtest.return_rate),
+            'max_drawdown': float(backtest.max_drawdown),
+            'sharpe_ratio': float(backtest.sharpe_ratio),
+            'total_trades': backtest.total_trades,
+            'winning_trades': backtest.winning_trades,
+            'losing_trades': backtest.losing_trades,
+            'win_rate': (backtest.winning_trades / backtest.total_trades * 100) if backtest.total_trades > 0 else 0,
+            'invalid_actions': backtest.invalid_actions
+        }
+        backtest_data['backtest_results'].append(result)
+    
+    return jsonify(backtest_data)
+
 @app.route('/api/realtime/portfolio')
 @login_required
 def api_realtime_portfolio():
@@ -543,8 +611,13 @@ def api_start_trading():
         if model_id in active_trading_bots:
             return jsonify({'success': False, 'error': 'Trading already active for this model'})
         
-        # Create and start trading bot
-        bot = PaperTradingBot(model_id, initial_balance, max_position_size)
+        # Get the current user's portfolio
+        portfolio = Portfolio.query.filter_by(profile_id=current_user.id).first()
+        if not portfolio:
+            return jsonify({'success': False, 'error': 'No portfolio found for user. Please contact support.'})
+        
+        # Create and start trading bot with the user's portfolio
+        bot = PaperTradingBot(model_id, initial_balance, max_position_size, portfolio.id)
         
         # Run bot in a separate thread (daemon thread)
         thread = threading.Thread(target=bot.start, daemon=True)
@@ -736,8 +809,213 @@ def api_alpaca_portfolio():
         traceback.print_exc()
         return jsonify({'error': error_msg})
 
+def capture_portfolio_snapshot(portfolio_id: int):
+    """Capture a portfolio snapshot from Alpaca data for the given portfolio"""
+    from alpaca.trading.client import TradingClient
+    from src.config.apikeys import ALPACA_APIKEY, ALPACA_SECRET_KEY
+    
+    try:
+        # Initialize Alpaca client
+        alpaca = TradingClient(ALPACA_APIKEY, ALPACA_SECRET_KEY, paper=True)
+        
+        # Get account info and positions
+        account = alpaca.get_account()
+        positions = alpaca.get_all_positions()
+        
+        # Calculate portfolio metrics
+        balance = float(account.cash)
+        position_value = sum(float(pos.market_value) for pos in positions)
+        stock_quantity = sum(float(pos.qty) for pos in positions)
+        portfolio_value = balance + position_value
+        
+        # Create snapshot record
+        snapshot = PortfolioSnapshot(
+            portfolio_id=portfolio_id,
+            snapshot_date=datetime.now(timezone.utc),
+            balance=balance,
+            position_value=position_value,
+            stock_quantity=stock_quantity,
+            portfolio_value=portfolio_value
+        )
+        
+        db.session.add(snapshot)
+        db.session.commit()
+        
+        print(f"✅ Portfolio snapshot captured for portfolio {portfolio_id}:")
+        print(f"   Balance: ${balance:.2f}")
+        print(f"   Position Value: ${position_value:.2f}")
+        print(f"   Stock Quantity: {stock_quantity}")
+        print(f"   Total Portfolio Value: ${portfolio_value:.2f}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error capturing portfolio snapshot for portfolio {portfolio_id}: {e}")
+        db.session.rollback()
+        return False
+
+@app.route('/api/capture-snapshot', methods=['POST'])
+@login_required
+def api_capture_snapshot():
+    """Manual trigger to capture a portfolio snapshot"""
+    try:
+        # Get the user's portfolio (should exist from registration)
+        portfolio = Portfolio.query.filter_by(profile_id=current_user.id).first()
+        
+        if not portfolio:
+            return jsonify({
+                'success': False, 
+                'error': 'No portfolio found for user. Please contact support.'
+            })
+        
+        success = capture_portfolio_snapshot(portfolio.id)
+        
+        if success:
+            return jsonify({
+                'success': True, 
+                'message': 'Portfolio snapshot captured successfully'
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': 'Failed to capture portfolio snapshot'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
+@app.route('/api/portfolio-snapshots')
+@login_required
+def api_portfolio_snapshots():
+    """Get portfolio snapshots for the current user"""
+    try:
+        # Get the user's portfolio
+        portfolio = Portfolio.query.filter_by(profile_id=current_user.id).first()
+        
+        if not portfolio:
+            # Return empty snapshots if no portfolio exists
+            return jsonify({'snapshots': []})
+        
+        # Get last 30 days of snapshots for chart
+        snapshots = PortfolioSnapshot.query.filter_by(portfolio_id=portfolio.id)\
+            .order_by(PortfolioSnapshot.snapshot_date.desc())\
+            .limit(30)\
+            .all()
+        
+        # Reverse to get chronological order for chart
+        snapshots = list(reversed(snapshots))
+        
+        snapshot_data = {
+            'snapshots': [{
+                'date': snapshot.snapshot_date.isoformat(),
+                'balance': float(snapshot.balance),
+                'position_value': float(snapshot.position_value),
+                'stock_quantity': float(snapshot.stock_quantity),
+                'portfolio_value': float(snapshot.portfolio_value)
+            } for snapshot in snapshots]
+        }
+        
+        return jsonify(snapshot_data)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+def create_sample_portfolio_snapshots(portfolio_id: int, days: int = 7):
+    """Create sample portfolio snapshots for testing/demo purposes"""
+    import random
+    
+    try:
+        # Base portfolio value
+        base_value = 100000
+        
+        # Create snapshots for the last N days
+        for i in range(days, 0, -1):
+            snapshot_date = datetime.now(timezone.utc) - timedelta(days=i)
+            
+            # Generate realistic portfolio progression
+            day_factor = (days - i) / days  # 0 to 1 progression
+            trend = base_value * (1 + day_factor * 0.15)  # 15% growth trend over period
+            
+            # Add daily volatility ±3%
+            daily_variation = trend * (random.random() - 0.5) * 0.06
+            portfolio_value = max(trend + daily_variation, base_value * 0.85)  # Don't go below 85% of base
+            
+            # Split between balance and positions (realistic allocation)
+            position_ratio = random.uniform(0.6, 0.9)  # 60-90% in positions
+            position_value = portfolio_value * position_ratio
+            balance = portfolio_value - position_value
+            
+            # Calculate stock quantity based on average price of $150/share
+            avg_stock_price = 150
+            stock_quantity = position_value / avg_stock_price
+            
+            snapshot = PortfolioSnapshot(
+                portfolio_id=portfolio_id,
+                snapshot_date=snapshot_date,
+                balance=balance,
+                position_value=position_value,
+                stock_quantity=stock_quantity,
+                portfolio_value=portfolio_value
+            )
+            
+            db.session.add(snapshot)
+        
+        db.session.commit()
+        print(f"✅ Created {days} sample portfolio snapshots for portfolio {portfolio_id}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error creating sample snapshots: {e}")
+        db.session.rollback()
+        return False
+
+@app.route('/api/create-sample-snapshots', methods=['POST'])
+@login_required
+def api_create_sample_snapshots():
+    """Create sample portfolio snapshots for demo purposes"""
+    try:
+        # Get the user's portfolio (should exist from registration)
+        portfolio = Portfolio.query.filter_by(profile_id=current_user.id).first()
+        
+        if not portfolio:
+            return jsonify({
+                'success': False, 
+                'error': 'No portfolio found for user. Please contact support.'
+            })
+        
+        days = request.json.get('days', 7) if request.is_json else 7
+        success = create_sample_portfolio_snapshots(portfolio.id, days)
+        
+        if success:
+            return jsonify({
+                'success': True, 
+                'message': f'Created {days} sample portfolio snapshots'
+            })
+        else:
+            return jsonify({
+                'success': False, 
+                'error': 'Failed to create sample snapshots'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
+
 if __name__ == '__main__':
     print("MarklygonAI Flask Application Starting...")
+
+    # Configure login manager
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return Profile.query.get(int(user_id))
 
     with app.app_context():
         db.create_all()
@@ -751,8 +1029,31 @@ if __name__ == '__main__':
             )
             demo_user.password = 'demo123'  # Triggers password hash via property setter
             db.session.add(demo_user)
+            db.session.flush()  # Get the user ID
+            
+            # Create a default portfolio for the demo user
+            demo_portfolio = Portfolio(
+                name="Demo Portfolio",
+                profile_id=demo_user.id,
+                initial_balance=100000,
+                current_balance=100000,
+                is_live_trading=True
+            )
+            db.session.add(demo_portfolio)
+            db.session.flush()  # Get the portfolio ID without committing
+            
+            # Create initial portfolio snapshot for demo user
+            demo_snapshot = PortfolioSnapshot(
+                portfolio_id=demo_portfolio.id,
+                snapshot_date=datetime.now(timezone.utc),
+                balance=100000.0,
+                position_value=0.0,
+                stock_quantity=0.0,
+                portfolio_value=100000.0
+            )
+            db.session.add(demo_snapshot)
             db.session.commit()
-            print("Demo user created: demo/demo123")
+            print("Demo user created: demo/demo123 with portfolio")
 
         # Display available models and backtests
         models_count = MarklygonModel.query.count()

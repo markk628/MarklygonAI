@@ -1,15 +1,33 @@
 """
-DQN v5: Enhanced Trading Agent with Portfolio Tracking + Invalid Action Learning
-===============================================================================
+DQN v7: Enhanced Action Space + Action Masking + Exploration Bonuses
+==================================================================
 
-REWARD SYSTEM FIX APPLIED:
-- Removed auxiliary rewards and inconsistent scaling
-- Implemented unified portfolio value change tracking for ALL actions  
-- ALL ACTIONS: Portfolio value change * 0.1 (consistent scaling)
-- INVALID ACTIONS: Additional -0.1 penalty to teach action validity
+KEY IMPROVEMENTS TO REDUCE INVALID ACTIONS:
+1. ENHANCED ACTION SPACE (7 actions instead of 3):
+   - 0: HOLD
+   - 1: BUY_SMALL (25% of available cash)
+   - 2: BUY_MEDIUM (50% of available cash)  
+   - 3: BUY_LARGE (75% of available cash)
+   - 4: SELL_SMALL (25% of position)
+   - 5: SELL_MEDIUM (50% of position)
+   - 6: SELL_LARGE (100% of position)
 
-This maintains reward-return alignment through portfolio tracking while
-ensuring the agent learns which actions are valid.
+2. ACTION MASKING: Instead of penalizing invalid actions, mask them out
+   during action selection so agent can only choose valid actions.
+
+3. EXPLORATION BONUSES: Small rewards for trying new actions to encourage
+   more active trading and reduce over-conservative behavior.
+
+4. IMPROVED STATE REPRESENTATION: Better position/cash ratio features
+   to help agent understand available opportunities.
+
+5. FIXED WIN/LOSS TRACKING: All sell actions now count towards win/loss 
+   statistics, not just full position closes.
+
+6. ANTI-OVERTRADING MEASURES: Trade cooldowns, minimum trade sizes, and 
+   moderate transaction cost increases to prevent micro-trading exploitation.
+
+This should convert ~260 invalid actions per day into profitable trades.
 """
 
 import torch
@@ -18,7 +36,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import pandas as pd
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 import random
 import math
 from datetime import datetime, time
@@ -41,10 +59,51 @@ from src.models.mark.dqn_v2.normalization import PortfolioStateNormalizer
 from src.models.mark.dqn_v2.networks import create_network
 
 
+class EnhancedTradingConfig(TradingConfig):
+    """Enhanced configuration with 7-action space"""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Override action space
+        self.num_actions = 7  # Enhanced action space
+        
+        # CRITICAL: Update portfolio features count for enhanced state
+        self.num_portfolio_features = 30  # Enhanced from 13 to 30 features
+        
+        # Update total features count
+        base_stock_features = len(STOCK_FEATURES_V2)
+        self.num_features = base_stock_features + self.num_portfolio_features
+        
+        # Action sizing ratios
+        self.buy_small_ratio = 0.25   # 25% of available cash
+        self.buy_medium_ratio = 0.50  # 50% of available cash  
+        self.buy_large_ratio = 0.75   # 75% of available cash
+        
+        self.sell_small_ratio = 0.25  # 25% of position
+        self.sell_medium_ratio = 0.50 # 50% of position
+        self.sell_large_ratio = 1.00  # 100% of position
+        
+        # Exploration bonuses (reduced to prevent reward hacking)
+        self.exploration_bonus = 0.0001  # Much smaller bonus for active trading
+        self.position_change_bonus = 0.0002  # Smaller bonus for changing position size
+        self.max_exploration_per_episode = 0.01  # Cap total exploration bonus per episode
+        
+        # Action masking parameters
+        self.use_action_masking = True
+        self.min_trade_ratio = 0.05  # Minimum 5% of balance for trades (increased from 1%)
+        
+        # Anti-overtrading measures
+        self.min_steps_between_trades = 10  # Minimum 10 steps between trades (increased from 5)
+        self.transaction_cost_multiplier = 1.5  # Moderate increase (reduced from 3.0)
+        self.min_position_change_pct = 0.02  # Minimum 2% position change for trades
+        
+        # Enhanced state features
+        self.enhanced_state_features = True
+
+
 class PrioritizedReplayBufferGPU:
-    """PER VRAM version"""
+    """PER VRAM version - same as v5 but updated for 7 actions"""
     
-    def __init__(self, capacity: int, config: TradingConfig, device: torch.device=DEVICE):
+    def __init__(self, capacity: int, config: EnhancedTradingConfig, device: torch.device=DEVICE):
         self.capacity = capacity
         self.config = config
         self.device = device
@@ -144,13 +203,14 @@ class TradingMode(Enum):
     VAL = 'val'
     TEST = 'test'
 
-class TradingEnvironment:
-    """Stock trading environment"""
+
+class EnhancedTradingEnvironment:
+    """Enhanced trading environment with 7-action space and action masking"""
     
     def __init__(self, 
                  data: pd.DataFrame, 
                  scaled_data: pd.DataFrame, 
-                 config: TradingConfig, 
+                 config: EnhancedTradingConfig, 
                  mode: TradingMode = TradingMode.TRAIN, 
                  device: torch.device=DEVICE,
                  minutes_per_day: int = MINUTES_PER_TRADING_DAY):
@@ -181,9 +241,11 @@ class TradingEnvironment:
         if actual_minutes < min_required:
             raise ValueError(f"Insufficient data: need at least {min_required} minutes, got {actual_minutes}")
         
-        print(f"TradingEnvironment initialized:")
+        print(f"EnhancedTradingEnvironment initialized:")
         print(f"  Minutes per day: {self.minutes_per_day}")
         print(f"  Total trading days: {self.total_days}")
+        print(f"  Action space: 7 actions (enhanced)")
+        print(f"  Action masking: {'enabled' if config.use_action_masking else 'disabled'}")
         print(f"  Data coverage: {expected_total_minutes} / {actual_minutes} minutes")
         print(f"  Data utilization: {expected_total_minutes/actual_minutes*100:.1f}%")
         
@@ -196,6 +258,11 @@ class TradingEnvironment:
         self.last_action = 0
         self.unrealized_pnl = 0.0
         
+        # Enhanced tracking for 7-action space
+        self.action_counts = [0] * 7  # Track usage of each action
+        self.successful_trades = [0] * 7  # Track successful trades per action
+        self.last_position_change_step = -1
+        
         # Portfolio state normalization
         self.portfolio_normalizer = None
         if config.use_portfolio_normalization:
@@ -205,7 +272,74 @@ class TradingEnvironment:
             )
         
         self.reset()
+    
+    def get_valid_actions(self) -> List[int]:
+        """Get list of valid actions for current state - KEY FEATURE FOR ACTION MASKING"""
+        valid_actions = [0]  # HOLD is always valid
         
+        current_price = self.data.iloc[self.current_step]['close']
+        
+        # Check BUY actions (1, 2, 3) - with stricter requirements
+        available_cash = self.balance
+        min_investment = self.config.initial_balance * self.config.min_trade_ratio
+        
+        # Only allow buying if we have sufficient cash and haven't traded recently
+        steps_since_last_trade = self.current_step - self.last_trade_step
+        can_trade = steps_since_last_trade >= self.config.min_steps_between_trades
+        
+        if can_trade and available_cash > min_investment:
+            
+            # BUY_SMALL (25% of available cash) - but check minimum investment
+            small_investment = available_cash * self.config.buy_small_ratio
+            if small_investment >= min_investment:
+                shares_small = small_investment / current_price
+                # Apply higher transaction costs to discourage overtrading
+                cost_small = shares_small * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+                if cost_small <= available_cash:
+                    valid_actions.append(1)
+            
+            # BUY_MEDIUM (50% of available cash)
+            medium_investment = available_cash * self.config.buy_medium_ratio
+            if medium_investment >= min_investment:
+                shares_medium = medium_investment / current_price
+                cost_medium = shares_medium * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+                if cost_medium <= available_cash:
+                    valid_actions.append(2)
+            
+            # BUY_LARGE (75% of available cash)
+            large_investment = available_cash * self.config.buy_large_ratio
+            if large_investment >= min_investment:
+                shares_large = large_investment / current_price
+                cost_large = shares_large * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+                if cost_large <= available_cash:
+                    valid_actions.append(3)
+        
+        # Check SELL actions (4, 5, 6) - with stricter requirements
+        if self.position > 0 and can_trade:
+            position_value = self.position * current_price
+            min_sell_value = self.config.initial_balance * self.config.min_trade_ratio
+            
+            # SELL_SMALL (25% of position) - must meet minimum value and position change
+            small_sell_shares = self.position * self.config.sell_small_ratio
+            small_sell_value = small_sell_shares * current_price
+            position_change_pct = small_sell_shares / self.position
+            if (small_sell_value >= min_sell_value and 
+                position_change_pct >= self.config.min_position_change_pct):
+                valid_actions.append(4)
+            
+            # SELL_MEDIUM (50% of position)
+            medium_sell_shares = self.position * self.config.sell_medium_ratio
+            medium_sell_value = medium_sell_shares * current_price
+            position_change_pct = medium_sell_shares / self.position
+            if (medium_sell_value >= min_sell_value and 
+                position_change_pct >= self.config.min_position_change_pct):
+                valid_actions.append(5)
+            
+            # SELL_LARGE (100% of position) - always valid if we have position (full exit)
+            valid_actions.append(6)
+        
+        return valid_actions
+    
     def reset(self, day_idx: Optional[int] = None) -> torch.Tensor:
         """Reset environment to initial state for a new trading day"""
         self.balance = self.config.initial_balance
@@ -219,16 +353,22 @@ class TradingEnvironment:
         self.total_profit = 0.0
         self.total_loss = 0.0
         self.max_portfolio_value = self.config.initial_balance
-        self.position_entry_step = -1  # Track when position was entered
+        self.position_entry_step = -1
         self.consecutive_invalid_actions = 0
-        self.consecutive_holds = 0  # Track consecutive hold actions for patience bonus
-        self.last_action = 0  # Track last action (0=hold, 1=buy, 2=sell)
+        self.consecutive_holds = 0
+        self.last_action = 0
         self.unrealized_pnl = 0.0
         
+        # Enhanced tracking for 7-action space
+        self.action_counts = [0] * 7
+        self.successful_trades = [0] * 7
+        self.last_position_change_step = -1
+        self.episode_exploration_bonus = 0.0  # Reset exploration bonus tracking
+        
         # Enhanced trading discipline tracking
-        self.last_trade_step = -100  # When last buy/sell occurred (start far back)
-        self.last_trade_was_loss = False  # Whether last completed trade was a loss
-        self.steps_since_last_loss = 0  # Steps since last losing trade
+        self.last_trade_step = -100
+        self.last_trade_was_loss = False
+        self.steps_since_last_loss = 0
         
         # Initialize portfolio tracking for rewards
         self.last_portfolio_value = self.config.initial_balance
@@ -237,11 +377,9 @@ class TradingEnvironment:
         if day_idx is not None:
             self.current_day = day_idx
         elif self.mode == TradingMode.TRAIN:
-            # Random day for training to ensure good exploration
             max_day = max(0, self.total_days - 1)
             self.current_day = np.random.randint(0, max_day + 1) if max_day >= 0 else 0
         else:
-            # Sequential days for validation/testing
             self.current_day = getattr(self, 'last_day', 0)
             self.last_day = (self.current_day + 1) % max(1, self.total_days)
         
@@ -250,44 +388,40 @@ class TradingEnvironment:
         self.episode_end = min(self.episode_start + self.episode_length, len(self.data))
         
         # Ensure there is enough data for the window
-        # Start the episode far enough in to have a full window
         min_start = max(self.episode_start, self.config.window_size - 1)
         
-        # Ensure we don't start too late in the episode
         if min_start >= self.episode_end:
             raise ValueError(f"Episode {self.current_day} too short for window size {self.config.window_size}")
             
         self.current_step = min_start
         self.episode_steps_remaining = self.episode_end - self.current_step
         
-        # Validate episode has minimum required steps
-        if self.episode_steps_remaining < 10:  # Minimum reasonable episode length
+        if self.episode_steps_remaining < 10:
             print(f"Warning: Very short episode {self.current_day}: only {self.episode_steps_remaining} steps")
         
-        # Initialize episode portfolio state collection (used during warmup phase)
+        # Initialize episode portfolio states
         self.episode_portfolio_states = []
         
         return self._get_state()
-    
+
     def _get_state(self) -> torch.Tensor:
-        """Get current state with enhanced features for intraday trading"""
+        """Get current state with enhanced features for 7-action space"""
         # Get historical data
         start_idx = max(0, self.current_step - self.config.window_size + 1)
         end_idx = self.current_step + 1
         
         # If not enough historical data, pad with the earliest available data
         if start_idx < self.episode_start - self.config.window_size + 1:
-            # Pad with the first available data point in the episode
             padding_needed = (self.episode_start - self.config.window_size + 1) - start_idx
             stock_data = self.scaled_data.iloc[start_idx:end_idx].values
             if padding_needed > 0:
-                first_row = stock_data[0:1]  # Get first row
+                first_row = stock_data[0:1]
                 padding = np.repeat(first_row, padding_needed, axis=0)
                 stock_data = np.vstack([padding, stock_data])
         else:
             stock_data = self.scaled_data.iloc[start_idx:end_idx].values
         
-        # Ensure there is exactly window_size rows
+        # Ensure exactly window_size rows
         if len(stock_data) < self.config.window_size:
             padding_needed = self.config.window_size - len(stock_data)
             first_row = stock_data[0:1] if len(stock_data) > 0 else self.scaled_data.iloc[0:1].values
@@ -310,9 +444,9 @@ class TradingEnvironment:
         # Update max portfolio value for drawdown calculation
         self.max_portfolio_value = max(self.max_portfolio_value, portfolio_value)
         
-        # Calculate intraday time features (regular market hours: 9:30 AM - 4:00 PM = 390 minutes)
+        # Calculate intraday time features
         minutes_into_day = (self.current_step - self.episode_start) % self.minutes_per_day
-        time_of_day_normalized = minutes_into_day / self.minutes_per_day  # 0 to 1
+        time_of_day_normalized = minutes_into_day / self.minutes_per_day
         
         # Market session features
         morning_session = 1.0 if minutes_into_day < 120 else 0.0  # (9:30-11:30)
@@ -321,51 +455,78 @@ class TradingEnvironment:
         
         # Position timing features
         position_holding_time = (self.current_step - self.position_entry_step) if self.position_entry_step >= 0 else 0
-        
-        # Position ratio and risk metrics (this one gets clipped by normalizer, not normalized)
         position_ratio = self.position * current_price / portfolio_value if portfolio_value > 0 else 0
         
-        # Action validity flags (match execution logic exactly)
-        position_value = self.balance * self.config.max_position_size
-        shares_to_buy = int(position_value / current_price) if current_price > 0 else 0
-        total_cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
-
-        can_buy = 1.0 if (self.position == 0 and 
-                          shares_to_buy > 0 and 
-                          total_cost <= self.balance) else 0.0
-        can_sell = 1.0 if self.position > 0 else 0.0
+        # ENHANCED STATE FEATURES FOR 7-ACTION SPACE
+        # Calculate available action ratios for better decision making
+        available_cash = self.balance
+        position_value = self.position * current_price if self.position > 0 else 0
         
-        # Portfolio features - SENDING RAW VALUES TO NORMALIZER
-        # Feature indices mapping:
-        # 0=balance, 1=position_value, 2=portfolio_value, 3=position_ratio, 
-        # 4=unrealized_pnl, 5=position_holding_time, 6=time_of_day, 
-        # 7=morning_session, 8=midday_session, 9=afternoon_session, 
-        # 10=can_buy, 11=can_sell, 12=invalid_actions
+        # Cash utilization ratios (what % of available cash each buy action would use)
+        cash_ratio_small = min(1.0, (available_cash * self.config.buy_small_ratio) / max(available_cash, 1)) if available_cash > 0 else 0
+        cash_ratio_medium = min(1.0, (available_cash * self.config.buy_medium_ratio) / max(available_cash, 1)) if available_cash > 0 else 0
+        cash_ratio_large = min(1.0, (available_cash * self.config.buy_large_ratio) / max(available_cash, 1)) if available_cash > 0 else 0
+        
+        # Position utilization ratios (what % of position each sell action would use)
+        pos_ratio_small = self.config.sell_small_ratio if self.position > 0 else 0
+        pos_ratio_medium = self.config.sell_medium_ratio if self.position > 0 else 0
+        pos_ratio_large = self.config.sell_large_ratio if self.position > 0 else 0
+        
+        # Action opportunity indicators (binary flags)
+        valid_actions = self.get_valid_actions()
+        can_buy_small = 1.0 if 1 in valid_actions else 0.0
+        can_buy_medium = 1.0 if 2 in valid_actions else 0.0
+        can_buy_large = 1.0 if 3 in valid_actions else 0.0
+        can_sell_small = 1.0 if 4 in valid_actions else 0.0
+        can_sell_medium = 1.0 if 5 in valid_actions else 0.0
+        can_sell_large = 1.0 if 6 in valid_actions else 0.0
+        
+        # Trading activity features
+        steps_since_last_position_change = (self.current_step - self.last_position_change_step) if self.last_position_change_step >= 0 else 0
+        
+        # ENHANCED PORTFOLIO FEATURES (30 features total)
         portfolio_features = [
-            # Features 0-2: RAW monetary values (will be normalized by PortfolioStateNormalizer)
-            self.balance,                 # 0: Raw balance - let normalizer handle scaling
-            self.position * current_price,# 1: Raw position value - let normalizer handle scaling  
-            portfolio_value,              # 2: Raw portfolio value - let normalizer handle scaling
-            position_ratio,               # 3: Position ratio (will be clipped 0-2 by normalizer)
+            # Basic portfolio features (0-5)
+            self.balance,                    # 0: Raw balance
+            position_value,                  # 1: Raw position value
+            portfolio_value,                 # 2: Raw portfolio value
+            position_ratio,                  # 3: Position ratio (0-1)
+            self.unrealized_pnl,            # 4: Raw unrealized P&L
+            float(position_holding_time),    # 5: Raw holding time
             
-            # Feature 4: RAW unrealized P&L (will be normalized)
-            self.unrealized_pnl,          # 4: Raw unrealized P&L - let normalizer handle scaling
+            # Time features (6-9)
+            time_of_day_normalized,          # 6: Time of day (0-1)
+            morning_session,                 # 7: Morning session binary
+            midday_session,                  # 8: Midday session binary
+            afternoon_session,               # 9: Afternoon session binary
             
-            # Feature 5: RAW holding time (will be normalized)
-            float(position_holding_time), # 5: Raw holding time in steps - let normalizer handle scaling
+            # Cash utilization features (10-12)
+            cash_ratio_small,                # 10: Small buy ratio
+            cash_ratio_medium,               # 11: Medium buy ratio
+            cash_ratio_large,                # 12: Large buy ratio
             
-            # Features 6-9: Already normalized timing features (0-1, no processing needed)
-            time_of_day_normalized,       # 6: Time of day (already 0-1)
-            morning_session,              # 7: Morning session binary flag
-            midday_session,               # 8: Midday session binary flag  
-            afternoon_session,            # 9: Afternoon session binary flag
+            # Position utilization features (13-15)
+            pos_ratio_small,                 # 13: Small sell ratio
+            pos_ratio_medium,                # 14: Medium sell ratio
+            pos_ratio_large,                 # 15: Large sell ratio
             
-            # Features 10-11: Binary action validity flags (already 0-1, no processing needed)
-            can_buy,                      # 10: Can execute buy (binary)
-            can_sell,                     # 11: Can execute sell (binary)
+            # Action opportunity flags (16-21)
+            can_buy_small,                   # 16: Can execute buy small
+            can_buy_medium,                  # 17: Can execute buy medium
+            can_buy_large,                   # 18: Can execute buy large
+            can_sell_small,                  # 19: Can execute sell small
+            can_sell_medium,                 # 20: Can execute sell medium
+            can_sell_large,                  # 21: Can execute sell large
             
-            # Feature 12: RAW invalid actions count (will be normalized)
-            float(self.invalid_actions)   # 12: Raw invalid actions count - let normalizer handle scaling
+            # Trading activity features (22-29)
+            float(steps_since_last_position_change), # 22: Steps since position change
+            float(self.total_trades),        # 23: Total trades this episode
+            float(self.winning_trades),      # 24: Winning trades
+            float(self.losing_trades),       # 25: Losing trades
+            float(len(valid_actions)),       # 26: Number of valid actions available
+            float(self.last_action),         # 27: Last action taken
+            float(self.consecutive_holds),   # 28: Consecutive holds
+            float(self.invalid_actions),     # 29: Invalid actions (should be minimal with masking)
         ]
         
         # Replace any non-finite values with 0
@@ -391,9 +552,6 @@ class TradingEnvironment:
         stock_data_state = torch.tensor(stock_data.astype(np.float32), dtype=torch.float32, device=self.device)
         
         # Repeat portfolio state for each timestep and concatenate
-        # This is needed for compatibility with the current state representation
-        # The network will extract portfolio features from the first timestep
-        # Takes up more memory, but is faster than reconstructing the flattened stock data
         portfolio_state_repeated = portfolio_state.unsqueeze(0).repeat(self.config.window_size, 1)
         
         # Concatenate stock data and portfolio features
@@ -401,101 +559,129 @@ class TradingEnvironment:
         
         return combined_state
     
-    def _is_invalid_action(self, action: int) -> bool:
-        """Check if action is invalid"""
-        current_price = self.data.iloc[self.current_step]['close']
-        if action == 1:
-            if self.position > 0 or self.balance <= 0:
-                return True
-            else:
-                position_value = self.balance * self.config.max_position_size
-                shares_to_buy = position_value / current_price
-                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
-                
-                return cost > self.balance
-        elif action == 2:
-            return self.position == 0
-        return False
-    
-    def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
-        """Execute action and return next state, reward, done, info
-        
-        OPTIMIZABLE REWARD SYSTEM - Pure Portfolio Value Change + Invalid Penalty:
-        - ALL ACTIONS: Portfolio value change * portfolio_scaling (configurable)
-        - INVALID ACTIONS: Additional -invalid_penalty to teach action validity
-        
-        This maintains portfolio tracking for performance while adding
-        direct feedback for invalid actions. Parameters can be optimized
-        using the Optuna-based optimization script.
-        """
-            
-        current_price = self.data.iloc[self.current_step]['close']        
-        reward = 0
+    def _execute_action(self, action: int, current_price: float) -> Tuple[bool, float, str]:
+        """Execute the given action and return (trade_executed, reward_bonus, action_description)"""
         trade_executed = False
-        invalid_action = self._is_invalid_action(action)
+        reward_bonus = 0.0
+        action_description = ""
         
-        # Store current portfolio value for comparison
-        if not hasattr(self, 'last_portfolio_value'):
-            self.last_portfolio_value = self.balance + (self.position * current_price)
+        # Helper function to calculate capped exploration bonus with cooldown
+        def get_exploration_bonus(base_bonus: float) -> float:
+            # Check if enough time has passed since last trade to prevent overtrading
+            steps_since_last_trade = self.current_step - self.last_trade_step
+            if steps_since_last_trade < self.config.min_steps_between_trades:
+                return 0.0  # No bonus if trading too frequently
+                
+            if self.episode_exploration_bonus < self.config.max_exploration_per_episode:
+                actual_bonus = min(base_bonus, self.config.max_exploration_per_episode - self.episode_exploration_bonus)
+                self.episode_exploration_bonus += actual_bonus
+                return actual_bonus
+            return 0.0
         
-        # Calculate current portfolio value
-        current_portfolio_value = self.balance + (self.position * current_price)
-        
-        # PURE PORTFOLIO TRACKING: Reward = portfolio value change (always)
-        portfolio_change = current_portfolio_value - self.last_portfolio_value
-        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)  # Support optimization
-        reward = portfolio_change * portfolio_scaling  # Consistent scaling for all actions
-        
-        # Update last portfolio value for next step
-        self.last_portfolio_value = current_portfolio_value
-        
-        # Execute the action (portfolio change + invalid penalty if needed)
-        if invalid_action:
-            self.invalid_actions += 1
-            self.consecutive_invalid_actions += 1
-            # Add penalty for invalid actions to teach action validity
-            invalid_penalty = getattr(self.config, 'invalid_penalty', 0.5058868125236534)  # Support optimization
-            reward -= invalid_penalty  # Configurable penalty for invalid actions
-        else:
-            self.consecutive_invalid_actions = 0 
+        if action == 0:  # HOLD
+            action_description = "HOLD"
+            self.consecutive_holds += 1
             
-            if action == 1:  # Buy
-                position_value = self.balance * self.config.max_position_size
-                shares_to_buy = position_value / current_price
-                cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent)
-                
-                self.position = shares_to_buy
+        elif action == 1:  # BUY_SMALL (25% of available cash)
+            investment_amount = self.balance * self.config.buy_small_ratio
+            shares_to_buy = investment_amount / current_price
+            # Apply higher transaction costs to discourage overtrading
+            cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if cost <= self.balance:
+                self.position += shares_to_buy
                 self.balance -= cost
-                self.entry_price = current_price
-                self.position_entry_step = self.current_step
-                trade_executed = True
-                self.last_action = 1
-                self.consecutive_holds = 0  # Reset hold counter
+                if self.position_entry_step == -1:  # First position
+                    self.entry_price = current_price
+                    self.position_entry_step = self.current_step
+                else:  # Adding to position
+                    # Update weighted average entry price
+                    old_value = (self.position - shares_to_buy) * self.entry_price
+                    new_value = shares_to_buy * current_price
+                    self.entry_price = (old_value + new_value) / self.position
                 
-                # Update trade tracking
-                self.last_trade_step = self.current_step
-                self.steps_since_last_loss += 1
-                    
-            elif action == 2:  # Sell
-                revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
-                cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
+                trade_executed = True
+                reward_bonus = get_exploration_bonus(self.config.exploration_bonus)  # Capped bonus
+                action_description = f"BUY_SMALL ({shares_to_buy:.1f} shares, ${cost:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
+                
+        elif action == 2:  # BUY_MEDIUM (50% of available cash)
+            investment_amount = self.balance * self.config.buy_medium_ratio
+            shares_to_buy = investment_amount / current_price
+            cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if cost <= self.balance:
+                self.position += shares_to_buy
+                self.balance -= cost
+                if self.position_entry_step == -1:
+                    self.entry_price = current_price
+                    self.position_entry_step = self.current_step
+                else:
+                    old_value = (self.position - shares_to_buy) * self.entry_price
+                    new_value = shares_to_buy * current_price
+                    self.entry_price = (old_value + new_value) / self.position
+                
+                trade_executed = True
+                # Only give position change bonus for medium/large trades, and cap it
+                base_bonus = self.config.exploration_bonus + self.config.position_change_bonus
+                reward_bonus = get_exploration_bonus(base_bonus)
+                action_description = f"BUY_MEDIUM ({shares_to_buy:.1f} shares, ${cost:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
+                
+        elif action == 3:  # BUY_LARGE (75% of available cash)
+            investment_amount = self.balance * self.config.buy_large_ratio
+            shares_to_buy = investment_amount / current_price
+            cost = shares_to_buy * current_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if cost <= self.balance:
+                self.position += shares_to_buy
+                self.balance -= cost
+                if self.position_entry_step == -1:
+                    self.entry_price = current_price
+                    self.position_entry_step = self.current_step
+                else:
+                    old_value = (self.position - shares_to_buy) * self.entry_price
+                    new_value = shares_to_buy * current_price
+                    self.entry_price = (old_value + new_value) / self.position
+                
+                trade_executed = True
+                # Larger bonus for large trades, but still capped
+                base_bonus = self.config.exploration_bonus + self.config.position_change_bonus * 1.5
+                reward_bonus = get_exploration_bonus(base_bonus)
+                action_description = f"BUY_LARGE ({shares_to_buy:.1f} shares, ${cost:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
+                
+        elif action == 4:  # SELL_SMALL (25% of position)
+            shares_to_sell = self.position * self.config.sell_small_ratio
+            revenue = shares_to_sell * current_price * (1 - self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if shares_to_sell > 0:
+                self.balance += revenue
+                self.position -= shares_to_sell
+                
+                # Calculate partial profit (use higher costs for consistent accounting)
+                cost_basis = shares_to_sell * self.entry_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
                 profit = revenue - cost_basis
                 
-                self.balance += revenue
-                self.position = 0
+                if self.position <= 0:  # Closed entire position
+                    self.position_entry_step = -1
+                
                 trade_executed = True
-                self.total_trades += 1
-                self.last_action = 2
-                self.consecutive_holds = 0  # Reset hold counter
+                # Small sell - minimal bonus
+                reward_bonus = get_exploration_bonus(self.config.exploration_bonus)
+                action_description = f"SELL_SMALL ({shares_to_sell:.1f} shares, ${revenue:.2f}, P&L: ${profit:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
                 
-                # Update trade tracking
-                self.last_trade_step = self.current_step
-                self.last_trade_was_loss = profit <= 0
-                if profit <= 0:
-                    self.steps_since_last_loss = 0  # Reset counter on loss
-                else:
-                    self.steps_since_last_loss += 1
-                
+                # Track partial trade P&L AND count as win/loss
+                self.total_trades += 1  # Count all sells as completed trades
                 if profit > 0:
                     self.winning_trades += 1
                     self.total_profit += profit
@@ -503,26 +689,118 @@ class TradingEnvironment:
                     self.losing_trades += 1
                     self.total_loss += abs(profit)
                 
+        elif action == 5:  # SELL_MEDIUM (50% of position)
+            shares_to_sell = self.position * self.config.sell_medium_ratio
+            revenue = shares_to_sell * current_price * (1 - self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if shares_to_sell > 0:
+                self.balance += revenue
+                self.position -= shares_to_sell
+                
+                cost_basis = shares_to_sell * self.entry_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+                profit = revenue - cost_basis
+                
+                if self.position <= 0:
+                    self.position_entry_step = -1
+                
+                trade_executed = True
+                # Medium sell - moderate bonus, capped
+                base_bonus = self.config.exploration_bonus + self.config.position_change_bonus
+                reward_bonus = get_exploration_bonus(base_bonus)
+                action_description = f"SELL_MEDIUM ({shares_to_sell:.1f} shares, ${revenue:.2f}, P&L: ${profit:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
+                
+                # Count all sells as completed trades
+                self.total_trades += 1
+                if profit > 0:
+                    self.winning_trades += 1
+                    self.total_profit += profit
+                else:
+                    self.losing_trades += 1
+                    self.total_loss += abs(profit)
+                    
+        elif action == 6:  # SELL_LARGE (100% of position)
+            shares_to_sell = self.position
+            revenue = shares_to_sell * current_price * (1 - self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            
+            if shares_to_sell > 0:
+                cost_basis = shares_to_sell * self.entry_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+                profit = revenue - cost_basis
+                
+                self.balance += revenue
+                self.position = 0
                 self.position_entry_step = -1
                 
-            else:  # Hold (action == 0)
-                self.last_action = 0
-                self.consecutive_holds += 1
+                self.total_trades += 1
+                if profit > 0:
+                    self.winning_trades += 1
+                    self.total_profit += profit
+                else:
+                    self.losing_trades += 1
+                    self.total_loss += abs(profit)
+                
+                trade_executed = True
+                # Large sell - highest bonus for closing position, but capped
+                base_bonus = self.config.exploration_bonus + self.config.position_change_bonus * 2
+                reward_bonus = get_exploration_bonus(base_bonus)
+                action_description = f"SELL_LARGE ({shares_to_sell:.1f} shares, ${revenue:.2f}, P&L: ${profit:.2f})"
+                self.last_position_change_step = self.current_step
+                self.last_trade_step = self.current_step  # Update trade cooldown
+                self.consecutive_holds = 0
+        
+        # Update action tracking
+        self.action_counts[action] += 1
+        if trade_executed:
+            self.successful_trades[action] += 1
+        
+        return trade_executed, reward_bonus, action_description
+    
+    def step(self, action: int) -> Tuple[torch.Tensor, float, bool, Dict]:
+        """Execute action and return next state, reward, done, info
+        
+        ENHANCED REWARD SYSTEM with Action Masking:
+        - Portfolio value change (consistent with v5)
+        - Exploration bonuses for active trading
+        - NO invalid action penalties (actions are masked)
+        """
+        current_price = self.data.iloc[self.current_step]['close']
+        reward = 0
+        
+        # Store current portfolio value for comparison
+        if not hasattr(self, 'last_portfolio_value'):
+            self.last_portfolio_value = self.balance + (self.position * current_price)
+        
+        current_portfolio_value = self.balance + (self.position * current_price)
+        
+        # PORTFOLIO TRACKING: Reward = portfolio value change (same as v5)
+        portfolio_change = current_portfolio_value - self.last_portfolio_value
+        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)
+        reward = portfolio_change * portfolio_scaling
+        
+        # Execute the action (with action masking, all actions should be valid)
+        trade_executed, exploration_bonus, action_description = self._execute_action(action, current_price)
+        
+        # Add exploration bonus for active trading
+        reward += exploration_bonus
+        
+        # Update last portfolio value for next step
+        self.last_portfolio_value = self.balance + (self.position * current_price)
         
         # Move to next step
         self.current_step += 1
         self.episode_steps_remaining -= 1
         
-        # Check if episode is done (end of trading day or out of balance)
+        # Check if episode is done
         done = (self.current_step >= self.episode_end or 
                 self.episode_steps_remaining <= 0 or 
                 self.balance <= 0)
         
-        # Force close any open positions at end of day (realistic intraday trading)
+        # Force close any open positions at end of day (with higher transaction costs)
         if done and self.position > 0:
-            # Close position at current price
-            revenue = self.position * current_price * (1 - self.config.transaction_fee_percent)
-            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent)
+            revenue = self.position * current_price * (1 - self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
+            cost_basis = self.position * self.entry_price * (1 + self.config.transaction_fee_percent * self.config.transaction_cost_multiplier)
             profit = revenue - cost_basis
             
             self.balance += revenue
@@ -536,29 +814,27 @@ class TradingEnvironment:
                 self.losing_trades += 1
                 self.total_loss += abs(profit)
             
-            # Update portfolio value after forced close for final reward calculation
+            # Update portfolio value after forced close for final reward
             final_portfolio_value = self.balance
             final_change = final_portfolio_value - self.last_portfolio_value
-            portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)
-            reward += final_change * portfolio_scaling  # Same consistent scaling
+            reward += final_change * portfolio_scaling
         
-        # Get next state (or terminal state if done)
+        # Get next state
         if done:
-            # Return current state as next state when episode is done
             self.current_step -= 1
             next_state = self._get_state()
             self.current_step += 1
         else:
-            # For non-terminal transitions, use the state at the new current_step
             next_state = self._get_state()
         
-        # Additional info
+        # Additional info with enhanced tracking
         info = {
             'balance': self.balance,
             'position': self.position,
             'current_price': current_price,
             'trade_executed': trade_executed,
-            'invalid_action': invalid_action,
+            'action_description': action_description,
+            'invalid_action': False,  # Should always be False with action masking
             'invalid_actions': self.invalid_actions,
             'total_trades': self.total_trades,
             'winning_trades': self.winning_trades,
@@ -569,25 +845,37 @@ class TradingEnvironment:
             'total_profit': self.total_profit,
             'total_loss': self.total_loss,
             'consecutive_holds': self.consecutive_holds,
-            'steps_since_last_trade': self.current_step - self.last_trade_step,
-            'last_trade_was_loss': self.last_trade_was_loss,
-            'steps_since_last_loss': self.steps_since_last_loss,
-            'final_reward': reward  # Track the final reward for analysis
+            'exploration_bonus': exploration_bonus,
+            'action_counts': self.action_counts.copy(),
+            'successful_trades': self.successful_trades.copy(),
+            'valid_actions_count': len(self.get_valid_actions()),
+            'final_reward': reward
         }
         
         return next_state, reward, done, info
 
+    def render(self):
+        # Implement the logic to render the environment
+        # This is a placeholder and should be replaced with the actual implementation
+        pass
 
-class DoubleDuelingDQN:
-    """Double Dueling DQN Agent with PER and configurable architectures"""
+    def close(self):
+        # Implement the logic to close the environment
+        # This is a placeholder and should be replaced with the actual implementation
+        pass 
+
+class EnhancedDoubleDuelingDQN:
+    """Enhanced Double Dueling DQN Agent with Action Masking for 7-action space"""
     
-    def __init__(self, config: TradingConfig, device: torch.device=DEVICE):
+    def __init__(self, config: EnhancedTradingConfig, device: torch.device=DEVICE):
         self.config = config
         self.device = device
         print(f"Using device: {device}")
         print(f"Using architecture: {config.architecture_type.value}")
+        print(f"Action space: {config.num_actions} actions (enhanced)")
+        print(f"Action masking: {'enabled' if config.use_action_masking else 'disabled'}")
         
-        # Networks using factory function
+        # Networks using factory function (updated for 7 actions)
         self.q_network = create_network(config).to(device)
         self.target_network = create_network(config).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
@@ -599,9 +887,9 @@ class DoubleDuelingDQN:
         
         self.optimizer = optim.AdamW(self.q_network.parameters(), 
                                     lr=config.learning_rate, 
-                                    weight_decay=1e-5)  # Fixed weight_decay
+                                    weight_decay=1e-5)
         
-        # Learning rate scheduler - reduces LR when validation reward plateaus
+        # Learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 
             mode='max',
@@ -619,44 +907,49 @@ class DoubleDuelingDQN:
         self.episodes_done = 0
         self.update_count = 0
         
-        
-    def select_action(self, state: torch.Tensor, epsilon: Optional[float] = None) -> int:
-        """Select action using epsilon-greedy policy with minimum profit threshold"""
+    def select_action(self, state: torch.Tensor, valid_actions: List[int] = None, epsilon: Optional[float] = None) -> int:
+        """Select action using epsilon-greedy policy with ACTION MASKING"""
         if epsilon is None:
             epsilon = self.config.epsilon_end + (self.config.epsilon_start - self.config.epsilon_end) * math.exp(-1. * self.steps_done / self.config.epsilon_decay)
         
         if random.random() > epsilon:
-            self.q_network.eval()  # Set to evaluation mode for deterministic inference
+            self.q_network.eval()
             with torch.no_grad():
                 state = state.unsqueeze(0).to(self.device)
-                q_values = self.q_network(state)
+                q_values = self.q_network(state)[0]  # Shape: [num_actions]
                 
-                # Apply minimum profit threshold: only trade if significantly better than holding
-                hold_q_value = q_values[0, 0]  # Q-value for holding (action 0)
+                # ACTION MASKING: Only consider valid actions
+                if valid_actions is not None and len(valid_actions) > 0:
+                    # Create a mask for valid actions
+                    action_mask = torch.full_like(q_values, float('-inf'))
+                    action_mask[valid_actions] = 0  # Set valid actions to 0 (no penalty)
+                    
+                    # Apply mask to Q-values
+                    masked_q_values = q_values + action_mask
+                    
+                    # Select best valid action
+                    action = torch.argmax(masked_q_values).item()
+                else:
+                    # Fallback: no masking (should not happen with proper environment)
+                    action = torch.argmax(q_values).item()
                 
-                # Check if buy/sell actions meet minimum profit threshold
-                for action in [1, 2]:  # Buy and Sell
-                    if len(q_values[0]) > action:  # Ensure action exists
-                        profit_advantage = q_values[0, action] - hold_q_value
-                        if profit_advantage < self.config.min_profit_threshold:
-                            q_values[0, action] = -float('inf')  # Don't trade unless advantage is clear
-                
-                action = torch.argmax(q_values, dim=1).item()
-            self.q_network.train()  # Set back to training mode
+            self.q_network.train()
             return action
         else:
-            return random.randrange(self.config.num_actions)
+            # Random exploration: choose randomly from valid actions
+            if valid_actions is not None and len(valid_actions) > 0:
+                return random.choice(valid_actions)
+            else:
+                return random.randrange(self.config.num_actions)
     
     def update(self) -> Dict[str, float]:
-        """Perform one update step"""
+        """Perform one update step - same as v5 but handles 7 actions"""
         if len(self.memory) < self.config.batch_size:
             return {}
         
-
-        
         try:
             # Calculate current beta for importance sampling
-            beta = self.config.beta_start + (self.config.beta_end - self.config.beta_start) * min(1.0, self.steps_done / 100000)  # Fixed beta decay steps
+            beta = self.config.beta_start + (self.config.beta_end - self.config.beta_start) * min(1.0, self.steps_done / 100000)
             
             # Sample batch
             states, actions, rewards, next_states, dones, indices, weights = self.memory.sample(self.config.batch_size, beta)
@@ -716,18 +1009,19 @@ class DoubleDuelingDQN:
                 print(f"CUDA Error in update: {e}")
                 print(f"Memory size: {len(self.memory)}")
                 print(f"Steps done: {self.steps_done}")
-                # Try to recover by clearing CUDA cache
                 torch.cuda.empty_cache()
                 return {}
             else:
                 raise
     
-    def train_episode(self, env: TradingEnvironment) -> Dict[str, float]:
-        """Train for one episode"""
+    def train_episode(self, env: EnhancedTradingEnvironment) -> Dict[str, float]:
+        """Train for one episode with enhanced action space"""
         
         state = env.reset()
         episode_reward = 0
         episode_steps = 0
+        episode_trades = 0
+        episode_exploration_bonus = 0
         
         # Track update metrics across the episode
         update_metrics = {
@@ -736,23 +1030,34 @@ class DoubleDuelingDQN:
             'mean_td_error': []
         }
         
+        # Track action usage
+        action_usage = [0] * self.config.num_actions
+        
         while True:
-            # Select and execute action
-            action = self.select_action(state)
+            # Get valid actions for current state
+            valid_actions = env.get_valid_actions()
+            
+            # Select action with masking
+            action = self.select_action(state, valid_actions)
             next_state, reward, done, info = env.step(action)
             
             # Store transition
             self.memory.push(state, action, reward, next_state, done)
             
-            # Update counters
+            # Update counters and tracking
             episode_reward += reward
             episode_steps += 1
+            episode_exploration_bonus += info.get('exploration_bonus', 0)
+            # Only count meaningful trades (position changes), not all executed actions
+            if info.get('trade_executed', False) and info.get('action_description', '') != 'HOLD':
+                episode_trades += 1
+            
+            action_usage[action] += 1
             self.steps_done += 1
             
             # Perform update every update_frequency steps
             if self.steps_done % self.config.update_frequency == 0:
                 update_info = self.update()
-                # Track metrics if update occurred
                 if update_info:
                     for key in ['loss', 'mean_q', 'mean_td_error']:
                         if key in update_info:
@@ -768,8 +1073,6 @@ class DoubleDuelingDQN:
         
         # Episode statistics
         final_value = info['balance'] + (info['position'] * info['current_price'])
-            
-        # Calculate return
         total_return = (final_value - self.config.initial_balance) / self.config.initial_balance
         
         # Average the update metrics over the episode
@@ -781,12 +1084,18 @@ class DoubleDuelingDQN:
         return {
             'episode_reward': episode_reward,
             'episode_steps': episode_steps,
+            'episode_trades': episode_trades,
+            'episode_exploration_bonus': episode_exploration_bonus,
             'total_return': total_return,
             'final_value': final_value,
             'total_trades': info['total_trades'],
             'winning_trades': info['winning_trades'],
             'losing_trades': info['losing_trades'],
-            'invalid_actions': info['invalid_actions'],
+            'invalid_actions': info['invalid_actions'],  # Should be 0 with masking
+            'action_usage': action_usage,
+            'action_counts': info.get('action_counts', [0] * 7),
+            'successful_trades': info.get('successful_trades', [0] * 7),
+            'valid_actions_count': info.get('valid_actions_count', 1),
             **avg_update_metrics
         }
     
@@ -813,7 +1122,6 @@ class DoubleDuelingDQN:
         self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
         self.target_network.load_state_dict(checkpoint['target_network_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        # Load scheduler state if available (for backward compatibility)
         if 'scheduler_state_dict' in checkpoint:
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         self.steps_done = checkpoint['steps_done']
@@ -826,100 +1134,68 @@ class DoubleDuelingDQN:
             portfolio_normalizer.load(normalizer_path)
 
 
-# TODO: probably not needed
-# feature engineering v2 handles this
+# Helper functions from v5 (updated for enhanced environment)
 def filter_to_regular_hours(df):
-    """Filter dataframe to regular market hours using UTC timestamps
-    
-    Regular market hours: 9:30 AM - 4:00 PM EST
-    In UTC: 14:30 - 21:00 (EST, winter) or 13:30 - 20:00 (EDT, summer)
-    Note: Assumes weekends are already filtered out during feature engineering
-    """
+    """Filter dataframe to regular market hours using UTC timestamps"""
     df = df.copy()
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     
-    # Regular market hours filtering (handles DST automatically through pandas)
-    # First localize to UTC if timezone-naive, then convert to Eastern time
     if df['timestamp'].dt.tz is None:
-        # Assume naive timestamps are UTC
         df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
     
     eastern_times = df['timestamp'].dt.tz_convert('US/Eastern')
     market_open = eastern_times.dt.time >= time(9, 30)
     market_close = eastern_times.dt.time < time(16, 0)
     
-    # Apply filters and keep original timestamps (convert back to naive for consistency)
     filtered_df = df[market_open & market_close].reset_index(drop=True)
-    filtered_df['timestamp'] = filtered_df['timestamp'].dt.tz_localize(None)  # Remove timezone info
+    filtered_df['timestamp'] = filtered_df['timestamp'].dt.tz_localize(None)
     
     print(f"Data filtered: {len(df)} → {len(filtered_df)} rows ({len(filtered_df)/len(df)*100:.1f}%)")
     return filtered_df
 
 def load_stock_data(data_path: str, cutoff: pd.Timestamp | None=None, cols_to_keep: list[str]=STOCK_FEATURES_V2) -> tuple[pd.DataFrame, datetime, datetime]:
-    """
-    Get saved csv data and filter to regular market hours
-    """
+    """Get saved csv data and filter to regular market hours"""
     df = pd.read_csv(data_path)
 
-    # Apply cutoff first if specified
     if cutoff:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         
-        # Ensure cutoff and data timestamps are timezone-aware and compatible
         if cutoff.tz is not None:
-            # If cutoff has timezone, convert data timestamps to same timezone
             if df['timestamp'].dt.tz is None:
                 df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
             df['timestamp'] = df['timestamp'].dt.tz_convert(cutoff.tz)
         else:
-            # If cutoff is naive, ensure data timestamps are also naive
             if df['timestamp'].dt.tz is not None:
                 df['timestamp'] = df['timestamp'].dt.tz_convert('UTC').dt.tz_localize(None)
         
         df = df[df['timestamp'] >= cutoff]
         
-    # Filter to regular market hours
     df = filter_to_regular_hours(df)
     
-    # Get date range after filtering
     start_date = pd.to_datetime(df['timestamp'].iloc[0]).to_pydatetime()
     end_date = pd.to_datetime(df['timestamp'].iloc[-1]).to_pydatetime()
         
     return df[cols_to_keep], start_date, end_date
 
-def train_dqn(data_path: str,
-              cutoff: pd.Timestamp,
-              num_episodes: int = NUM_EPISODES, 
-              save_interval: int = 100,
-              validation_frequency: int = EVALUATE_INTERVAL,
-              early_stopping_patience: int = 10,
-              train_ratio: float = TRAIN_RATIO,
-              valid_ratio: float = VALID_RATIO,
-              use_preprocessing: bool = True,
-              scaling_method: str = 'robust',
-              outlier_method: str = 'winsorize',
-              preprocessor_save_path: Optional[str] = None,
-              architecture_type: ArchitectureType = ArchitectureType.IMPROVED):
+
+def train_enhanced_dqn(data_path: str,
+                      cutoff: pd.Timestamp,
+                      num_episodes: int = NUM_EPISODES, 
+                      save_interval: int = 100,
+                      validation_frequency: int = EVALUATE_INTERVAL,
+                      early_stopping_patience: int = 10,
+                      train_ratio: float = TRAIN_RATIO,
+                      valid_ratio: float = VALID_RATIO,
+                      use_preprocessing: bool = True,
+                      scaling_method: str = 'robust',
+                      outlier_method: str = 'winsorize',
+                      preprocessor_save_path: Optional[str] = None,
+                      architecture_type: ArchitectureType = ArchitectureType.IMPROVED):
     """
-    Main training function with validation and early stopping
-    
-    Args:
-        data_path: Path to CSV file with stock data
-        cutoff: Timestamp to start data from
-        num_episodes: Number of training episodes
-        save_interval: Save model every N episodes
-        validation_frequency: Run validation every N episodes
-        early_stopping_patience: Stop if validation doesn't improve for N checks
-        train_ratio: Ratio of data for training
-        val_ratio: Ratio of data for validation
-        use_preprocessing: Whether to apply preprocessing
-        scaling_method: Method for scaling features ('robust', 'standard', 'minmax', 'none')
-        outlier_method: Method for handling outliers ('winsorize', 'clip', 'none')
-        preprocessor_save_path: Path to save the fitted preprocessor
-        architecture_type: Architecture type for the DQN ('original', 'improved', 'hybrid')
+    Main training function for Enhanced DQN v7 with 7-action space and action masking
     """    
     # Load data
-    print("Loading data...")
+    print("Loading data for Enhanced DQN v7...")
     data, start_date, end_date = load_stock_data(data_path, cutoff)
     
     # Split data chronologically
@@ -938,13 +1214,11 @@ def train_dqn(data_path: str,
         print(f"\nApplying preprocessing (scaling: {scaling_method}, outliers: {outlier_method})...")
         from src.models.mark.dqn_v2.data_preprocessor_v2 import preprocess_financial_data
         
-        # Set default preprocessor save path if not provided
         if preprocessor_save_path is None:
             from pathlib import Path
             data_name = Path(data_path).stem
-            preprocessor_save_path = f"preprocessor_{data_name}.pkl"
+            preprocessor_save_path = f"preprocessor_{data_name}_v7.pkl"
         
-        # Preprocess data
         preprocessor, train_data_scaled, valid_data_scaled, test_data_scaled = preprocess_financial_data(
             train_data=train_data,
             valid_data=valid_data,
@@ -956,31 +1230,32 @@ def train_dqn(data_path: str,
         )
         print(f"Preprocessing complete. Preprocessor saved to: {preprocessor_save_path}")
     else:
-        # If no preprocessing, use raw data
         train_data_scaled = train_data
         valid_data_scaled = valid_data
         test_data_scaled = test_data
     
-    # Initialize configuration
-    config = TradingConfig(architecture_type=architecture_type)
+    # Initialize enhanced configuration
+    config = EnhancedTradingConfig(architecture_type=architecture_type)
     
-    # Create environments
-    train_env = TradingEnvironment(train_data, train_data_scaled, config, mode=TradingMode.TRAIN)
-    val_env = TradingEnvironment(valid_data, valid_data_scaled, config, mode=TradingMode.VAL)
-    test_env = TradingEnvironment(test_data, test_data_scaled, config, mode=TradingMode.TEST)
+    # Create enhanced environments
+    train_env = EnhancedTradingEnvironment(train_data, train_data_scaled, config, mode=TradingMode.TRAIN)
+    val_env = EnhancedTradingEnvironment(valid_data, valid_data_scaled, config, mode=TradingMode.VAL)
+    test_env = EnhancedTradingEnvironment(test_data, test_data_scaled, config, mode=TradingMode.TEST)
     
     print(f"train_data_scaled.shape: {train_data_scaled.shape}")
     print(f"valid_data_scaled.shape: {valid_data_scaled.shape}")
     print(f"test_data_scaled.shape: {test_data_scaled.shape}")
     
-    # Create agent
-    agent = DoubleDuelingDQN(config)
+    # Create enhanced agent
+    agent = EnhancedDoubleDuelingDQN(config)
     
     # Training metrics
     episode_rewards = []
     episode_returns = []
     episode_trades = []
     episode_invalid_actions = []
+    episode_exploration_bonuses = []
+    episode_action_usage = []
     
     validation_rewards = []
     validation_returns = []
@@ -991,7 +1266,7 @@ def train_dqn(data_path: str,
     patience_counter = 0
     best_model_state = None
     
-    print("Starting training...")
+    print("Starting Enhanced DQN v7 training...")
     
     # Phase 1: Portfolio State Warmup (if needed)
     if train_env.portfolio_normalizer is not None and not train_env.portfolio_normalizer.is_fitted:
@@ -1003,16 +1278,15 @@ def train_dqn(data_path: str,
         print("(No training will occur during this phase)")
         
         for warmup_ep in range(warmup_episodes):
-            # Simple episode for portfolio state collection only
             state = train_env.reset()
             episode_portfolio_states = []
             
             while True:
-                # Random action during warmup (pure exploration)
-                action = random.randrange(config.num_actions)
+                # Random action during warmup (from valid actions)
+                valid_actions = train_env.get_valid_actions()
+                action = random.choice(valid_actions) if valid_actions else 0
                 next_state, reward, done, info = train_env.step(action)
                 
-                # Collect portfolio states
                 if hasattr(train_env, 'episode_portfolio_states'):
                     episode_portfolio_states.extend(train_env.episode_portfolio_states)
                 
@@ -1020,22 +1294,19 @@ def train_dqn(data_path: str,
                 if done:
                     break
             
-            # Add collected states to normalizer
             if episode_portfolio_states:
                 train_env.portfolio_normalizer.collect_warmup_data(episode_portfolio_states)
             train_env.portfolio_normalizer.increment_episode()
             
-            # Progress update
             if (warmup_ep + 1) % 10 == 0 or warmup_ep == warmup_episodes - 1:
                 progress = (warmup_ep + 1) / warmup_episodes
                 print(f"  Warmup progress: {warmup_ep + 1}/{warmup_episodes} ({progress*100:.1f}%)")
         
         print(f"\n✅ Portfolio state collection complete!")
         print(f"🧠 Fitting portfolio normalizer...")
-        # The normalizer should now be fitted automatically
         print(f"✅ Ready to start training with normalized portfolio features!")
         print(f"\n{'='*60}")
-        print(f"TRAINING PHASE")
+        print(f"ENHANCED TRAINING PHASE (7-ACTION SPACE)")
         print(f"{'='*60}")
     
     for episode in range(num_episodes):
@@ -1045,59 +1316,79 @@ def train_dqn(data_path: str,
         # Store metrics
         episode_rewards.append(metrics['episode_reward'])
         episode_returns.append(metrics['total_return'])
-        episode_trades.append(metrics['total_trades'])
+        episode_trades.append(metrics['episode_trades'])
         episode_invalid_actions.append(metrics['invalid_actions'])
+        episode_exploration_bonuses.append(metrics['episode_exploration_bonus'])
+        episode_action_usage.append(metrics['action_usage'])
         
-        # Print progress
+        # Print enhanced progress
         current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-1. * agent.steps_done / config.epsilon_decay)
         
         print(f"\nEpisode {episode+1}/{num_episodes}")
-        print(f"  Reward: {metrics['episode_reward']:.4f}")
+        print(f"  Reward: {metrics['episode_reward']:.4f} (exploration: +{metrics['episode_exploration_bonus']:.4f})")
         print(f"  Return: {metrics['total_return']:.2%}")
         print(f"  Final Value: ${metrics['final_value']:,.2f}")
-        print(f"  Trades: {metrics['total_trades']}")
-        print(f"  Winning Trades: {metrics['winning_trades']}")
-        print(f"  Losing Trades: {metrics['losing_trades']}")
-        print(f"  Invalid Actions: {metrics['invalid_actions']}")
-        print(f"  Steps: {metrics['episode_steps']}")
-        print(f"  Epsilon: {current_epsilon:.4f} ({'Exploring' if current_epsilon > 0.1 else 'Exploiting'})")
+        print(f"  Episode Trades: {metrics['episode_trades']} | Total Trades: {metrics['total_trades']}")
+        print(f"  Winning Trades: {metrics['winning_trades']} | Losing Trades: {metrics['losing_trades']}")
+        print(f"  Invalid Actions: {metrics['invalid_actions']} (should be ~0 with masking)")
+        print(f"  Valid Actions Available: {metrics['valid_actions_count']:.1f} avg")
         
-        # Portfolio normalizer status (should always be active in training phase)
+        # Action usage breakdown
+        action_names = ['HOLD', 'BUY_S', 'BUY_M', 'BUY_L', 'SELL_S', 'SELL_M', 'SELL_L']
+        action_usage_str = " | ".join([f"{name}:{count}" for name, count in zip(action_names, metrics['action_usage'])])
+        print(f"  Action Usage: {action_usage_str}")
+        
+        print(f"  Steps: {metrics['episode_steps']} | Epsilon: {current_epsilon:.4f}")
+        
+        # Portfolio normalizer status
         if train_env.portfolio_normalizer is not None:
             print(f"  Portfolio Normalizer: ✅ ACTIVE")
         
-        # Validation
+        # Validation with enhanced metrics
         if (episode + 1) % validation_frequency == 0:
-            print("\nRunning validation...")
+            print("\nRunning enhanced validation...")
             
-            # Run validation episode
             val_state = val_env.reset()
             val_reward = 0
             val_done = False
+            val_trades = 0
+            val_action_usage = [0] * 7
+            val_valid_actions_total = 0
+            val_steps = 0
             
             while not val_done:
-                val_action = agent.select_action(val_state, epsilon=0.0)  # No exploration
+                valid_actions = val_env.get_valid_actions()
+                val_action = agent.select_action(val_state, valid_actions, epsilon=0.0)
                 val_next_state, val_r, val_done, val_info = val_env.step(val_action)
                 val_reward += val_r
                 val_state = val_next_state
+                
+                if val_info.get('trade_executed', False):
+                    val_trades += 1
+                val_action_usage[val_action] += 1
+                val_valid_actions_total += len(valid_actions)
+                val_steps += 1
             
             val_final_value = val_info['balance'] + (val_info['position'] * val_info['current_price'])
             val_return = (val_final_value - config.initial_balance) / config.initial_balance
             
             validation_rewards.append(val_reward)
             validation_returns.append(val_return)
-            validation_trades.append(val_info['total_trades'])
+            validation_trades.append(val_trades)
             validation_invalid_actions.append(val_info['invalid_actions'])
             
             print(f"Validation Results:")
             print(f"  Return: {val_return:.2%}")
             print(f"  Final Value: ${val_final_value:,.2f}")
-            print(f"  Trades: {val_info['total_trades']}")
-            print(f"  Winning Trades: {val_info['winning_trades']}")
-            print(f"  Losing Trades: {val_info['losing_trades']}")
+            print(f"  Episode Trades: {val_trades} | Total Trades: {val_info['total_trades']}")
+            print(f"  Winning Trades: {val_info['winning_trades']} | Losing Trades: {val_info['losing_trades']}")
             print(f"  Invalid Actions: {val_info['invalid_actions']}")
+            print(f"  Avg Valid Actions: {val_valid_actions_total/val_steps:.1f}")
             
-            # Update learning rate scheduler based on validation return
+            val_action_usage_str = " | ".join([f"{name}:{count}" for name, count in zip(action_names, val_action_usage)])
+            print(f"  Action Usage: {val_action_usage_str}")
+            
+            # Update learning rate scheduler
             agent.scheduler.step(val_return)
             current_lr = agent.optimizer.param_groups[0]['lr']
             print(f"  Current LR: {current_lr:.2e}")
@@ -1106,7 +1397,6 @@ def train_dqn(data_path: str,
             if val_return > best_validation_return:
                 best_validation_return = val_return
                 patience_counter = 0
-                # Save best model state
                 best_model_state = {
                     'q_network': agent.q_network.state_dict(),
                     'target_network': agent.target_network.state_dict(),
@@ -1120,14 +1410,10 @@ def train_dqn(data_path: str,
                 patience_counter += 1
             
             # Epsilon-aware early stopping
-            current_epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * math.exp(-1. * agent.steps_done / config.epsilon_decay)
-            
             if patience_counter >= early_stopping_patience and current_epsilon <= EPSILON_EARLY_STOPPING_THRESHOLD:
                 print(f"\nEpsilon-aware early stopping triggered at episode {episode+1}")
-                print(f"Patience counter: {patience_counter}, Current epsilon: {current_epsilon:.3f}")
                 print(f"Best validation return: {best_validation_return:.2%}")
                 
-                # Restore best model
                 if best_model_state:
                     agent.q_network.load_state_dict(best_model_state['q_network'])
                     agent.target_network.load_state_dict(best_model_state['target_network'])
@@ -1139,26 +1425,20 @@ def train_dqn(data_path: str,
                 break
             elif patience_counter >= early_stopping_patience:
                 print(f"\nValidation plateaued but epsilon still high ({current_epsilon:.3f})")
-                print(f"Continuing training... (patience reset to {early_stopping_patience // 2})")
-                # Partially reset patience counter to give more chances
+                print(f"Continuing training... (patience reset)")
                 patience_counter = early_stopping_patience // 2
         
         # Save checkpoint
         if episode % save_interval == 0 and episode > 0:
-            checkpoint_path = f"dqn_checkpoint_episode_{episode}.pt"
+            checkpoint_path = f"enhanced_dqn_v7_checkpoint_episode_{episode}.pt"
             agent.save(checkpoint_path, train_env.portfolio_normalizer)
-            print(f"Saved checkpoint at episode {episode}")
-            
-            # Portfolio normalizer status  
-            if train_env.portfolio_normalizer is not None:
-                print(f"  Portfolio normalizer: ✅ ACTIVE")
+            print(f"Saved enhanced checkpoint at episode {episode}")
     
-    # Multi-day test evaluation
-    print("\n" + "="*50)
-    print("MULTI-DAY TEST EVALUATION (6 DAYS)")
-    print("="*50)
+    # Multi-day test evaluation with enhanced metrics
+    print("\n" + "="*60)
+    print("ENHANCED MULTI-DAY TEST EVALUATION (6 DAYS)")
+    print("="*60)
     
-    # Run backtests on 6 different days
     num_test_days = min(6, test_env.total_days)
     test_days = np.linspace(0, test_env.total_days - 1, num_test_days, dtype=int)
     
@@ -1166,56 +1446,54 @@ def train_dqn(data_path: str,
     all_portfolio_values = []
     all_price_histories = []
     all_action_histories = []
-    all_invalid_action_masks = []
+    all_action_descriptions = []
     
     for i, day_idx in enumerate(test_days):
-        print(f"\nRunning backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
+        print(f"\nRunning enhanced backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
         
-        # Reset environment to specific day
         test_state = test_env.reset(day_idx=day_idx)
         test_reward = 0
         test_done = False
         test_action_history = []
-        test_invalid_action_mask = []
+        test_action_descriptions = []
         test_portfolio_values = [config.initial_balance]
         test_price_history = []
+        test_action_usage = [0] * 7
+        test_valid_actions_total = 0
+        test_steps = 0
         
         while not test_done:
-            test_action = agent.select_action(test_state, epsilon=0.0)
+            valid_actions = test_env.get_valid_actions()
+            test_action = agent.select_action(test_state, valid_actions, epsilon=0.0)
             test_next_state, test_r, test_done, test_info = test_env.step(test_action)
             test_reward += test_r
             test_state = test_next_state
             
-            # Track for plotting - store all actions and validity info
             test_action_history.append(test_action)
-            test_invalid_action_mask.append(test_info['invalid_action'])
+            test_action_descriptions.append(test_info.get('action_description', f'Action {test_action}'))
             current_value = test_info['balance'] + (test_info['position'] * test_info['current_price'])
             test_portfolio_values.append(current_value)
             test_price_history.append(test_info['current_price'])
+            test_action_usage[test_action] += 1
+            test_valid_actions_total += len(valid_actions)
+            test_steps += 1
         
-        # Calculate metrics for this day
+        # Calculate enhanced metrics
         test_final_value = test_portfolio_values[-1]
         test_return = (test_final_value - config.initial_balance) / config.initial_balance
         
-        # Calculate performance metrics
         returns = np.diff(test_portfolio_values) / test_portfolio_values[:-1]
-        
-        # Calculate max drawdown
         peak = np.maximum.accumulate(test_portfolio_values)
         drawdown = (test_portfolio_values - peak) / peak
         max_drawdown = np.min(drawdown)
         
-        # Calculate Sharpe ratio
         if len(returns) > 0:
             portfolio_volatility = np.std(test_portfolio_values) / np.mean(test_portfolio_values)
-            if portfolio_volatility > 1e-8:
-                sharpe = test_return / portfolio_volatility
-            else:
-                sharpe = test_return * 10
+            sharpe = test_return / portfolio_volatility if portfolio_volatility > 1e-8 else test_return * 10
         else:
             sharpe = 0.0
         
-        # Store results
+        # Store enhanced results
         day_results = {
             'day_idx': day_idx,
             'final_value': test_final_value,
@@ -1226,25 +1504,32 @@ def train_dqn(data_path: str,
             'winning_trades': test_info['winning_trades'],
             'losing_trades': test_info['losing_trades'],
             'invalid_actions': test_info['invalid_actions'],
-            'episode_reward': test_reward
+            'episode_reward': test_reward,
+            'action_usage': test_action_usage.copy(),
+            'avg_valid_actions': test_valid_actions_total / test_steps if test_steps > 0 else 0,
+            'exploration_bonus': test_info.get('exploration_bonus', 0)
         }
         
         all_test_results.append(day_results)
         all_portfolio_values.append(test_portfolio_values)
         all_price_histories.append(test_price_history)
         all_action_histories.append(test_action_history)
-        all_invalid_action_masks.append(test_invalid_action_mask)
+        all_action_descriptions.append(test_action_descriptions)
         
-        # Print day results
+        # Print enhanced day results
         print(f"  Day {day_idx + 1} Results:")
         print(f"    Final Value: ${test_final_value:,.2f}")
         print(f"    Return: {test_return:.2%}")
         print(f"    Sharpe: {sharpe:.2f}")
         print(f"    Max Drawdown: {max_drawdown:.2%}")
         print(f"    Trades: {test_info['total_trades']} (W:{test_info['winning_trades']}, L:{test_info['losing_trades']})")
-        print(f"    Invalid Actions: {test_info['invalid_actions']}")
+        print(f"    Invalid Actions: {test_info['invalid_actions']} (should be ~0)")
+        print(f"    Avg Valid Actions: {day_results['avg_valid_actions']:.1f}")
+        
+        day_action_usage_str = " | ".join([f"{name}:{count}" for name, count in zip(action_names, test_action_usage)])
+        print(f"    Action Usage: {day_action_usage_str}")
     
-    # Calculate aggregate statistics
+    # Calculate enhanced aggregate statistics
     returns = [r['total_return'] for r in all_test_results]
     final_values = [r['final_value'] for r in all_test_results]
     sharpe_ratios = [r['sharpe_ratio'] for r in all_test_results]
@@ -1254,9 +1539,15 @@ def train_dqn(data_path: str,
     losing_trades = [r['losing_trades'] for r in all_test_results]
     invalid_actions = [r['invalid_actions'] for r in all_test_results]
     
-    print(f"\n{'='*50}")
-    print("AGGREGATE TEST RESULTS")
-    print(f"{'='*50}")
+    # Aggregate action usage
+    total_action_usage = [0] * 7
+    for result in all_test_results:
+        for i, count in enumerate(result['action_usage']):
+            total_action_usage[i] += count
+    
+    print(f"\n{'='*60}")
+    print("ENHANCED AGGREGATE TEST RESULTS")
+    print(f"{'='*60}")
     print(f"Average Return: {np.mean(returns):.2%} ± {np.std(returns):.2%}")
     print(f"Best Return: {np.max(returns):.2%}")
     print(f"Worst Return: {np.min(returns):.2%}")
@@ -1267,7 +1558,14 @@ def train_dqn(data_path: str,
     print(f"Average Trades per Day: {np.mean(total_trades):.1f}")
     print(f"Average Winning Trades: {np.mean(winning_trades):.1f}")
     print(f"Average Losing Trades: {np.mean(losing_trades):.1f}")
-    print(f"Average Invalid Actions: {np.mean(invalid_actions):.1f}")
+    print(f"Average Invalid Actions: {np.mean(invalid_actions):.1f} (should be ~0)")
+    
+    # Action usage summary
+    total_actions = sum(total_action_usage)
+    action_percentages = [count/total_actions*100 if total_actions > 0 else 0 for count in total_action_usage]
+    print(f"\nAction Usage Distribution:")
+    for name, count, pct in zip(action_names, total_action_usage, action_percentages):
+        print(f"  {name}: {count} ({pct:.1f}%)")
     
     # Create comprehensive results dictionary
     results = {
@@ -1277,6 +1575,8 @@ def train_dqn(data_path: str,
         'episode_returns': episode_returns,
         'episode_trades': episode_trades,
         'episode_invalid_actions': episode_invalid_actions,
+        'episode_exploration_bonuses': episode_exploration_bonuses,
+        'episode_action_usage': episode_action_usage,
         'validation_rewards': validation_rewards,
         'validation_returns': validation_returns,
         'validation_trades': validation_trades,
@@ -1286,7 +1586,7 @@ def train_dqn(data_path: str,
             'portfolio_values': all_portfolio_values,
             'price_histories': all_price_histories,
             'action_histories': all_action_histories,
-            'invalid_action_masks': all_invalid_action_masks,
+            'action_descriptions': all_action_descriptions,
             'aggregate_stats': {
                 'avg_return': np.mean(returns),
                 'std_return': np.std(returns),
@@ -1299,168 +1599,51 @@ def train_dqn(data_path: str,
                 'avg_trades': np.mean(total_trades),
                 'avg_winning_trades': np.mean(winning_trades),
                 'avg_losing_trades': np.mean(losing_trades),
-                'avg_invalid_actions': np.mean(invalid_actions)
+                'avg_invalid_actions': np.mean(invalid_actions),
+                'total_action_usage': total_action_usage,
+                'action_percentages': action_percentages
             }
         },
         'start_date': start_date,
-        'end_date': end_date
+        'end_date': end_date,
+        'config': config  # Include config for analysis
     }
     
-    # Automatically plot the multi-day backtest results
-    print(f"\n{'='*50}")
-    print("GENERATING MULTI-DAY BACKTEST PLOT")
-    print(f"{'='*50}")
+    print(f"\n{'='*60}")
+    print("✅ Enhanced DQN v7 Training Complete!")
+    print(f"{'='*60}")
+    print(f"🔧 7-Action Space: HOLD, BUY_S/M/L, SELL_S/M/L")
+    print(f"🎯 Action Masking: Enabled (Invalid actions: {np.mean(invalid_actions):.1f}/day)")
+    print(f"🚀 Exploration Bonuses: Active")
+    print(f"📈 Enhanced State Features: 30 portfolio features")
+    print(f"💰 Average Return: {np.mean(returns):.2%}")
+    print(f"🏆 Win Rate: {np.sum([r > 0 for r in returns]) / len(returns):.1%}")
     
-    try:
-        plot_save_path = "multi_day_backtest_results.png"
-        plot_multi_day_backtests(results, save_path=plot_save_path, show_plot=False)
-        print(f"✅ Multi-day backtest plot saved to: {plot_save_path}")
-    except Exception as e:
-        print(f"❌ Error generating plot: {e}")
-        print("Plot generation failed, but training results are still available")
-    
-    # Automatically analyze performance and provide recommendations
-    # print_trading_analysis(results)
-    
-    return results
+    return results 
 
 
-def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bool = True):
+def run_standalone_enhanced_backtest(agent: EnhancedDoubleDuelingDQN, 
+                                    test_env: EnhancedTradingEnvironment, 
+                                    num_days: int = 6, 
+                                    plot_results: bool = True, 
+                                    save_plot_path: str = None):
     """
-    Plot portfolio performance for multiple days on the same figure
+    Run a standalone multi-day backtest with Enhanced DQN v7 agent
     
     Args:
-        results: Results dictionary from train_dqn function
-        save_path: Optional path to save the plot
-        show_plot: Whether to display the plot
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
-    from datetime import datetime, timedelta
-    
-    # Extract multi-day test results
-    multi_day_results = results['multi_day_test_results']
-    portfolio_values = multi_day_results['portfolio_values']
-    individual_days = multi_day_results['individual_days']
-    aggregate_stats = multi_day_results['aggregate_stats']
-    
-    # Create figure with subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
-    
-    # Color palette for different days
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
-    
-    # Plot 1: Portfolio Values
-    ax1.set_title('Multi-Day Portfolio Performance Comparison', fontsize=16, fontweight='bold')
-    
-    for i, (portfolio_vals, day_info) in enumerate(zip(portfolio_values, individual_days)):
-        day_idx = day_info['day_idx']
-        return_pct = day_info['total_return']
-        
-        # Create time axis (minutes within trading day)
-        time_points = list(range(len(portfolio_vals)))
-        
-        # Plot portfolio value
-        color = colors[i % len(colors)]
-        ax1.plot(time_points, portfolio_vals, 
-                label=f'Day {day_idx + 1} (Return: {return_pct:.1%})', 
-                color=color, linewidth=2, alpha=0.8)
-        
-        # Add final value annotation
-        final_val = portfolio_vals[-1]
-        ax1.annotate(f'${final_val:,.0f}', 
-                    xy=(len(time_points)-1, final_val),
-                    xytext=(5, 0), textcoords='offset points',
-                    fontsize=9, color=color, fontweight='bold')
-    
-    # Add horizontal line for initial balance
-    initial_balance = results['agent'].config.initial_balance
-    ax1.axhline(y=initial_balance, color='black', linestyle='--', alpha=0.5, 
-                label=f'Initial Balance (${initial_balance:,.0f})')
-    
-    ax1.set_xlabel('Minutes into Trading Day')
-    ax1.set_ylabel('Portfolio Value ($)')
-    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax1.grid(True, alpha=0.3)
-    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'${x:,.0f}'))
-    
-    # Plot 2: Normalized Returns (all starting at 100%)
-    ax2.set_title('Normalized Returns Comparison (Starting at 100%)', fontsize=14, fontweight='bold')
-    
-    for i, (portfolio_vals, day_info) in enumerate(zip(portfolio_values, individual_days)):
-        day_idx = day_info['day_idx']
-        return_pct = day_info['total_return']
-        
-        # Normalize to percentage returns starting at 100%
-        normalized_returns = [(val / portfolio_vals[0]) * 100 for val in portfolio_vals]
-        time_points = list(range(len(normalized_returns)))
-        
-        color = colors[i % len(colors)]
-        ax2.plot(time_points, normalized_returns, 
-                label=f'Day {day_idx + 1} (Final: {normalized_returns[-1]:.1f}%)', 
-                color=color, linewidth=2, alpha=0.8)
-        
-        # Add final percentage annotation
-        final_pct = normalized_returns[-1]
-        ax2.annotate(f'{final_pct:.1f}%', 
-                    xy=(len(time_points)-1, final_pct),
-                    xytext=(5, 0), textcoords='offset points',
-                    fontsize=9, color=color, fontweight='bold')
-    
-    # Add horizontal line at 100%
-    ax2.axhline(y=100, color='black', linestyle='--', alpha=0.5, label='Break-even (100%)')
-    
-    ax2.set_xlabel('Minutes into Trading Day')
-    ax2.set_ylabel('Portfolio Value (%)')
-    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax2.grid(True, alpha=0.3)
-    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1f}%'))
-    
-    # Add aggregate statistics as text box
-    stats_text = f"""Aggregate Statistics (6 Days):
-    Average Return: {aggregate_stats['avg_return']:.1%} ± {aggregate_stats['std_return']:.1%}
-    Best Return: {aggregate_stats['best_return']:.1%}
-    Worst Return: {aggregate_stats['worst_return']:.1%}
-    Win Rate: {aggregate_stats['win_rate']:.0%}
-    Avg Trades/Day: {aggregate_stats['avg_trades']:.1f}
-    Avg Sharpe Ratio: {aggregate_stats['avg_sharpe_ratio']:.2f}"""
-    
-    ax2.text(0.02, 0.98, stats_text, transform=ax2.transAxes, fontsize=10,
-            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    plt.tight_layout()
-    
-    # Save plot if path provided
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Plot saved to: {save_path}")
-    
-    # Show plot if requested
-    if show_plot:
-        plt.show()
-    
-    return fig
-
-
-def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bool = True, save_plot_path: str = None):
-    """
-    Run a standalone multi-day backtest with an already trained agent
-    
-    Args:
-        agent: Trained DoubleDuelingDQN agent
-        test_env: TradingEnvironment for testing
+        agent: Trained EnhancedDoubleDuelingDQN agent
+        test_env: EnhancedTradingEnvironment for testing
         num_days: Number of days to test
         plot_results: Whether to plot the results
         save_plot_path: Path to save the plot
     
     Returns:
-        Dictionary with backtest results
+        Dictionary with enhanced backtest results
     """
     print(f"\n{'='*60}")
-    print(f"STANDALONE MULTI-DAY BACKTEST ({num_days} DAYS)")
+    print(f"STANDALONE ENHANCED BACKTEST ({num_days} DAYS)")
     print(f"{'='*60}")
     
-    # Run backtests on multiple days
     num_test_days = min(num_days, test_env.total_days)
     test_days = np.linspace(0, test_env.total_days - 1, num_test_days, dtype=int)
     
@@ -1468,56 +1651,56 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
     all_portfolio_values = []
     all_price_histories = []
     all_action_histories = []
-    all_invalid_action_masks = []
+    all_action_descriptions = []
+    
+    action_names = ['HOLD', 'BUY_S', 'BUY_M', 'BUY_L', 'SELL_S', 'SELL_M', 'SELL_L']
     
     for i, day_idx in enumerate(test_days):
-        print(f"\nRunning backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
+        print(f"\nRunning enhanced backtest for day {day_idx + 1}/{test_env.total_days} (Test {i+1}/{num_test_days})...")
         
-        # Reset environment to specific day
         test_state = test_env.reset(day_idx=day_idx)
         test_reward = 0
         test_done = False
         test_action_history = []
-        test_invalid_action_mask = []
+        test_action_descriptions = []
         test_portfolio_values = [agent.config.initial_balance]
         test_price_history = []
+        test_action_usage = [0] * 7
+        test_valid_actions_total = 0
+        test_steps = 0
         
         while not test_done:
-            test_action = agent.select_action(test_state, epsilon=0.0)
+            valid_actions = test_env.get_valid_actions()
+            test_action = agent.select_action(test_state, valid_actions, epsilon=0.0)
             test_next_state, test_r, test_done, test_info = test_env.step(test_action)
             test_reward += test_r
             test_state = test_next_state
             
-            # Track for plotting - store all actions and validity info
             test_action_history.append(test_action)
-            test_invalid_action_mask.append(test_info['invalid_action'])
+            test_action_descriptions.append(test_info.get('action_description', f'Action {test_action}'))
             current_value = test_info['balance'] + (test_info['position'] * test_info['current_price'])
             test_portfolio_values.append(current_value)
             test_price_history.append(test_info['current_price'])
+            test_action_usage[test_action] += 1
+            test_valid_actions_total += len(valid_actions)
+            test_steps += 1
         
-        # Calculate metrics for this day
+        # Calculate enhanced metrics
         test_final_value = test_portfolio_values[-1]
         test_return = (test_final_value - agent.config.initial_balance) / agent.config.initial_balance
         
-        # Calculate performance metrics
         returns = np.diff(test_portfolio_values) / test_portfolio_values[:-1]
-        
-        # Calculate max drawdown
         peak = np.maximum.accumulate(test_portfolio_values)
         drawdown = (test_portfolio_values - peak) / peak
         max_drawdown = np.min(drawdown)
         
-        # Calculate Sharpe ratio
         if len(returns) > 0:
             portfolio_volatility = np.std(test_portfolio_values) / np.mean(test_portfolio_values)
-            if portfolio_volatility > 1e-8:
-                sharpe = test_return / portfolio_volatility
-            else:
-                sharpe = test_return * 10
+            sharpe = test_return / portfolio_volatility if portfolio_volatility > 1e-8 else test_return * 10
         else:
             sharpe = 0.0
         
-        # Store results
+        # Store enhanced results
         day_results = {
             'day_idx': day_idx,
             'final_value': test_final_value,
@@ -1528,24 +1711,32 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
             'winning_trades': test_info['winning_trades'],
             'losing_trades': test_info['losing_trades'],
             'invalid_actions': test_info['invalid_actions'],
-            'episode_reward': test_reward
+            'episode_reward': test_reward,
+            'action_usage': test_action_usage.copy(),
+            'avg_valid_actions': test_valid_actions_total / test_steps if test_steps > 0 else 0,
+            'exploration_bonus': test_info.get('exploration_bonus', 0)
         }
         
         all_test_results.append(day_results)
         all_portfolio_values.append(test_portfolio_values)
         all_price_histories.append(test_price_history)
         all_action_histories.append(test_action_history)
+        all_action_descriptions.append(test_action_descriptions)
         
-        # Print day results
+        # Print enhanced day results
         print(f"  Day {day_idx + 1} Results:")
         print(f"    Final Value: ${test_final_value:,.2f}")
         print(f"    Return: {test_return:.2%}")
         print(f"    Sharpe: {sharpe:.2f}")
         print(f"    Max Drawdown: {max_drawdown:.2%}")
         print(f"    Trades: {test_info['total_trades']} (W:{test_info['winning_trades']}, L:{test_info['losing_trades']})")
-        print(f"    Invalid Actions: {test_info['invalid_actions']}")
+        print(f"    Invalid Actions: {test_info['invalid_actions']} (should be ~0)")
+        print(f"    Avg Valid Actions: {day_results['avg_valid_actions']:.1f}")
+        
+        day_action_usage_str = " | ".join([f"{name}:{count}" for name, count in zip(action_names, test_action_usage)])
+        print(f"    Action Usage: {day_action_usage_str}")
     
-    # Calculate aggregate statistics
+    # Calculate enhanced aggregate statistics
     returns = [r['total_return'] for r in all_test_results]
     final_values = [r['final_value'] for r in all_test_results]
     sharpe_ratios = [r['sharpe_ratio'] for r in all_test_results]
@@ -1555,9 +1746,15 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
     losing_trades = [r['losing_trades'] for r in all_test_results]
     invalid_actions = [r['invalid_actions'] for r in all_test_results]
     
-    print(f"\n{'='*50}")
-    print("AGGREGATE BACKTEST RESULTS")
-    print(f"{'='*50}")
+    # Aggregate action usage
+    total_action_usage = [0] * 7
+    for result in all_test_results:
+        for i, count in enumerate(result['action_usage']):
+            total_action_usage[i] += count
+    
+    print(f"\n{'='*60}")
+    print("ENHANCED AGGREGATE BACKTEST RESULTS")
+    print(f"{'='*60}")
     print(f"Average Return: {np.mean(returns):.2%} ± {np.std(returns):.2%}")
     print(f"Best Return: {np.max(returns):.2%}")
     print(f"Worst Return: {np.min(returns):.2%}")
@@ -1568,7 +1765,14 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
     print(f"Average Trades per Day: {np.mean(total_trades):.1f}")
     print(f"Average Winning Trades: {np.mean(winning_trades):.1f}")
     print(f"Average Losing Trades: {np.mean(losing_trades):.1f}")
-    print(f"Average Invalid Actions: {np.mean(invalid_actions):.1f}")
+    print(f"Average Invalid Actions: {np.mean(invalid_actions):.1f} (should be ~0)")
+    
+    # Action usage summary
+    total_actions = sum(total_action_usage)
+    action_percentages = [count/total_actions*100 if total_actions > 0 else 0 for count in total_action_usage]
+    print(f"\nAction Usage Distribution:")
+    for name, count, pct in zip(action_names, total_action_usage, action_percentages):
+        print(f"  {name}: {count} ({pct:.1f}%)")
     
     # Create results dictionary
     results = {
@@ -1578,6 +1782,7 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
             'portfolio_values': all_portfolio_values,
             'price_histories': all_price_histories,
             'action_histories': all_action_histories,
+            'action_descriptions': all_action_descriptions,
             'aggregate_stats': {
                 'avg_return': np.mean(returns),
                 'std_return': np.std(returns),
@@ -1590,13 +1795,78 @@ def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bo
                 'avg_trades': np.mean(total_trades),
                 'avg_winning_trades': np.mean(winning_trades),
                 'avg_losing_trades': np.mean(losing_trades),
-                'avg_invalid_actions': np.mean(invalid_actions)
+                'avg_invalid_actions': np.mean(invalid_actions),
+                'total_action_usage': total_action_usage,
+                'action_percentages': action_percentages
             }
         }
     }
     
     # Plot results if requested
     if plot_results:
-        plot_multi_day_backtests(results, save_path=save_plot_path)
+        try:
+            # Use the plotting function from v5 if available
+            from src.models.mark.dqn_v2.dqn_v5 import plot_multi_day_backtests
+            plot_multi_day_backtests(results, save_path=save_plot_path)
+            print(f"✅ Enhanced backtest plots generated!")
+        except ImportError:
+            print(f"⚠️ Plotting function not available - install matplotlib to enable plotting")
     
     return results
+
+
+# Configuration is now automatically handled by EnhancedTradingConfig
+
+
+# Quick test function to verify the enhanced environment works
+def test_enhanced_environment():
+    """Quick test function to verify the enhanced environment and agent work correctly"""
+    print("Testing Enhanced DQN v7 Environment...")
+    
+    # Create dummy data for testing
+    np.random.seed(42)
+    test_data = pd.DataFrame({
+        'close': np.random.uniform(100, 200, 1000),
+        'open': np.random.uniform(100, 200, 1000),
+        'high': np.random.uniform(150, 250, 1000),
+        'low': np.random.uniform(50, 150, 1000),
+        'volume': np.random.uniform(1000, 10000, 1000)
+    })
+    
+    # Add any other required features to match STOCK_FEATURES_V2
+    for feature in STOCK_FEATURES_V2:
+        if feature not in test_data.columns:
+            test_data[feature] = np.random.uniform(-1, 1, 1000)
+    
+    # Create config and environment
+    config = EnhancedTradingConfig()
+    
+    env = EnhancedTradingEnvironment(test_data, test_data, config)
+    
+    # Test basic functionality
+    state = env.reset()
+    print(f"✅ Environment reset successful. State shape: {state.shape}")
+    
+    valid_actions = env.get_valid_actions()
+    print(f"✅ Valid actions: {valid_actions}")
+    
+    action = valid_actions[0] if valid_actions else 0
+    next_state, reward, done, info = env.step(action)
+    print(f"✅ Step successful. Reward: {reward:.4f}, Done: {done}")
+    print(f"✅ Action description: {info.get('action_description', 'N/A')}")
+    
+    # Create agent
+    agent = EnhancedDoubleDuelingDQN(config)
+    print(f"✅ Agent created successfully")
+    
+    # Test action selection with masking
+    action = agent.select_action(state, valid_actions, epsilon=0.0)
+    print(f"✅ Action selection with masking: {action} (from valid: {valid_actions})")
+    
+    print("\n🎉 Enhanced DQN v7 test completed successfully!")
+    return True
+
+
+if __name__ == "__main__":
+    # Run a quick test if this file is executed directly
+    test_enhanced_environment() 
