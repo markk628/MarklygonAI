@@ -139,27 +139,27 @@ class SAC:
                 patience=patience,
                 min_lr=config.scheduler_min_lr,
                 threshold=config.scheduler_threshold,
-                verbose=True
+                verbose=False  # Disable initialization messages, we provide better logging during validation
             )
         elif scheduler_type == 'exponential':
             return optim.lr_scheduler.ExponentialLR(
                 optimizer,
                 gamma=gamma,
-                verbose=True
+                verbose=False  # Disable initialization messages, we provide better logging during validation
             )
         elif scheduler_type == 'step':
             return optim.lr_scheduler.StepLR(
                 optimizer,
                 step_size=config.scheduler_step_size,
                 gamma=factor,
-                verbose=True
+                verbose=False  # Disable initialization messages, we provide better logging during validation
             )
         elif scheduler_type == 'cosine':
             return optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max=config.scheduler_T_max,
                 eta_min=config.scheduler_eta_min,
-                verbose=True
+                verbose=False  # Disable initialization messages, we provide better logging during validation
             )
         else:
             raise ValueError(f"Unknown scheduler type: {scheduler_type}")

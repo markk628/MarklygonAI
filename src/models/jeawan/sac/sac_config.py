@@ -47,8 +47,8 @@ class SACConfig:
     transaction_fee_percent: float = TRANSACTION_FEE_PERCENT
     window_size: int = WINDOW_SIZE
     num_stock_features: int = len(STOCK_FEATURES_V2)
-    num_portfolio_features: int = 13
-    num_features: int = len(STOCK_FEATURES_V2) + 13
+    num_portfolio_features: int = 20  # Updated from 13 to 20 for enhanced action guidance
+    num_features: int = len(STOCK_FEATURES_V2) + 20  # Updated total features
     max_position_size: float = MAX_POSITION_SIZE
     minutes_per_day: int = MINUTES_PER_TRADING_DAY
     
@@ -81,9 +81,9 @@ class SACConfig:
     # Trading parameters
     min_trade_amount: float = 0.001  # Minimum 0.1% position size for trades
     
-    # Reward parameters (optimizable)
-    portfolio_scaling: float = 1.0  # Increased from 0.1 to make trading more rewarding
-    invalid_penalty: float = 0.1  # Reduced penalty for invalid actions
+    # Reward parameters (balanced for SAC)
+    portfolio_scaling: float = 0.1  # Balanced scaling - enough incentive for trading, stable for neural networks
+    invalid_penalty: float = 0.05  # Reduced penalty for invalid actions
     
     # PER parameters
     per_alpha: float = 0.6  # Prioritization strength
@@ -145,6 +145,12 @@ class SACConfig:
     max_lots: int = 100  # Maximum number of lots to track
     lot_method: str = "FIFO"  # FIFO or LIFO for sell order
     
+    # CONTINUOUS ACTION MASKING PARAMETERS
+    use_action_guidance: bool = True  # Enable continuous action masking
+    action_guidance_strength: float = 0.5  # Strength of action guidance (0-1)
+    soft_invalid_penalty: float = 0.01  # Reduced penalty for invalid actions with guidance
+    min_action_threshold: float = 0.05  # Minimum action magnitude for meaningful trades
+    
     def __post_init__(self):
         """Post-initialization setup"""
         # Set target entropy automatically for 1D action space
@@ -170,7 +176,11 @@ class SACConfig:
             'portfolio_scaling': self.portfolio_scaling,
             'invalid_penalty': self.invalid_penalty,
             'max_lots': self.max_lots,
-            'lot_method': self.lot_method
+            'lot_method': self.lot_method,
+            'use_action_guidance': self.use_action_guidance,
+            'action_guidance_strength': self.action_guidance_strength,
+            'soft_invalid_penalty': self.soft_invalid_penalty,
+            'min_action_threshold': self.min_action_threshold
         }
     
     def get_agent_config_dict(self) -> dict:
@@ -229,9 +239,11 @@ class SACConfig:
 
 # Convenience function to create configs with specific environment types
 def create_basic_sac_config(**kwargs) -> SACConfig:
-    """Create SAC config for basic trading environment"""
+    """Create SAC config for basic trading environment with continuous action masking"""
     config = SACConfig()
     config.environment_type = EnvironmentType.BASIC
+    # Ensure action masking is enabled for optimal performance
+    config.use_action_guidance = True
     for key, value in kwargs.items():
         if hasattr(config, key):
             setattr(config, key, value)
@@ -239,9 +251,11 @@ def create_basic_sac_config(**kwargs) -> SACConfig:
 
 
 def create_weighted_average_sac_config(**kwargs) -> SACConfig:
-    """Create SAC config for weighted average trading environment"""
+    """Create SAC config for weighted average trading environment with continuous action masking"""
     config = SACConfig()
     config.environment_type = EnvironmentType.WEIGHTED_AVERAGE
+    # Ensure action masking is enabled for optimal performance
+    config.use_action_guidance = True
     for key, value in kwargs.items():
         if hasattr(config, key):
             setattr(config, key, value)
@@ -249,10 +263,36 @@ def create_weighted_average_sac_config(**kwargs) -> SACConfig:
 
 
 def create_lot_based_sac_config(**kwargs) -> SACConfig:
-    """Create SAC config for lot-based trading environment"""
+    """Create SAC config for lot-based trading environment with continuous action masking"""
     config = SACConfig()
     config.environment_type = EnvironmentType.LOT_BASED
+    # Ensure action masking is enabled for optimal performance
+    config.use_action_guidance = True
     for key, value in kwargs.items():
         if hasattr(config, key):
             setattr(config, key, value)
+    return config
+
+
+def create_action_masking_demo_config(environment_type: EnvironmentType = EnvironmentType.WEIGHTED_AVERAGE) -> SACConfig:
+    """Create SAC config optimized for demonstrating continuous action masking capabilities"""
+    config = SACConfig()
+    config.environment_type = environment_type
+    
+    # Enhanced action masking settings for maximum effectiveness
+    config.use_action_guidance = True
+    config.action_guidance_strength = 0.7  # Stronger guidance
+    config.soft_invalid_penalty = 0.005  # Very soft penalties
+    config.min_action_threshold = 0.03  # Lower threshold for more sensitive actions
+    
+    # Balanced reward scaling for active trading and stable learning  
+    config.portfolio_scaling = 0.1  # Balanced scaling - encourages trading while stable for neural networks
+    config.invalid_penalty = 0.05  # Consistent with soft penalties
+    
+    # Optimized training parameters for faster learning with action masking
+    config.batch_size = 64  # Smaller batches for more frequent updates
+    config.update_frequency = 1  # Update every step
+    config.actor_learning_rate = 5e-4  # Slightly higher LR for faster adaptation
+    config.target_entropy = -0.3  # More aggressive trading
+    
     return config 

@@ -51,17 +51,42 @@ Hyperparameter optimization:
     ```
 """
 
-from src.models.jeawan.sac.sac import (
-    SAC,
-    SACConfig, 
-    SACTradingEnvironment,
+# Core SAC components from modular architecture
+from src.models.jeawan.sac.sac_agent import SAC
+from src.models.jeawan.sac.sac_networks import (
     Actor,
     Critic,
+    SimplifiedActor,
+    SimplifiedCritic,
     PrioritizedReplayBufferGPU,
+    create_networks,
+    count_parameters
+)
+from src.models.jeawan.sac.sac_config import (
+    SACConfig,
+    NetworkType,
+    EnvironmentType,
     TradingMode,
+    create_basic_sac_config,
+    create_weighted_average_sac_config,
+    create_lot_based_sac_config,
+    create_action_masking_demo_config
+)
+
+# Training function and data utilities
+from src.models.jeawan.sac.sac import (
     train_sac,
     load_stock_data,
     filter_to_regular_hours
+)
+
+# Action masking environments
+from src.models.jeawan.sac.sac_environments import (
+    create_environment,
+    BasicTradingEnvironment,
+    WeightedAverageTradingEnvironment, 
+    LotBasedTradingEnvironment,
+    compare_environments
 )
 
 try:
@@ -89,11 +114,31 @@ __all__ = [
     # Core SAC components
     'SAC',
     'SACConfig',
-    'SACTradingEnvironment', 
+    'NetworkType',
+    'EnvironmentType',
+    'TradingMode',
+    
+    # Network architectures
     'Actor',
     'Critic',
+    'SimplifiedActor',
+    'SimplifiedCritic',
     'PrioritizedReplayBufferGPU',
-    'TradingMode',
+    'create_networks',
+    'count_parameters',
+    
+    # Configuration factory functions
+    'create_basic_sac_config',
+    'create_weighted_average_sac_config',
+    'create_lot_based_sac_config',
+    'create_action_masking_demo_config',
+    
+    # Action masking environments
+    'create_environment',
+    'BasicTradingEnvironment',
+    'WeightedAverageTradingEnvironment',
+    'LotBasedTradingEnvironment',
+    'compare_environments',
     
     # Training and data utilities
     'train_sac',
