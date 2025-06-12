@@ -127,11 +127,11 @@ def test_parameters_with_warmup(invalid_penalty: float,
                 return {
                     'avg_return': -0.1, 
                     'win_rate': 0.0, 
-                    'avg_invalid_actions': 100,
+                    'avg_invalid_actions': 100,  # Still track for diagnostics
                     'avg_trades': 0,
                     'sharpe_ratio': error_sharpe,
                     'warmup_episodes': warmup_episodes,
-                    'score': -10
+                    'score': -10  # Error score unchanged - pure penalty
                 }
         else:
             print(f"      ⚡ No warmup needed, starting evaluation...")
@@ -170,14 +170,14 @@ def test_parameters_with_warmup(invalid_penalty: float,
         else:
             sharpe_ratio = 0.0
         
-        # Enhanced scoring function with Sharpe ratio
+        # Enhanced scoring function with Sharpe ratio (PURE FINANCIAL FOCUS)
         score = (
-            avg_return * 3.0 +                    # Primary: actual returns (reduced weight)
-            sharpe_ratio * 1.5 +                  # NEW: risk-adjusted return metric
-            win_rate * 2.0 +                      # Secondary: consistency  
-            -(avg_invalid / 100) * 3.0 +          # Strong penalty: invalid actions
+            avg_return * 4.0 +                    # Primary: actual returns (increased weight)
+            sharpe_ratio * 2.0 +                  # Risk-adjusted return metric (increased weight)
+            win_rate * 2.5 +                      # Consistency reward (increased weight)
             -abs(avg_trades - 15) * 0.02          # Minor penalty: target ~15 trades/day
         )
+        # Note: Invalid actions removed from scoring - they're handled by reward penalties during training
         
         return {
             'avg_return': avg_return,
@@ -203,11 +203,11 @@ def test_parameters_with_warmup(invalid_penalty: float,
         return {
             'avg_return': -0.1, 
             'win_rate': 0.0, 
-            'avg_invalid_actions': 100,
+            'avg_invalid_actions': 100,  # Still track for diagnostics
             'avg_trades': 0,
             'sharpe_ratio': error_sharpe,
             'warmup_episodes': 0,
-            'score': -10
+            'score': -10  # Error score unchanged - pure penalty
         }
 
 
@@ -225,6 +225,7 @@ def run_fixed_optimization(data_path: str, cutoff: pd.Timestamp, n_trials: int =
     print(f"   Architecture: 512 units (fixed, proven optimal)")
     print(f"   📊 RISK-ADJUSTED: Scoring includes Sharpe ratio")
     print(f"   🎯 FAIR COMPARISON: New normalization gets proper warmup")
+    print(f"   💰 PURE FINANCIAL: Invalid actions removed from scoring (handled by training rewards)")
     
     # Load and prepare data
     data, start_date, end_date = load_stock_data(data_path, cutoff)
@@ -348,6 +349,7 @@ Preprocessing: {scaling_method} scaling, {outlier_method} outliers
    ✅ Performance only measured post-warmup
    ✅ Fair comparison for adaptive normalization
    ✅ Consistent baseline across trials
+   ✅ Pure financial focus: invalid actions removed from scoring (handled by training rewards)
 
 ================================================================================
 📋 COPY-PASTE INSTRUCTIONS FOR DQN v5
