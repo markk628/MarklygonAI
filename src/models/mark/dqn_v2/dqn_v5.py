@@ -443,7 +443,7 @@ class TradingEnvironment:
         
         # PURE PORTFOLIO TRACKING: Reward = portfolio value change (always)
         portfolio_change = current_portfolio_value - self.last_portfolio_value
-        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.010)  # Support optimization
+        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)  # Support optimization
         reward = portfolio_change * portfolio_scaling  # Consistent scaling for all actions
         
         # Update last portfolio value for next step
@@ -454,7 +454,7 @@ class TradingEnvironment:
             self.invalid_actions += 1
             self.consecutive_invalid_actions += 1
             # Add penalty for invalid actions to teach action validity
-            invalid_penalty = getattr(self.config, 'invalid_penalty', 0.497)  # Support optimization
+            invalid_penalty = getattr(self.config, 'invalid_penalty', 0.5058868125236534)  # Support optimization
             reward -= invalid_penalty  # Configurable penalty for invalid actions
         else:
             self.consecutive_invalid_actions = 0 
@@ -539,7 +539,7 @@ class TradingEnvironment:
             # Update portfolio value after forced close for final reward calculation
             final_portfolio_value = self.balance
             final_change = final_portfolio_value - self.last_portfolio_value
-            portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.010)
+            portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)
             reward += final_change * portfolio_scaling  # Same consistent scaling
         
         # Get next state (or terminal state if done)
