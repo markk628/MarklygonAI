@@ -1436,10 +1436,10 @@ def train_enhanced_dqn(data_path: str,
     
     # Multi-day test evaluation with enhanced metrics
     print("\n" + "="*60)
-    print("ENHANCED MULTI-DAY TEST EVALUATION (6 DAYS)")
+    print("ENHANCED MULTI-DAY TEST EVALUATION (20 DAYS)")
     print("="*60)
     
-    num_test_days = min(6, test_env.total_days)
+    num_test_days = min(20, test_env.total_days)
     test_days = np.linspace(0, test_env.total_days - 1, num_test_days, dtype=int)
     
     all_test_results = []
@@ -1571,6 +1571,7 @@ def train_enhanced_dqn(data_path: str,
     results = {
         'agent': agent,
         'preprocessor': preprocessor,
+        'portfolio_normalizer': train_env.portfolio_normalizer,  # CRITICAL: Include portfolio normalizer
         'episode_rewards': episode_rewards,
         'episode_returns': episode_returns,
         'episode_trades': episode_trades,
@@ -1624,7 +1625,7 @@ def train_enhanced_dqn(data_path: str,
 
 def run_standalone_enhanced_backtest(agent: EnhancedDoubleDuelingDQN, 
                                     test_env: EnhancedTradingEnvironment, 
-                                    num_days: int = 6, 
+                                    num_days: int = 20, 
                                     plot_results: bool = True, 
                                     save_plot_path: str = None):
     """

@@ -21,11 +21,23 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
     individual_days = multi_day_results['individual_days']
     aggregate_stats = multi_day_results['aggregate_stats']
     
+    num_days = len(individual_days)
+    
     # Create figure with subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
     
-    # Color palette for different days
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    # Expanded color palette for up to 20+ days using matplotlib colormap
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+    
+    if num_days <= 10:
+        # Use distinct colors for smaller numbers
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    else:
+        # Generate colors using colormap for larger numbers
+        colormap = cm.get_cmap('tab20')  # Good for up to 20 distinct colors
+        colors = [colormap(i / max(num_days - 1, 1)) for i in range(num_days)]
     
     # Plot 1: Portfolio Values
     ax1.set_title('Multi-Day Portfolio Performance Comparison', fontsize=16, fontweight='bold')
@@ -43,12 +55,13 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
                 label=f'Day {day_idx + 1} (Return: {return_pct:.1%})', 
                 color=color, linewidth=2, alpha=0.8)
         
-        # Add final value annotation
-        final_val = portfolio_vals[-1]
-        ax1.annotate(f'${final_val:,.0f}', 
-                    xy=(len(time_points)-1, final_val),
-                    xytext=(5, 0), textcoords='offset points',
-                    fontsize=9, color=color, fontweight='bold')
+        # Add final value annotation for first 10 days only (to avoid clutter)
+        if i < 10:
+            final_val = portfolio_vals[-1]
+            ax1.annotate(f'${final_val:,.0f}', 
+                        xy=(len(time_points)-1, final_val),
+                        xytext=(5, 0), textcoords='offset points',
+                        fontsize=9, color=color, fontweight='bold')
     
     # Add horizontal line for initial balance
     initial_balance = results['agent'].config.initial_balance
@@ -77,12 +90,13 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
                 label=f'Day {day_idx + 1} (Final: {normalized_returns[-1]:.1f}%)', 
                 color=color, linewidth=2, alpha=0.8)
         
-        # Add final percentage annotation
-        final_pct = normalized_returns[-1]
-        ax2.annotate(f'{final_pct:.1f}%', 
-                    xy=(len(time_points)-1, final_pct),
-                    xytext=(5, 0), textcoords='offset points',
-                    fontsize=9, color=color, fontweight='bold')
+        # Add final percentage annotation for first 10 days only (to avoid clutter)
+        if i < 10:
+            final_pct = normalized_returns[-1]
+            ax2.annotate(f'{final_pct:.1f}%', 
+                        xy=(len(time_points)-1, final_pct),
+                        xytext=(5, 0), textcoords='offset points',
+                        fontsize=9, color=color, fontweight='bold')
     
     # Add horizontal line at 100%
     ax2.axhline(y=100, color='black', linestyle='--', alpha=0.5, label='Break-even (100%)')
@@ -93,8 +107,8 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1f}%'))
     
-    # Add aggregate statistics as text box
-    stats_text = f"""Aggregate Statistics (6 Days):
+    # Add aggregate statistics as text box (dynamic number of days)
+    stats_text = f"""Aggregate Statistics ({num_days} Days):
     Average Return: {aggregate_stats['avg_return']:.1%} ± {aggregate_stats['std_return']:.1%}
     Best Return: {aggregate_stats['best_return']:.1%}
     Worst Return: {aggregate_stats['worst_return']:.1%}
@@ -226,7 +240,7 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock", show_all_da
     Args:
         test_results: Results dictionary from train_dqn function
         ticker: Stock ticker symbol
-        show_all_days: If True, show all 6 days in detail. If False, show only best day.
+        show_all_days: If True, show all days in detail. If False, show only best day.
     """
     # Handle multi-day results
     if 'multi_day_test_results' in test_results and show_all_days:
@@ -316,7 +330,7 @@ def plot_backtest_results(test_results: dict, ticker: str = "Stock", show_all_da
 
 def plot_all_backtest_days(test_results: dict, ticker: str = "Stock"):
     """
-    Plot detailed trading actions and performance for all 6 backtest days
+    Plot detailed trading actions and performance for all backtest days
     
     Args:
         test_results: Results dictionary from train_dqn function
@@ -339,8 +353,17 @@ def plot_all_backtest_days(test_results: dict, ticker: str = "Stock"):
     # Create a large figure with subplots for each day
     fig = plt.figure(figsize=(20, 4 * num_days))
     
-    # Color palette for different days
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    # Expanded color palette for multiple days
+    import matplotlib.cm as cm
+    
+    if num_days <= 10:
+        # Use distinct colors for smaller numbers
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    else:
+        # Generate colors using colormap for larger numbers
+        colormap = cm.get_cmap('tab20')  # Good for up to 20 distinct colors
+        colors = [colormap(i / max(num_days - 1, 1)) for i in range(num_days)]
     
     print(f"📊 Plotting detailed results for all {num_days} backtest days...")
     
@@ -436,7 +459,7 @@ Sharpe: {day_info['sharpe_ratio']:.2f} | Drawdown: {day_info['max_drawdown']:.1%
 
 def plot_multi_day_comparison(training_results: dict, ticker: str = "Stock"):
     """
-    Plot all 6 days of backtesting on the same chart for comparison
+    Plot all days of backtesting on the same chart for comparison
     """
     if 'multi_day_test_results' not in training_results:
         print("No multi-day results available for comparison plot")
@@ -446,10 +469,21 @@ def plot_multi_day_comparison(training_results: dict, ticker: str = "Stock"):
     individual_days = multi_day_data['individual_days']
     portfolio_values_list = multi_day_data['portfolio_values']
     
+    num_days = len(individual_days)
+    
     plt.figure(figsize=(15, 10))
     
-    # Color palette for different days
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+    # Expanded color palette for multiple days
+    import matplotlib.cm as cm
+    
+    if num_days <= 10:
+        # Use distinct colors for smaller numbers
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    else:
+        # Generate colors using colormap for larger numbers
+        colormap = cm.get_cmap('tab20')  # Good for up to 20 distinct colors
+        colors = [colormap(i / max(num_days - 1, 1)) for i in range(num_days)]
     
     # Plot 1: Portfolio Values
     plt.subplot(2, 1, 1)
@@ -470,12 +504,13 @@ def plot_multi_day_comparison(training_results: dict, ticker: str = "Stock"):
                 label=f'Day {day_num} (Return: {return_pct:.1%})', 
                 color=color, linewidth=2, alpha=0.8)
         
-        # Add final value annotation
-        final_val = portfolio_vals[-1]
-        plt.annotate(f'${final_val:,.0f}', 
-                    xy=(len(time_points)-1, final_val),
-                    xytext=(5, 0), textcoords='offset points',
-                    fontsize=9, color=color, fontweight='bold')
+        # Add final value annotation for first 10 days only (to avoid clutter)
+        if i < 10:
+            final_val = portfolio_vals[-1]
+            plt.annotate(f'${final_val:,.0f}', 
+                        xy=(len(time_points)-1, final_val),
+                        xytext=(5, 0), textcoords='offset points',
+                        fontsize=9, color=color, fontweight='bold')
     
     # Add horizontal line for initial balance
     plt.axhline(y=initial_balance, color='black', linestyle='--', alpha=0.5, 
