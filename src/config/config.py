@@ -57,7 +57,7 @@ ALPHA_INIT = 0.2  # 초기 엔트로피 계수
 TARGET_UPDATE_INTERVAL = 1
 
 # DQN 모델 하이퍼파라미터
-REPLAY_BUFFER_SIZE = 50000
+REPLAY_BUFFER_SIZE = 300000
 UPDATE_TARGET_EVERY = 388
 EPSILON_EARLY_STOPPING_THRESHOLD = 0.1
 
@@ -126,6 +126,7 @@ STOCK_FEATURES_V2 = ['open','high','low','close','volume','vwap',
                      'open_gap','high_level','low_level','close_change',
                      'momentum_1m','momentum_5m','momentum_15m','momentum_1m_accel','momentum_5m_accel','momentum_15m_accel',
                      'momentum_persistence_bullish_1m','momentum_persistence_bearish_1m','momentum_persistence_bullish_5m','momentum_persistence_bearish_5m','momentum_persistence_bullish_15m','momentum_persistence_bearish_15m',
+                     'price_smoothed_5m','price_smoothed_15m','price_trend_deviation_5m','price_trend_deviation_15m','momentum_gradient_5m',
                      'volatility_5m','volatility_15m',
                      'atr_5m','atr_15m',
                      'parkinson_vol',
@@ -151,6 +152,7 @@ STOCK_FEATURES_V2 = ['open','high','low','close','volume','vwap',
                      'intraday_vol','obv','ad_line','cmf',
                      'vroc_5m','vroc_15m',
                      'volume_oscillator','pvi','nvi','force_index',
+                     'bullish_signal_strength','bearish_signal_strength','signal_persistence_bullish','signal_persistence_bearish',
                      'minute_sin','minute_cos','hour_sin','hour_cos','day_sin','day_cos','month_sin','month_cos','quarter_sin','quarter_cos',
                      'high_volume_regime_5m','high_volume_regime_15m',
                      'var_95',
@@ -160,7 +162,8 @@ STOCK_FEATURES_V2 = ['open','high','low','close','volume','vwap',
                      'high_low_ratio','close_open_ratio',
                      'price_range_normalized','price_to_ema_15_alt','price_position_bb',
                      'atr_ratio_5m','atr_ratio_15m',
-                     'momentum_persistence_ratio_5m','momentum_persistence_ratio_15m','momentum_consistency_5m','momentum_consistency_15m','momentum_shift_5m','momentum_shift_15m']
+                     'momentum_persistence_ratio_5m','momentum_persistence_ratio_15m','momentum_consistency_5m','momentum_consistency_15m','momentum_shift_5m','momentum_shift_15m',
+                     'distance_to_resistance','distance_to_support','resistance_proximity','support_proximity']
 
 
 WEB_DATABASE_URI = f'postgresql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_WEB}'

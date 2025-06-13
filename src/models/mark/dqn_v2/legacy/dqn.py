@@ -1546,7 +1546,7 @@ def train_dqn(data_path: str,
     preprocessor = None
     if use_preprocessing:
         print(f"\nApplying preprocessing (scaling: {scaling_method}, outliers: {outlier_method})...")
-        from src.models.mark.dqn_v2.data_preprocessor import preprocess_financial_data
+        from src.models.mark.dqn_v2.old_models.data_preprocessor import preprocess_financial_data
         
         # Set default preprocessor save path if not provided
         if preprocessor_save_path is None:

@@ -146,7 +146,7 @@ class PaperTradingBot:
         if self.preprocessor_path:
             try:
                 # Import the preprocessor class
-                from src.models.mark.dqn_v2.data_preprocessor import FinancialDataPreprocessor
+                from src.models.mark.dqn_v2.old_models.data_preprocessor import FinancialDataPreprocessor
                 
                 # Load using the class method
                 self.preprocessor = FinancialDataPreprocessor.load(self.preprocessor_path)
