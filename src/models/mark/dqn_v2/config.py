@@ -78,13 +78,6 @@ class TradingConfig:
     
     # Trading-specific parameters (from dqn_v6 improvements)
     min_profit_threshold: float = 0.012706845922561345  # Minimum 1.5% expected profit to trade (3x more aggressive)
-    patience_bonus_rate: float = 0.0005  # Bonus for holding positions (5x stronger)
-    trading_frequency_penalty: float = 0.008  # Penalty for excessive trading (4x stronger)
-    
-    # Enhanced trading discipline parameters
-    post_trade_cooldown_penalty: float = 0.012  # Penalty for trading too soon after previous trade
-    reflection_bonus_rate: float = 0.0003  # Bonus for staying in cash after losing trades
-    min_hold_time_steps: int = 5  # Minimum steps to hold position before selling (thoughtful exits)
     
     # Optimizable reward parameters (can be tuned via Optuna)
     portfolio_scaling: float = 0.027702391034124335  # Scaling factor for portfolio value changes

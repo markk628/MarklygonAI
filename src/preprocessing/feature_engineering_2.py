@@ -4,6 +4,7 @@ import talib as ta
 import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import List
+from scipy import signal
 
 from src.config.config import DATA_DIR, CUTOFF_TIMESTAMP, TICKERS, MINUTES_PER_TRADING_DAY
 from src.utils.database import DatabaseManager
@@ -104,6 +105,19 @@ class FeatureEngineer:
         bearish_15m = (roc_15m < 0).astype(int)
         df['momentum_persistence_bullish_15m'] = bullish_15m.rolling(2).sum() / 2  # 30-min window
         df['momentum_persistence_bearish_15m'] = bearish_15m.rolling(2).sum() / 2
+        
+        # ENHANCEMENT: Savitzky-Golay smoothed price features for noise reduction
+        # Smoothed price signals (reduce noise while preserving trends)
+        df['price_smoothed_5m'] = signal.savgol_filter(close, window_length=11, polyorder=3)
+        df['price_smoothed_15m'] = signal.savgol_filter(close, window_length=31, polyorder=3)
+        
+        # Price deviation from smooth trend (detect short-term noise vs real moves)
+        df['price_trend_deviation_5m'] = (close - df['price_smoothed_5m']) / df['price_smoothed_5m']
+        df['price_trend_deviation_15m'] = (close - df['price_smoothed_15m']) / df['price_smoothed_15m']
+        
+        # Gradient-based momentum (cleaner than simple ROC)
+        momentum_5m_gradient = np.gradient(df['price_smoothed_5m'])
+        df['momentum_gradient_5m'] = signal.savgol_filter(momentum_5m_gradient, 15, 2)
         
         # 33-40차원: Volatility indicators - shortened for intraday
         df['volatility_5m'] = ta.STDDEV(close, timeperiod=5)   
@@ -453,6 +467,26 @@ class FeatureEngineer:
         # Force Index
         df['force_index'] = volume * ta.ROC(close, timeperiod=1)
         
+        # ENHANCEMENT: Combined signal strength features
+        # Multi-timeframe signal convergence
+        rsi_5m = ta.RSI(close, timeperiod=5)
+        rsi_15m = ta.RSI(close, timeperiod=15)
+        macd_5m, macd_signal_5m, _ = ta.MACD(close, fastperiod=5, slowperiod=12, signalperiod=4)
+        
+        # Signal convergence strength (when multiple indicators agree)
+        bullish_rsi_5m = (rsi_5m > 50).astype(int)
+        bullish_rsi_15m = (rsi_15m > 50).astype(int)
+        bullish_macd = (macd_5m > macd_signal_5m).astype(int)
+        bullish_momentum = (df['momentum_gradient_5m'] > 0).astype(int) if 'momentum_gradient_5m' in df.columns else 0
+        
+        # Combined signal strength (0-1, higher = more indicators agree)
+        df['bullish_signal_strength'] = (bullish_rsi_5m + bullish_rsi_15m + bullish_macd + bullish_momentum) / 4
+        df['bearish_signal_strength'] = 1 - df['bullish_signal_strength']
+        
+        # Signal persistence (how long has signal been consistent)
+        df['signal_persistence_bullish'] = (df['bullish_signal_strength'] > 0.6).astype(int).rolling(5).sum() / 5
+        df['signal_persistence_bearish'] = (df['bearish_signal_strength'] > 0.6).astype(int).rolling(5).sum() / 5
+        
         return df
 
     def _add_temporal_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -586,7 +620,36 @@ class FeatureEngineer:
         df['momentum_shift_15m'] = (df['momentum_persistence_bullish_15m'] - df['momentum_persistence_bearish_15m']).diff()
         # Positive = shifting toward bullish, Negative = shifting toward bearish
         
+        # ENHANCEMENT: Peak/Valley detection for support/resistance
+        smoothed_price = signal.savgol_filter(close, 15, 3)
+        
+        # Detect significant peaks and valleys
+        peaks, _ = signal.find_peaks(smoothed_price, prominence=close.std() * 0.5, distance=10)
+        valleys, _ = signal.find_peaks(-smoothed_price, prominence=close.std() * 0.5, distance=10)
+        
+        # Distance to nearest significant levels
+        df['distance_to_resistance'] = self._calculate_distance_to_levels(close.index, peaks, close.values)
+        df['distance_to_support'] = self._calculate_distance_to_levels(close.index, valleys, close.values)
+        
+        # Proximity indicators (0-1, higher = closer to level)
+        df['resistance_proximity'] = np.exp(-df['distance_to_resistance'] / 10)  # Exponential decay
+        df['support_proximity'] = np.exp(-df['distance_to_support'] / 10)
+        
         return df
+
+    def _calculate_distance_to_levels(self, index, level_indices, prices):
+        """Calculate distance to nearest significant price level"""
+        distances = np.full(len(index), np.inf)
+        
+        for i, idx in enumerate(index):
+            if len(level_indices) > 0:
+                # Find nearest level in time
+                nearest_level_idx = level_indices[np.argmin(np.abs(level_indices - i))]
+                # Calculate price distance to that level
+                level_price = prices[nearest_level_idx] if nearest_level_idx < len(prices) else prices[-1]
+                distances[i] = abs(prices[i] - level_price) / level_price if level_price > 0 else 0
+        
+        return distances
 
     def _normalize_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

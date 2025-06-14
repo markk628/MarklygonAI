@@ -1155,11 +1155,11 @@ def train_dqn(data_path: str,
     
     # Multi-day test evaluation
     print("\n" + "="*50)
-    print("MULTI-DAY TEST EVALUATION (6 DAYS)")
+    print("MULTI-DAY TEST EVALUATION (20 DAYS)")
     print("="*50)
     
     # Run backtests on 6 different days
-    num_test_days = min(6, test_env.total_days)
+    num_test_days = min(20, test_env.total_days)
     test_days = np.linspace(0, test_env.total_days - 1, num_test_days, dtype=int)
     
     all_test_results = []
@@ -1273,6 +1273,7 @@ def train_dqn(data_path: str,
     results = {
         'agent': agent,
         'preprocessor': preprocessor,
+        'portfolio_normalizer': train_env.portfolio_normalizer,
         'episode_rewards': episode_rewards,
         'episode_returns': episode_returns,
         'episode_trades': episode_trades,
@@ -1417,7 +1418,7 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1f}%'))
     
     # Add aggregate statistics as text box
-    stats_text = f"""Aggregate Statistics (6 Days):
+    stats_text = f"""Aggregate Statistics (20 Days):
     Average Return: {aggregate_stats['avg_return']:.1%} ± {aggregate_stats['std_return']:.1%}
     Best Return: {aggregate_stats['best_return']:.1%}
     Worst Return: {aggregate_stats['worst_return']:.1%}
@@ -1442,7 +1443,7 @@ def plot_multi_day_backtests(results: dict, save_path: str = None, show_plot: bo
     return fig
 
 
-def run_standalone_backtest(agent, test_env, num_days: int = 6, plot_results: bool = True, save_plot_path: str = None):
+def run_standalone_backtest(agent, test_env, num_days: int = 20, plot_results: bool = True, save_plot_path: str = None):
     """
     Run a standalone multi-day backtest with an already trained agent
     

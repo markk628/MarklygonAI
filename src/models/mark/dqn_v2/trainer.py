@@ -148,7 +148,14 @@ def main():
     
     # Save the trained model
     print(f"\nSaving trained model to: {model_path}")
-    training_results['agent'].save(model_path)
+    # CRITICAL FIX: Include portfolio normalizer in final save
+    portfolio_normalizer = training_results.get('portfolio_normalizer')
+    
+    training_results['agent'].save(model_path, portfolio_normalizer)
+    if portfolio_normalizer and portfolio_normalizer.is_fitted:
+        print(f"✅ Portfolio normalizer saved with final model")
+    else:
+        print(f"⚠️ No portfolio normalizer saved - model may not use portfolio normalization")
     
     # Save the preprocessor in the same directory
     if training_results.get('preprocessor') is not None:
