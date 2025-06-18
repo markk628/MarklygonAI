@@ -37,29 +37,29 @@ class TradingConfig:
     
     # Network parameters
     hidden_size: int = 512
-    learning_rate: float = 0.00019142285018209994
+    learning_rate: float = 0.0004982288426094389
     
     # Training parameters
-    batch_size: int = 16
-    gamma: float = 0.9822425605963496
-    tau: float = 0.0022443315886804915
-    update_frequency: int = 4
+    batch_size: int = 64
+    gamma: float = 0.9801847140197922
+    tau: float = 0.0011031557332547512
+    update_frequency: int = 1
     target_update_frequency: int = UPDATE_TARGET_EVERY
     
     # Experience replay
     buffer_size: int = REPLAY_BUFFER_SIZE
     
     # Exploration
-    epsilon_start: float = 0.8763355878505705
-    epsilon_end: float = 0.004664419622523048  # Lower minimum exploration for trading
-    epsilon_decay: float = 1090  # Much faster decay to reduce random trading losses
+    epsilon_start: float = 0.8963735840460665
+    epsilon_end: float = 0.014450212613536453  # Lower minimum exploration for trading
+    epsilon_decay: float = 1295  # Much faster decay to reduce random trading losses
     
     # Prioritized replay
     use_prioritized_replay: bool = True
-    alpha: float = 0.6853482432781715
-    beta_start: float = 0.4
-    beta_end: float = 1.0
-    per_epsilon: float = 0.001
+    alpha: float = 0.7743174729030339
+    beta_start: float = 0.48623984012473076
+    beta_end: float = 0.9969314272861748
+    per_epsilon: float = 0.004641094476076944
     
     # Double and Dueling DQN
     use_double_dqn: bool = True
@@ -77,11 +77,11 @@ class TradingConfig:
     portfolio_update_frequency: int = 100
     
     # Trading-specific parameters (from dqn_v6 improvements)
-    min_profit_threshold: float = 0.012706845922561345  # Minimum 1.5% expected profit to trade (3x more aggressive)
+    min_profit_threshold: float = 0.0045221048969825576  # Minimum 1.5% expected profit to trade (3x more aggressive)
     
     # Optimizable reward parameters (can be tuned via Optuna)
-    portfolio_scaling: float = 0.027702391034124335  # Scaling factor for portfolio value changes
-    invalid_penalty: float = 0.5058868125236534   # Penalty for invalid actions
+    portfolio_scaling: float = 0.11509182887901824  # Scaling factor for portfolio value changes
+    invalid_penalty: float = 0.07906291713801883   # Penalty for invalid actions
     
     def __post_init__(self):
         if self.cnn_scales is None:

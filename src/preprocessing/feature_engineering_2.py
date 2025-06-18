@@ -746,33 +746,6 @@ class FeatureEngineer:
         
         return df
 
-    def _add_targets(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Add target variables for intraday trading prediction horizons
-        다양한 예측 기간에 대한 타겟 변수 추가 (intraday timeframes)
-        
-        NOTE: COMMENTED OUT - These forward-looking targets are incompatible with real-time trading
-        DQN doesn't need explicit targets since it learns from environment rewards
-        """
-        print('adding targets... [COMMENTED OUT - NOT NEEDED FOR DQN]')
-        
-        # COMMENTED OUT - Forward-looking targets incompatible with real-time trading
-        # close = df['close']
-        
-        # # Price direction targets - shortened for intraday
-        # df['target_1m'] = np.sign(close.shift(-1) - close)    # 1 minute ahead
-        # df['target_5m'] = np.sign(close.shift(-5) - close)    # 5 minutes ahead  
-        # df['target_10m'] = np.sign(close.shift(-10) - close)  # 10 minutes ahead
-        # df['target_20m'] = np.sign(close.shift(-20) - close)  # 20 minutes ahead
-        
-        # # Return targets - shortened for intraday
-        # df['return_target_1m'] = (close.shift(-1) - close) / close    # 1 minute return
-        # df['return_target_5m'] = (close.shift(-5) - close) / close    # 5 minute return
-        # df['return_target_10m'] = (close.shift(-10) - close) / close  # 10 minute return
-        # df['return_target_20m'] = (close.shift(-20) - close) / close  # 20 minute return
-        
-        return df
-
     def _drop_rows_before_timestamp(self, df: pd.DataFrame, timestamp: str) -> pd.DataFrame:
         """
         Drop rows before a specified timestamp
@@ -803,7 +776,6 @@ class FeatureEngineer:
         df = self._add_derived_features(df)         # Additional derived features
         # df = self._normalize_features(df)           # Essential for DQN training
         # df = self._handle_infinite_values(df)       # Handle infinite values
-        # df = self._add_targets(df)                  # Placeholder - targets commented out for real-time compatibility
         df = self._drop_rows_before_timestamp(df, timestamp)
         
         # Save results
@@ -833,5 +805,5 @@ class FeatureEngineer:
         print("="*80)
 
 if __name__ == '__main__':
-    feature_engineer = FeatureEngineer()
+    feature_engineer = FeatureEngineer(use_json=True)
     feature_engineer.save_feature_engineered_tickers(['TSLA'])

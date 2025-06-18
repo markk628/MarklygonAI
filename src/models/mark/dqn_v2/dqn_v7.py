@@ -83,18 +83,18 @@ class EnhancedTradingConfig(TradingConfig):
         self.sell_large_ratio = 1.00  # 100% of position
         
         # Exploration bonuses (reduced to prevent reward hacking)
-        self.exploration_bonus = 0.0001  # Much smaller bonus for active trading
-        self.position_change_bonus = 0.0002  # Smaller bonus for changing position size
-        self.max_exploration_per_episode = 0.01  # Cap total exploration bonus per episode
+        self.exploration_bonus = 0.0006023688699535673  # Much smaller bonus for active trading
+        self.position_change_bonus = 0.00026943120061725153  # Smaller bonus for changing position size
+        self.max_exploration_per_episode = 0.004641094476076944  # Cap total exploration bonus per episode
         
         # Action masking parameters
         self.use_action_masking = True
-        self.min_trade_ratio = 0.05  # Minimum 5% of balance for trades (increased from 1%)
+        self.min_trade_ratio = 0.020313248479951695  # Minimum 5% of balance for trades (increased from 1%)
         
         # Anti-overtrading measures
-        self.min_steps_between_trades = 10  # Minimum 10 steps between trades (increased from 5)
-        self.transaction_cost_multiplier = 1.5  # Moderate increase (reduced from 3.0)
-        self.min_position_change_pct = 0.02  # Minimum 2% position change for trades
+        self.min_steps_between_trades = 7  # Minimum 10 steps between trades (increased from 5)
+        self.transaction_cost_multiplier = 1.001302240341537  # Moderate increase (reduced from 3.0)
+        self.min_position_change_pct = 0.05605805352483136  # Minimum 2% position change for trades
         
         # Enhanced state features
         self.enhanced_state_features = True
@@ -776,7 +776,7 @@ class EnhancedTradingEnvironment:
         
         # PORTFOLIO TRACKING: Reward = portfolio value change (same as v5)
         portfolio_change = current_portfolio_value - self.last_portfolio_value
-        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.027702391034124335)
+        portfolio_scaling = getattr(self.config, 'portfolio_scaling', 0.11509182887901824)
         reward = portfolio_change * portfolio_scaling
         
         # Execute the action (with action masking, all actions should be valid)
