@@ -5,7 +5,7 @@ from alpaca_trade_api.stream import Stream
 from alpaca_trade_api.rest import REST, TimeFrame
 from alpaca_trade_api.entity import Position
 from datetime import datetime, timedelta
-from src.web.alpaca_bot.config import DATA_FEED
+from src.web.alpaca.alpaca_bot.config import DATA_FEED
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

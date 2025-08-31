@@ -82,6 +82,12 @@ class Portfolio(db.Model):
         cascade="all, delete-orphan",
         lazy="selectin"
     )
+    
+    portfolio_snapshots: Mapped[List["PortfolioSnapshot"]] = relationship(
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
 
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
     owner: Mapped["Profile"] = relationship(back_populates="portfolios")
@@ -107,7 +113,6 @@ class TradingSession(db.Model):
     return_rate: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     max_drawdown: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     sharpe_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    calmar_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     invalid_actions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     trades: Mapped[List["TradeHistory"]] = relationship(
@@ -128,14 +133,15 @@ class TradeType(Enum):
     SELL = "SELL"
     HOLD = "HOLD"
 
+@add_to_dict_method
 class TradeHistory(db.Model):
     __tablename__ = 'trade_history'
-    id: Mapped[int] = mapped_column()
+    id: Mapped[int] = mapped_column(primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
     trade_type: Mapped[TradeType] = mapped_column(SQLEnum(TradeType), nullable=False, default=TradeType.HOLD)
-    amount: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
-    price: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
-    shares: Mapped[Numeric] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    price: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
+    shares: Mapped[float] = mapped_column(Numeric(precision=18, scale=4), nullable=False)
 
     portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
     portfolio: Mapped["Portfolio"] = relationship(back_populates="trade_history_entries")
@@ -145,7 +151,8 @@ class TradeHistory(db.Model):
 
     __table_args__ = (
         Index('idx_trade_history_timestamp', "timestamp"),
-        db.PrimaryKeyConstraint('id', 'timestamp', name='pk_trade_history_id_timestamp'),
+        Index('idx_trade_history_portfolio', "portfolio_id"),
+        Index('idx_trade_history_session', "trading_session_id"),
     )
 
     def __repr__(self):
@@ -195,7 +202,31 @@ class BacktestHistory(db.Model):
     return_rate: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     max_drawdown: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     sharpe_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    calmar_ratio: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
     invalid_actions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    
+    preprocessor_path: Mapped[str] = mapped_column(String, nullable=True)
     model: Mapped["MarklygonModel"] = relationship(back_populates="backtests")
+
+@add_to_dict_method
+class PortfolioSnapshot(db.Model):
+    __tablename__ = 'portfolio_snapshots'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    snapshot_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    balance: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    position_value: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    stock_quantity: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    portfolio_value: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    
+    # Relationship to portfolio
+    portfolio: Mapped["Portfolio"] = relationship(back_populates="portfolio_snapshots")
+    
+    __table_args__ = (
+        Index('idx_portfolio_snapshots_portfolio_date', 'portfolio_id', 'snapshot_date'),
+        UniqueConstraint('portfolio_id', 'snapshot_date', name='uq_portfolio_snapshot_date'),
+    )
+    
+    def __repr__(self):
+        return (
+            f"<PortfolioSnapshot {self.id} | Portfolio: {self.portfolio_id} | "
+            f"Date: {self.snapshot_date} | Value: ${self.portfolio_value}>"
+        )

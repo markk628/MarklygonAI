@@ -23,7 +23,7 @@ from src.config.config import (
 from src.models.mark.dqn.agent.DQNAgent import DQNAgent
 from src.models.mark.dqn.env.StockTradingEnv import StockTradingEnv
 from src.preprocessing.data_processor import RollingWindowFeatureProcessor
-from src.utils.utils import format_duration
+from src.utils.utils import format_duration, create_directory
 from src.web.models import app, db, BacktestHistory, ModelType, MarklygonModel
 
 np.random.seed(42)
@@ -81,9 +81,8 @@ class DQNTrainer:
     def save_backtest_results_to_db(self,
                                     model_type: ModelType,
                                     ticker: str,
-                                    info: dict[str, float]) -> tuple[int, str]:
+                                    info: dict[str, float]) -> tuple[int, str, str]:
         backtest_date = info['backtest_date']
-        backtest_date_for_path = backtest_date.strftime(r'%Y-%m-%d_%H-%M-%S')
         return_rate = info['return_rate'] * 100
         
         with app.app_context():
@@ -96,7 +95,12 @@ class DQNTrainer:
             db.session.flush()
             
             model_id = model.id
-            model_path = f'{MODELS_DIR}/dqn/dqn_{model.id}_{ticker}_{backtest_date_for_path}_{return_rate:.4f}.pth'
+            # Create directory for this model
+            model_dir = f'{MODELS_DIR}/dqn/{model_id}'
+            create_directory(model_dir)
+            
+            # Set model path within the model's directory
+            model_path = f'{model_dir}/model.pth'
             model.model_path = model_path
 
             backtest = BacktestHistory(
@@ -113,13 +117,12 @@ class DQNTrainer:
                 return_rate=return_rate,
                 max_drawdown=info['max_drawdown'],
                 sharpe_ratio=info['sharpe_ratio'],
-                calmar_ratio=info['calmar_ratio'],
                 invalid_actions=info['invalid_actions'],
             )
 
             db.session.add(backtest)
             db.session.commit()
-        return model_id, model_path
+        return model_id, model_path, model_dir
     
     
     def plot_training_results(self, 
@@ -473,7 +476,7 @@ class DQNTrainer:
             state = next_state
         
         info = info['trade_info']
-        model_id, model_path = self.save_backtest_results_to_db(ModelType.DQN, ticker, info)
+        model_id, model_path, model_dir = self.save_backtest_results_to_db(ModelType.DQN, ticker, info)
         
         # Plot backtest results
         backtest_plot = self.plot_backtest_results(info['portfolio_values'], 
@@ -491,7 +494,6 @@ class DQNTrainer:
         print(f"Return Rate: {info['return_rate']:.4f} ({info['return_rate']*100:.4f}%)")
         print(f"Max Drawdown: {info['max_drawdown']:.4f} ({info['max_drawdown']*100:.2f}%)")
         print(f"Sharpe Ratio: {info['sharpe_ratio']:.4f}")
-        print(f"Calmar Ratio: {info['calmar_ratio']:.4f}")
         print(f"Invalid Actions: {info['invalid_actions']}")
         print(f"winning Trades: {info['winning_trades']}")
         print(f"losing Trades: {info['losing_trades']}")

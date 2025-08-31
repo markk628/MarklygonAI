@@ -1,213 +1,115 @@
 {% extends "base.html" %}
 
+{% block title %}MarklygonAI - Deep Learning Trading Platform{% endblock %}
+
 {% block content %}
 <div class="min-h-screen relative z-10">
-    <div class="container mx-auto px-4 py-16">
-        <!-- Header -->
-        <div class="text-center mb-16">
-            <div class="w-32 h-32 obsidian-card rounded-full mx-auto mb-8 flex items-center justify-center border border-gray-700">
-                <svg class="icon-3xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                </svg>
-            </div>
-            <h1 class="text-6xl font-bold obsidian-text mb-6">MarklygonAI</h1>
-            <p class="text-2xl text-gray-200 mb-8">딥러닝 알고리즘 트레이딩 플랫폼</p>
-            <p class="text-lg text-gray-300 max-w-3xl mx-auto">
-                첨단 AI 모델로 트레이딩의 미래를 경험하세요. Eddie 시스템과 5개의 보조 모델이 
-                최첨단 딥러닝 기술로 40개 미국 주식 종목을 분석합니다.
-            </p>
-        </div>
-
-        <!-- Key Features -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-            <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
-                    <svg class="icon-xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+    <!-- Hero Section -->
+    <section class="py-20">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
+            <!-- Header -->
+            <div class="text-center mb-16">
+                <div class="w-32 h-32 obsidian-card rounded-full mx-auto mb-8 flex items-center justify-center border border-gray-700">
+                    <svg class="icon-3xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                     </svg>
                 </div>
-                <h3 class="text-xl font-semibold obsidian-text mb-3">AI 기반 모델</h3>
-                <p class="text-gray-300">
-                    330만 파라미터의 Eddie 시스템과 5개의 전문 보조 모델로 종합적인 시장 분석을 제공합니다.
+                <h1 class="text-6xl font-bold obsidian-text mb-6">MarklygonAI</h1>
+                <p class="text-2xl text-gray-200 mb-8">딥러닝 알고리즘 트레이딩 플랫폼</p>
+                <p class="text-lg text-gray-300 max-w-3xl mx-auto">
+                    첨단 AI 모델로 트레이딩의 미래를 경험하세요.
                 </p>
             </div>
 
-            <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
-                    <svg class="icon-xl text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                </div>
-                <h3 class="text-xl font-semibold obsidian-text mb-3">실시간 분석</h3>
-                <p class="text-gray-300">
-                    40개 미국 주식 종목에 대해 1분 단위 세밀한 데이터 처리와 100ms 미만의 추론 속도를 제공합니다.
-                </p>
-            </div>
-
-            <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
-                <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
-                    <svg class="icon-xl text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
-                    </svg>
-                </div>
-                <h3 class="text-xl font-semibold obsidian-text mb-3">고급 트레이딩</h3>
-                <p class="text-gray-300">
-                    최적의 트레이딩 성과를 위한 전문적인 백테스팅, 포트폴리오 관리, 리스크 분석 도구를 제공합니다.
-                </p>
-            </div>
-        </div>
-
-        <!-- Statistics -->
-        <div class="text-center mb-16">
-            <div class="obsidian-card rounded-lg p-8 border border-gray-800">
-                <h2 class="text-3xl font-bold obsidian-text mb-8">플랫폼 통계</h2>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
-                    <div class="text-center">
-                        <div class="text-4xl font-bold text-purple-400 mb-2">6</div>
-                        <div class="text-gray-300">AI 모델</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-4xl font-bold text-blue-400 mb-2">40</div>
-                        <div class="text-gray-300">주식 종목</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-4xl font-bold text-green-400 mb-2">87.3%</div>
-                        <div class="text-gray-300">평균 정확도</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-4xl font-bold text-yellow-400 mb-2">24/7</div>
-                        <div class="text-gray-300">시장 분석</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- AI Models Showcase -->
-        <div class="mb-16">
-            <h2 class="text-3xl font-bold obsidian-text text-center mb-8">AI 모델 소개</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-purple-400">E</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Eddie</h3>
-                            <p class="text-sm text-gray-400">주력 모델</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 89%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">330만 파라미터, 89.2% 정확도</p>
-                </div>
-
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-blue-400">A</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Aurora</h3>
-                            <p class="text-sm text-gray-400">트렌드 분석</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 85%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">시장 트렌드 전문가, 85.1% 정확도</p>
-                </div>
-
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-red-400">P</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Phoenix</h3>
-                            <p class="text-sm text-gray-400">고성능 모델</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 92%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">최고 성능, 92.4% 정확도</p>
-                </div>
-
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-orange-400">T</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Titan</h3>
-                            <p class="text-sm text-gray-400">리스크 관리</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 78%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">보수적 접근, 78.6% 정확도</p>
-                </div>
-
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-green-400">V</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Vega</h3>
-                            <p class="text-sm text-gray-400">변동성 전문가</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 87%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">변동성 전문가, 87.3% 정확도</p>
-                </div>
-
-                <div class="obsidian-card card-hover rounded-lg p-6 border border-gray-800">
-                    <div class="flex items-center mb-4">
-                        <div class="w-12 h-12 obsidian-card rounded-full flex items-center justify-center mr-4 border border-gray-700">
-                            <span class="text-lg font-bold text-cyan-400">O</span>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-gray-200">Orion</h3>
-                            <p class="text-sm text-gray-400">패턴 인식</p>
-                        </div>
-                    </div>
-                    <div class="progress-bar h-2 mb-2">
-                        <div class="progress-fill" style="width: 83%"></div>
-                    </div>
-                    <p class="text-sm text-gray-300">패턴 분석, 83.7% 정확도</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Call to Action -->
-        <div class="text-center">
-            <div class="obsidian-card rounded-lg p-12 border border-gray-800">
-                <h2 class="text-3xl font-bold obsidian-text mb-4">트레이딩을 시작할 준비가 되셨나요?</h2>
-                <p class="text-lg text-gray-300 mb-8 max-w-2xl mx-auto">
-                    알고리즘 트레이딩을 위해 MarklygonAI를 신뢰하는 수천 명의 트레이더들과 함께하세요. 
-                    금융 시장에서 딥러닝의 힘을 경험해보세요.
-                </p>
-                <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                    <a href="{{ url_for('register') }}" class="obsidian-button px-8 py-4 rounded-lg font-medium card-hover inline-flex items-center justify-center">
-                        <svg class="icon-md mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+            <!-- Key Features -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+                <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
+                        <svg class="icon-xl text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
                         </svg>
-                        무료로 시작하기
-                    </a>
-                    <a href="{{ url_for('login') }}" class="border border-gray-600 text-gray-200 hover:bg-gray-800 px-8 py-4 rounded-lg font-medium transition-all duration-300 inline-flex items-center justify-center">
-                        <svg class="icon-md mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                    </div>
+                    <h3 class="text-xl font-semibold obsidian-text mb-3">AI 기반 모델</h3>
+                    <p class="text-gray-300">
+                        DQN과 SAC 모델로 종합적인 시장 분석을 제공합니다.
+                    </p>
+                </div>
+
+                <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
+                        <svg class="icon-xl text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
-                        로그인
-                    </a>
+                    </div>
+                    <h3 class="text-xl font-semibold obsidian-text mb-3">실시간 분석</h3>
+                    <p class="text-gray-300">
+                        {{ global_unique_tickers }}개 미국 주식 종목에 대해 1분 단위 세밀한 데이터 처리와 100ms 미만의 추론 속도를 제공합니다.
+                    </p>
+                </div>
+
+                <div class="obsidian-card card-hover rounded-lg p-8 text-center border border-gray-800">
+                    <div class="w-16 h-16 obsidian-card rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-700">
+                        <svg class="icon-xl text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-semibold obsidian-text mb-3">고급 트레이딩</h3>
+                    <p class="text-gray-300">
+                        최적의 트레이딩 성과를 위한 전문적인 백테스팅과 포트폴리오 관리 도구를 제공합니다.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="text-center mb-16">
+                <div class="obsidian-card rounded-lg p-8 border border-gray-800">
+                    <h2 class="text-3xl font-bold obsidian-text mb-8">플랫폼 통계</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+                        <div class="text-center">
+                            <div class="text-4xl font-bold text-purple-400 mb-2">{{ model_count }}</div>
+                            <div class="text-gray-300">AI 모델</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl font-bold text-blue-400 mb-2">{{ global_unique_tickers }}</div>
+                            <div class="text-gray-300">주식 종목</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl font-bold text-green-400 mb-2">{{ "%.1f"|format(avg_return_rate) }}%</div>
+                            <div class="text-gray-300">평균 수익율</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-4xl font-bold text-yellow-400 mb-2">24/7</div>
+                            <div class="text-gray-300">시장 분석</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Call to Action -->
+            <div class="text-center">
+                <div class="obsidian-card rounded-lg p-12 border border-gray-800">
+                    <h2 class="text-3xl font-bold obsidian-text mb-4">트레이딩을 시작할 준비가 되셨나요?</h2>
+                    <p class="text-lg text-gray-300 mb-8 max-w-2xl mx-auto">
+                        알고리즘 트레이딩을 위해 MarklygonAI를 신뢰하는 수천 명의 트레이더들과 함께하세요. 
+                        금융 시장에서 딥러닝의 힘을 경험해보세요.
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                        <a href="{{ url_for('register') }}" class="obsidian-button px-8 py-4 rounded-lg font-medium card-hover inline-flex items-center justify-center">
+                            <svg class="icon-md mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                            </svg>
+                            무료로 시작하기
+                        </a>
+                        <a href="{{ url_for('login') }}" class="border border-gray-600 text-gray-200 hover:bg-gray-800 px-8 py-4 rounded-lg font-medium transition-all duration-300 inline-flex items-center justify-center">
+                            <svg class="icon-md mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                            </svg>
+                            로그인
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
+    </section>
 </div>
 {% endblock %}

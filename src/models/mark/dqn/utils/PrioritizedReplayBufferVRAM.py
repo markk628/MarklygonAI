@@ -37,7 +37,7 @@ class PrioritizedReplayBufferVRAM:
         self.rewards[idx] = reward
         self.next_states[idx] = torch.from_numpy(next_state).to(self.device)
         self.dones[idx] = done
-        self.priorities[idx] = self.max_priority # new experiences get max priority to ensure they're sampled
+        self.priorities[idx] = self.max_priority # new experiences get max priority
         self.position = (self.position + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
     

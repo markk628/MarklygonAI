@@ -839,7 +839,6 @@ class StockTradingEnv:
             trade_info['return_rate'] = (self.balance - self.initial_balance) / self.initial_balance
             trade_info['max_drawdown'] = self._calculate_max_drawdown()
             trade_info['sharpe_ratio'] = self._calculate_sharpe_ratio()
-            trade_info['calmar_ratio'] = self._calculate_calmar_ratio()
             trade_info['invalid_actions'] = self.invalid_actions
             
             # for plotting backtest results
@@ -900,82 +899,6 @@ class StockTradingEnv:
         # minutes in a year (TRADING_DAYS_PER_YEAR * MINUTES_PER_TRADING_DAY).
         sharpe_ratio = np.sqrt(MINUTES_PER_YEAR) * np.mean(excess_returns) / np.std(excess_returns)
         return np.float64(sharpe_ratio)
-
-
-    def _calculate_calmar_ratio(self) -> np.float64:
-        """
-        Calculate the Calmar ratio of the portfolio using minute-by-minute data.
-        
-        The Calmar ratio measures the average annualized rate of return relative
-        to the maximum drawdown. It focuses on downside risk and capital
-        preservation. A higher Calmar ratio indicates better risk-adjusted
-        performance, especially for investors concerned about large losses.
-        
-        Returns:
-            np.float64: The Calmar ratio, or 0.0 if calculations cannot be
-                        performed (e.g., insufficient data, zero maximum drawdown,
-                        or catastrophic loss).
-        """
-        values = self.portfolio_values
-
-        if len(values) < 2:
-            # Not enough data points to calculate returns or drawdown
-            return np.float64(0.0)
-
-        # 1. Calculate the Average Annualized Rate of Return (CAGR)
-        # This assumes `portfolio_values` are sequential minute-by-minute values.
-        initial_value = values[0]
-        final_value = values[-1]
-        num_minutes = len(values)
-
-        if initial_value <= 0:
-            # Cannot calculate return if starting value is zero or negative
-            return np.float64(0.0)
-
-        # Calculate total return over the entire period
-        total_return = (final_value / initial_value) - 1
-
-        # Calculate the number of years the data spans based on minutes.
-        num_years = num_minutes / MINUTES_PER_YEAR
-
-        if num_years <= 0:
-            # Not enough time span to annualize (e.g., less than a minute of data)
-            return np.float64(0.0)
-        
-        # Handle cases where (1 + total_return) might be zero or negative
-        # due to a loss greater than or equal to 100%.
-        if (1 + total_return) <= 0:
-            return np.float64(0.0) # Represents a catastrophic loss
-
-        # Compound Annual Growth Rate (CAGR)
-        average_annualized_return = (1 + total_return)**(1 / num_years) - 1
-
-        # 2. Calculate Maximum Drawdown
-        # Maximum drawdown is the largest percentage drop from a peak to a trough.
-        peak_value = values[0]
-        max_drawdown = 0.0
-
-        for value in values:
-            if value > peak_value:
-                peak_value = value # A new peak is found
-            
-            # Calculate current drawdown from the highest peak seen so far
-            current_drawdown = (peak_value - value) / peak_value
-            
-            if current_drawdown > max_drawdown:
-                max_drawdown = current_drawdown # Update maximum drawdown
-
-        # 3. Calculate Calmar Ratio
-        if max_drawdown == 0:
-            # If there was no drawdown, and return is positive, the ratio
-            # would be infinite. Returning 0.0 aligns with the Sharpe ratio's
-            # handling of zero standard deviation, providing a comparable number.
-            return np.float64(0.0)
-        
-        # The Calmar ratio is the annualized return divided by the maximum drawdown.
-        calmar_ratio = average_annualized_return / max_drawdown
-        
-        return np.float64(calmar_ratio)
     
     
     def get_branch_sizes(self):

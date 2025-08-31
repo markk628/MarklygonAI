@@ -259,6 +259,55 @@
                 radial-gradient(circle at 40% 40%, rgba(120, 119, 198, 0.08) 0%, transparent 50%);
             min-height: 100vh;
         }
+        
+        /* Range Slider Obsidian Style */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(145deg, #0a0a0a, #000000);
+            border: 1px solid #1a1a1a;
+            outline: none;
+            opacity: 0.9;
+            transition: opacity 0.3s;
+        }
+        
+        input[type="range"]:hover {
+            opacity: 1;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #8b5cf6, #06b6d4);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+            transition: all 0.3s;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.5);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #8b5cf6, #06b6d4);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+            border: none;
+            transition: all 0.3s;
+        }
+        
+        input[type="range"]::-moz-range-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.5);
         }
         
         .metallic-input:focus {
@@ -277,7 +326,7 @@
     
     <!-- Navigation -->
     <nav class="obsidian-card shadow-2xl border-b border-gray-800 relative z-10">
-        <div class="max-w-7xl mx-auto px-4">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
                     <a href="{{ url_for('index') }}" class="flex items-center">
@@ -289,6 +338,7 @@
                     {% if current_user.is_authenticated %}
                         <a href="{{ url_for('dashboard') }}" class="nav-link px-3 py-2">대시보드 & 포트폴리오</a>
                         <a href="{{ url_for('backtest') }}" class="nav-link px-3 py-2">백테스트</a>
+                        <a href="{{ url_for('trading') }}" class="nav-link px-3 py-2">거래</a>
                         <a href="{{ url_for('mypage') }}" class="nav-link px-3 py-2">마이페이지</a>
                         <a href="{{ url_for('logout') }}" class="metallic-button px-4 py-2 rounded-lg">로그아웃</a>
                     {% else %}
@@ -303,7 +353,7 @@
     <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-            <div class="max-w-7xl mx-auto px-4 py-4 relative z-20">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl py-4 relative z-20">
                 {% for category, message in messages %}
                     <div class="alert alert-{{ category }} mb-4 p-4 rounded-lg obsidian-card border {% if category == 'error' %}border-red-800 bg-gradient-to-r from-red-900/20 to-red-800/20 text-red-300{% elif category == 'success' %}border-green-800 bg-gradient-to-r from-green-900/20 to-green-800/20 text-green-300{% else %}border-blue-800 bg-gradient-to-r from-blue-900/20 to-blue-800/20 text-blue-300{% endif %} shadow-lg backdrop-blur-sm">
                         <div class="flex items-center">
@@ -335,7 +385,7 @@
 
     <!-- Footer -->
     <footer class="obsidian-card border-t border-gray-800 py-8 mt-16 relative z-10">
-        <div class="max-w-7xl mx-auto px-4">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
             <div class="text-center">
                 <div class="flex items-center justify-center mb-4">
                     <svg class="w-8 h-8 text-purple-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -349,19 +399,19 @@
                         <svg class="w-4 h-4 mr-1 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
                         </svg>
-                        6 AI Models
+                        {{ global_model_count }} AI Models
                     </div>
                     <div class="flex items-center text-sm text-gray-400">
                         <svg class="w-4 h-4 mr-1 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
                         </svg>
-                        40 Symbols
+                        {{ global_unique_tickers }} Symbols
                     </div>
                     <div class="flex items-center text-sm text-gray-400">
                         <svg class="w-4 h-4 mr-1 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
                         </svg>
-                        87.3% Accuracy
+                        {{ "%.1f"|format(global_avg_return_rate) }}% Avg Return
                     </div>
                 </div>
                 <p class="text-gray-500 text-sm mt-4">&copy; 2025 MarklygonAI. All rights reserved.</p>
