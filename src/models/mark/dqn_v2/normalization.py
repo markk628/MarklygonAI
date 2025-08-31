@@ -6,32 +6,57 @@ from typing import List, Dict
 class PortfolioStateNormalizer:
     """Normalizes portfolio states using statistics collected during warmup period"""
     
-    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100):
+    def __init__(self, warmup_episodes: int = 50, update_frequency: int = 100, num_portfolio_features: int = 13):
         self.warmup_episodes = warmup_episodes
         self.update_frequency = update_frequency
         self.episode_count = 0
+        self.num_portfolio_features = num_portfolio_features
         
-        # Feature indices for raw portfolio features (when use_portfolio_normalization=True)
-        # Portfolio feature indices: 
-        # 0=balance, 1=position_value, 2=portfolio_value, 3=position_ratio, 
-        # 4=unrealized_pnl, 5=position_holding_time, 6=time_of_day, 
-        # 7=morning_session, 8=midday_session, 9=afternoon_session, 
-        # 10=can_buy, 11=can_sell, 12=invalid_actions
-        
-        # Features that need robust normalization (unbounded raw values)
-        self.normalize_features = [0, 1, 2, 4, 5, 12]  # balance, position_value, portfolio_value, unrealized_pnl, holding_time, invalid_actions
-        
-        # Features that need clipping (bounded but might exceed normal range)
-        self.clip_features = [3]  # position_ratio (clip to 0-2 for safety)
-        
-        # Features that are already normalized (0-1 or binary) - no processing needed
-        # [6, 7, 8, 9, 10, 11] - time_of_day, session indicators, can_buy/sell flags
+        # ADAPTIVE FEATURE LAYOUT - Works with both 13 and 20+ feature layouts
+        if num_portfolio_features >= 20:
+            # Enhanced 20-feature layout (with action masking)
+            # 0-9: Basic portfolio + time features
+            # 10-18: Action validity features (already scaled, skip normalization)
+            # 19+: Raw counts/values
+            self.normalize_features = [0, 1, 2, 4, 5, 19]  # invalid_actions moved to index 19
+            self.clip_features = [3]  # position_ratio
+            self.skip_features = list(range(10, 19))  # Action validity features (10-18)
+            
+            self.feature_names = {
+                0: 'balance',
+                1: 'position_value', 
+                2: 'portfolio_value',
+                4: 'unrealized_pnl',
+                5: 'holding_time',
+                19: 'invalid_actions'  # Updated index
+            }
+        else:
+            # Legacy 13-feature layout (original DQN)
+            # 0-12: All features need processing
+            self.normalize_features = [0, 1, 2, 4, 5, 12]  # invalid_actions at index 12
+            self.clip_features = [3]  # position_ratio
+            self.skip_features = []  # No features to skip
+            
+            self.feature_names = {
+                0: 'balance',
+                1: 'position_value', 
+                2: 'portfolio_value',
+                4: 'unrealized_pnl',
+                5: 'holding_time',
+                12: 'invalid_actions'  # Original index
+            }
         
         # Statistics storage
         self.feature_stats = {}
         self.warmup_data = {idx: [] for idx in self.normalize_features}
         self.is_fitted = False
         
+        print(f"📊 PortfolioStateNormalizer initialized:")
+        print(f"   • Portfolio features: {num_portfolio_features}")
+        print(f"   • Features to normalize: {self.normalize_features}")
+        print(f"   • Features to skip: {self.skip_features}")
+        print(f"   • Features to clip: {self.clip_features}")
+    
     def collect_warmup_data(self, portfolio_states: List[np.ndarray]):
         """Collect portfolio states during warmup period"""
         if self.episode_count < self.warmup_episodes:
@@ -44,15 +69,7 @@ class PortfolioStateNormalizer:
         """Fit normalizer using collected warmup data"""
         if self.episode_count >= self.warmup_episodes and not self.is_fitted:
             print(f"Fitting portfolio normalizer with {self.warmup_episodes} episodes of data...")
-            
-            feature_names = {
-                0: 'balance',
-                1: 'position_value', 
-                2: 'portfolio_value',
-                4: 'unrealized_pnl',
-                5: 'holding_time',
-                12: 'invalid_actions'
-            }
+            print(f"Layout: {self.num_portfolio_features} features")
             
             for idx in self.normalize_features:
                 data = np.array(self.warmup_data[idx])
@@ -69,7 +86,7 @@ class PortfolioStateNormalizer:
                             iqr = max(abs(median) * 0.01, 1000.0)  # At least $1000 or 1% of median
                         elif idx == 5:  # holding_time
                             iqr = max(1.0, abs(median) * 0.1)  # At least 1 step
-                        elif idx == 12:  # invalid_actions
+                        elif idx in [12, 19]:  # invalid_actions (old or new index)
                             iqr = max(1.0, abs(median) * 0.1)  # At least 1 action
                         else:
                             iqr = max(abs(median) * 0.01, 0.01)  # General fallback
@@ -83,7 +100,7 @@ class PortfolioStateNormalizer:
                         'max': np.max(data)
                     }
                     
-                    feature_name = feature_names.get(idx, f'feature_{idx}')
+                    feature_name = self.feature_names.get(idx, f'feature_{idx}')
                     print(f"  {feature_name} stats:")
                     print(f"    Range: [{np.min(data):.2f}, {np.max(data):.2f}]")
                     print(f"    Median: {median:.2f}, IQR: {iqr:.2f}")
@@ -92,6 +109,8 @@ class PortfolioStateNormalizer:
             # Clear warmup data to save memory
             self.warmup_data.clear()
             print("✅ Portfolio normalization ACTIVATED for all raw features!")
+            if self.skip_features:
+                print(f"📌 Skipped features {self.skip_features} (action validity signals preserved)")
     
     def fit_from_sample_data(self, sample_portfolio_states: List[np.ndarray]):
         """Pre-fit normalizer using sample data (alternative to warmup)"""
@@ -99,15 +118,7 @@ class PortfolioStateNormalizer:
             return
             
         print(f"Pre-fitting portfolio normalizer with {len(sample_portfolio_states)} sample states...")
-        
-        feature_names = {
-            0: 'balance',
-            1: 'position_value', 
-            2: 'portfolio_value',
-            4: 'unrealized_pnl',
-            5: 'holding_time',
-            12: 'invalid_actions'
-        }
+        print(f"Layout: {self.num_portfolio_features} features")
         
         for idx in self.normalize_features:
             data = []
@@ -127,7 +138,7 @@ class PortfolioStateNormalizer:
                         iqr = max(abs(median) * 0.01, 1000.0)
                     elif idx == 5:  # holding_time
                         iqr = max(1.0, abs(median) * 0.1)
-                    elif idx == 12:  # invalid_actions
+                    elif idx in [12, 19]:  # invalid_actions (old or new index)
                         iqr = max(1.0, abs(median) * 0.1)
                     else:
                         iqr = max(abs(median) * 0.01, 0.01)
@@ -141,14 +152,16 @@ class PortfolioStateNormalizer:
                     'max': np.max(data)
                 }
                 
-                feature_name = feature_names.get(idx, f'feature_{idx}')
+                feature_name = self.feature_names.get(idx, f'feature_{idx}')
                 print(f"  {feature_name} stats:")
                 print(f"    Range: [{np.min(data):.2f}, {np.max(data):.2f}]")
                 print(f"    Median: {median:.2f}, IQR: {iqr:.2f}")
         
         self.is_fitted = True
         print("✅ Portfolio normalizer PRE-FITTED for all raw features!")
-            
+        if self.skip_features:
+            print(f"📌 Skipped features {self.skip_features} (action validity signals preserved)")
+    
     def normalize_state(self, portfolio_state: np.ndarray) -> np.ndarray:
         """Normalize a single portfolio state"""
         if not self.is_fitted:
@@ -166,7 +179,7 @@ class PortfolioStateNormalizer:
                 # Clip extreme outliers to prevent exploding gradients
                 if idx in [0, 1, 2]:  # monetary values - allow wider range
                     state[idx] = np.clip(state[idx], -5.0, 5.0)  # 5 IQRs
-                elif idx in [5, 12]:  # counts - more conservative clipping
+                elif idx in [5, 12, 19]:  # counts - more conservative clipping
                     state[idx] = np.clip(state[idx], -3.0, 3.0)  # 3 IQRs
                 else:  # unrealized_pnl and others
                     state[idx] = np.clip(state[idx], -4.0, 4.0)  # 4 IQRs
